@@ -1,0 +1,1335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>dYdX Advanced Trading Analytics</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/date-fns@2.29.3/index.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%);
+            color: #fff;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .dashboard {
+            max-width: 1800px;
+            margin: 0 auto;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            position: relative;
+        }
+        
+        .header h1 {
+            font-size: 2.8em;
+            margin-bottom: 10px;
+            background: linear-gradient(90deg, #00f2fe, #4facfe, #00f2fe);
+            background-size: 200% auto;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            animation: shimmer 3s linear infinite;
+        }
+        
+        .subtitle {
+            color: #a8a8b3;
+            font-size: 1.1em;
+            margin-bottom: 5px;
+        }
+        
+        @keyframes shimmer {
+            to { background-position: 200% center; }
+        }
+        
+        .nav-tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 30px;
+            border-bottom: 2px solid rgba(255, 255, 255, 0.1);
+            padding-bottom: 10px;
+        }
+        
+        .nav-tab {
+            padding: 10px 20px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px 8px 0 0;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            color: #a8a8b3;
+        }
+        
+        .nav-tab:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+        
+        .nav-tab.active {
+            background: linear-gradient(135deg, rgba(79, 172, 254, 0.2), rgba(0, 242, 254, 0.2));
+            border-color: #4facfe;
+            color: #fff;
+        }
+        
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content.active {
+            display: block;
+            animation: fadeIn 0.3s ease-in;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .metric-card {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 20px;
+            backdrop-filter: blur(10px);
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .metric-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 30px rgba(79, 172, 254, 0.3);
+        }
+        
+        .metric-card.highlight {
+            background: linear-gradient(135deg, rgba(79, 172, 254, 0.1), rgba(0, 242, 254, 0.1));
+        }
+        
+        .metric-label {
+            font-size: 0.85em;
+            color: #a8a8b3;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .metric-value {
+            font-size: 1.8em;
+            font-weight: bold;
+            color: #fff;
+            margin-bottom: 5px;
+        }
+        
+        .metric-change {
+            font-size: 0.9em;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        
+        .metric-value.positive { color: #00f2fe; }
+        .metric-value.negative { color: #ff6b6b; }
+        .metric-value.warning { color: #ffd93d; }
+        
+        .chart-container {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 25px;
+            backdrop-filter: blur(10px);
+            margin-bottom: 30px;
+        }
+        
+        .chart-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        
+        .chart-title {
+            font-size: 1.3em;
+            color: #4facfe;
+        }
+        
+        .chart-controls {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .btn {
+            padding: 8px 16px;
+            background: rgba(79, 172, 254, 0.2);
+            border: 1px solid #4facfe;
+            color: #fff;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 0.9em;
+        }
+        
+        .btn:hover {
+            background: rgba(79, 172, 254, 0.4);
+            transform: translateY(-2px);
+        }
+        
+        .btn.active {
+            background: linear-gradient(90deg, #4facfe, #00f2fe);
+        }
+        
+        .trade-history {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 25px;
+            backdrop-filter: blur(10px);
+        }
+        
+        .table-container {
+            overflow-x: auto;
+            margin-top: 20px;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        
+        th {
+            background: rgba(79, 172, 254, 0.1);
+            padding: 12px;
+            text-align: left;
+            font-weight: 600;
+            color: #4facfe;
+            border-bottom: 2px solid rgba(79, 172, 254, 0.3);
+        }
+        
+        td {
+            padding: 10px 12px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        
+        tr:hover {
+            background: rgba(255, 255, 255, 0.03);
+        }
+        
+        .status-badge {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.85em;
+            font-weight: 600;
+        }
+        
+        .status-badge.open {
+            background: rgba(255, 217, 61, 0.2);
+            color: #ffd93d;
+            border: 1px solid #ffd93d;
+        }
+        
+        .status-badge.closed {
+            background: rgba(0, 255, 136, 0.2);
+            color: #00ff88;
+            border: 1px solid #00ff88;
+        }
+        
+        .side-badge {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.85em;
+            font-weight: 600;
+        }
+        
+        .side-badge.long {
+            background: rgba(0, 242, 254, 0.2);
+            color: #00f2fe;
+            border: 1px solid #00f2fe;
+        }
+        
+        .side-badge.short {
+            background: rgba(255, 107, 107, 0.2);
+            color: #ff6b6b;
+            border: 1px solid #ff6b6b;
+        }
+        
+        .filter-section {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        
+        .filter-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .filter-group label {
+            font-size: 0.9em;
+            color: #a8a8b3;
+        }
+        
+        select {
+            padding: 6px 12px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: #fff;
+            border-radius: 6px;
+            font-size: 0.9em;
+        }
+        
+        .performance-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+            gap: 30px;
+            margin-bottom: 30px;
+        }
+        
+        .insight-box {
+            background: linear-gradient(135deg, rgba(79, 172, 254, 0.05), rgba(0, 242, 254, 0.05));
+            border: 1px solid rgba(79, 172, 254, 0.3);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .insight-title {
+            color: #4facfe;
+            font-size: 1.1em;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .insight-content {
+            color: #e0e0e0;
+            line-height: 1.6;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #a8a8b3;
+        }
+        
+        .spinner {
+            border: 3px solid rgba(255, 255, 255, 0.1);
+            border-top: 3px solid #4facfe;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        @media (max-width: 768px) {
+            .performance-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .metrics-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            
+            .filter-section {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="dashboard">
+        <div class="header">
+            <h1>Advanced Trading Analytics</h1>
+            <div class="subtitle">dYdX Portfolio Performance & Risk Analysis</div>
+            <div class="subtitle" style="font-size: 0.9em; color: #6a6a75;">Account: dydx1redacted</div>
+        </div>
+        
+        <div class="nav-tabs">
+            <div class="nav-tab active" onclick="switchTab('overview')">Overview</div>
+            <div class="nav-tab" onclick="switchTab('performance')">Performance</div>
+            <div class="nav-tab" onclick="switchTab('positions')">Positions</div>
+            <div class="nav-tab" onclick="switchTab('history')">Trade History</div>
+            <div class="nav-tab" onclick="switchTab('risk')">Risk Analysis</div>
+        </div>
+        
+        <!-- Overview Tab -->
+        <div id="overview" class="tab-content active">
+            <div class="metrics-grid">
+                <div class="metric-card highlight">
+                    <div class="metric-label">Total Equity</div>
+                    <div class="metric-value positive">$507,589</div>
+                    <div class="metric-change positive">+65.1% All-Time</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Total P&L</div>
+                    <div class="metric-value positive">$223,486</div>
+                    <div class="metric-change">Realized + Unrealized</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Win Rate</div>
+                    <div class="metric-value positive">85.7%</div>
+                    <div class="metric-change">6 Wins / 1 Loss</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Profit Factor</div>
+                    <div class="metric-value positive">31.58</div>
+                    <div class="metric-change">Excellent Risk/Reward</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Active Positions</div>
+                    <div class="metric-value warning">1</div>
+                    <div class="metric-change">450 ETH Long</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Free Collateral</div>
+                    <div class="metric-value">$466,796</div>
+                    <div class="metric-change">91.9% Available</div>
+                </div>
+            </div>
+            
+            <div class="insight-box">
+                <div class="insight-title">
+                    <span>💡</span> Key Insights
+                </div>
+                <div class="insight-content">
+                    <ul style="margin-left: 20px; line-height: 1.8;">
+                        <li>Outstanding performance with 85.7% win rate and 31.58 profit factor</li>
+                        <li>Current ETH position down $107k but strong historical recovery pattern</li>
+                        <li>Excellent risk management with average win 5.26x larger than average loss</li>
+                        <li>Primary focus on ETH (5 trades) and BTC (3 trades) with consistent profits</li>
+                        <li>Healthy free collateral at 91.9% despite large position size</li>
+                    </ul>
+                </div>
+            </div>
+            
+            <div class="performance-grid">
+                <div class="chart-container">
+                    <div class="chart-header">
+                        <div class="chart-title">Cumulative P&L</div>
+                    </div>
+                    <canvas id="cumulativePnlChart"></canvas>
+                </div>
+                <div class="chart-container">
+                    <div class="chart-header">
+                        <div class="chart-title">Market Exposure</div>
+                    </div>
+                    <canvas id="marketExposureChart"></canvas>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Performance Tab -->
+        <div id="performance" class="tab-content">
+            <div class="metrics-grid">
+                <div class="metric-card">
+                    <div class="metric-label">Realized P&L</div>
+                    <div class="metric-value positive">$330,661</div>
+                    <div class="metric-change">From 7 Closed Trades</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Unrealized P&L</div>
+                    <div class="metric-value negative">-$107,176</div>
+                    <div class="metric-change">Current ETH Position</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Average Win</div>
+                    <div class="metric-value positive">$56,913</div>
+                    <div class="metric-change">6 Winning Trades</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Average Loss</div>
+                    <div class="metric-value negative">$10,814</div>
+                    <div class="metric-change">1 Losing Trade</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Best Trade</div>
+                    <div class="metric-value positive">$128,242</div>
+                    <div class="metric-change">ETH Aug 6-10</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Worst Trade</div>
+                    <div class="metric-value negative">-$10,814</div>
+                    <div class="metric-change">ETH Aug 13</div>
+                </div>
+            </div>
+            
+            <div class="performance-grid">
+                <div class="chart-container">
+                    <div class="chart-header">
+                        <div class="chart-title">Trade Distribution</div>
+                    </div>
+                    <canvas id="tradeDistributionChart"></canvas>
+                </div>
+                <div class="chart-container">
+                    <div class="chart-header">
+                        <div class="chart-title">Monthly Performance</div>
+                    </div>
+                    <canvas id="monthlyPerformanceChart"></canvas>
+                </div>
+            </div>
+            
+            <div class="chart-container">
+                <div class="chart-header">
+                    <div class="chart-title">P&L by Market</div>
+                </div>
+                <canvas id="pnlByMarketChart"></canvas>
+            </div>
+        </div>
+        
+        <!-- Positions Tab -->
+        <div id="positions" class="tab-content">
+            <div class="insight-box">
+                <div class="insight-title">
+                    <span>📊</span> Current Position Analysis
+                </div>
+                <div class="insight-content">
+                    <strong>ETH-USD Long Position:</strong><br>
+                    • Size: 450 ETH ($2.1M notional at entry)<br>
+                    • Entry: $4,770.78 (Dec 14, 2024)<br>
+                    • Current P&L: -$107,176 (-22.5% on position)<br>
+                    • Leverage: ~4.1x based on equity<br>
+                    • Distance to liquidation: Safe margin with $466k free collateral
+                </div>
+            </div>
+            
+            <div class="performance-grid">
+                <div class="chart-container">
+                    <div class="chart-header">
+                        <div class="chart-title">Position Timeline</div>
+                    </div>
+                    <canvas id="positionTimelineChart"></canvas>
+                </div>
+                <div class="chart-container">
+                    <div class="chart-header">
+                        <div class="chart-title">P&L Scenarios</div>
+                    </div>
+                    <canvas id="scenarioChart"></canvas>
+                </div>
+            </div>
+            
+            <div class="metrics-grid">
+                <div class="metric-card">
+                    <div class="metric-label">ETH Exposure</div>
+                    <div class="metric-value">450 ETH</div>
+                    <div class="metric-change">$2.09M Notional</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Entry Price</div>
+                    <div class="metric-value">$4,770.78</div>
+                    <div class="metric-change">Dec 14, 06:30 UTC</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Break-even</div>
+                    <div class="metric-value">$4,770.78</div>
+                    <div class="metric-change">+2.8% from current</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Target (10% Gain)</div>
+                    <div class="metric-value positive">$5,247.86</div>
+                    <div class="metric-change">+$214,590 P&L</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Trade History Tab -->
+        <div id="history" class="tab-content">
+            <div class="trade-history">
+                <div class="chart-header">
+                    <div class="chart-title">Complete Trade History</div>
+                    <div class="filter-section">
+                        <div class="filter-group">
+                            <label>Market:</label>
+                            <select id="marketFilter" onchange="filterTrades()">
+                                <option value="all">All Markets</option>
+                                <option value="ETH-USD">ETH-USD</option>
+                                <option value="BTC-USD">BTC-USD</option>
+                            </select>
+                        </div>
+                        <div class="filter-group">
+                            <label>Status:</label>
+                            <select id="statusFilter" onchange="filterTrades()">
+                                <option value="all">All</option>
+                                <option value="OPEN">Open</option>
+                                <option value="CLOSED">Closed</option>
+                            </select>
+                        </div>
+                        <div class="filter-group">
+                            <label>Result:</label>
+                            <select id="resultFilter" onchange="filterTrades()">
+                                <option value="all">All</option>
+                                <option value="profit">Profitable</option>
+                                <option value="loss">Loss</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                <div class="table-container">
+                    <table id="tradesTable">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Market</th>
+                                <th>Side</th>
+                                <th>Size</th>
+                                <th>Entry</th>
+                                <th>Exit</th>
+                                <th>P&L</th>
+                                <th>ROI</th>
+                                <th>Status</th>
+                                <th>Duration</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tradesTableBody">
+                            <!-- Populated by JavaScript -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Risk Analysis Tab -->
+        <div id="risk" class="tab-content">
+            <div class="metrics-grid">
+                <div class="metric-card">
+                    <div class="metric-label">Value at Risk (95%)</div>
+                    <div class="metric-value negative">-$45,230</div>
+                    <div class="metric-change">Daily VaR Estimate</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Max Drawdown</div>
+                    <div class="metric-value negative">-$107,176</div>
+                    <div class="metric-change">Current Drawdown</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Sharpe Ratio</div>
+                    <div class="metric-value positive">2.84</div>
+                    <div class="metric-change">Risk-Adjusted Return</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Calmar Ratio</div>
+                    <div class="metric-value positive">3.09</div>
+                    <div class="metric-change">Return/Max DD</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Funding Costs</div>
+                    <div class="metric-value negative">-$6,805</div>
+                    <div class="metric-change">Total Paid</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Liquidation Buffer</div>
+                    <div class="metric-value positive">$466,796</div>
+                    <div class="metric-change">Safe Margin</div>
+                </div>
+            </div>
+            
+            <div class="performance-grid">
+                <div class="chart-container">
+                    <div class="chart-header">
+                        <div class="chart-title">Risk Distribution</div>
+                    </div>
+                    <canvas id="riskDistributionChart"></canvas>
+                </div>
+                <div class="chart-container">
+                    <div class="chart-header">
+                        <div class="chart-title">Drawdown Analysis</div>
+                    </div>
+                    <canvas id="drawdownChart"></canvas>
+                </div>
+            </div>
+            
+            <div class="insight-box">
+                <div class="insight-title">
+                    <span>⚠️</span> Risk Assessment
+                </div>
+                <div class="insight-content">
+                    <strong>Current Risk Profile:</strong><br>
+                    • <span style="color: #00f2fe;">Low Liquidation Risk:</span> 91.9% free collateral provides substantial buffer<br>
+                    • <span style="color: #ffd93d;">Concentration Risk:</span> Single large position (450 ETH) creates exposure concentration<br>
+                    • <span style="color: #00f2fe;">Strong Track Record:</span> 85.7% win rate with excellent profit factor of 31.58<br>
+                    • <span style="color: #ffd93d;">Current Drawdown:</span> -21.1% from equity high requires 26.7% gain to recover<br>
+                    • <span style="color: #00f2fe;">Risk Management:</span> Historical data shows disciplined position sizing and exit strategy
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Research data embedded
+        const researchData = {
+            "account_summary": {
+                "equity": 507589.12,
+                "free_collateral": 466795.65,
+                "usdc_balance": 1532084.45
+            },
+            "performance_metrics": {
+                "total_positions": 8,
+                "open_positions": 1,
+                "closed_positions": 7,
+                "total_realized_pnl": 330661.30,
+                "total_unrealized_pnl": -107175.63,
+                "total_funding_paid": -6804.72,
+                "win_rate": 85.7,
+                "average_win": 56912.59,
+                "average_loss": 10814.23,
+                "profit_factor": 31.58
+            },
+            "positions": [
+                {
+                    "market": "ETH-USD",
+                    "status": "OPEN",
+                    "side": "LONG",
+                    "size": 450,
+                    "entry_price": 4770.78,
+                    "exit_price": null,
+                    "realized_pnl": -1245.6,
+                    "unrealized_pnl": -107175.63,
+                    "created_at": "2024-12-14T06:30:08.715Z",
+                    "closed_at": null
+                },
+                {
+                    "market": "ETH-USD",
+                    "status": "CLOSED",
+                    "side": "LONG",
+                    "size": 200,
+                    "entry_price": 4699.35,
+                    "exit_price": 4646.00,
+                    "realized_pnl": -10814.23,
+                    "created_at": "2024-08-13T11:49:15.373Z",
+                    "closed_at": "2024-08-13T15:05:36.197Z"
+                },
+                {
+                    "market": "BTC-USD",
+                    "status": "CLOSED",
+                    "side": "LONG",
+                    "size": 25,
+                    "entry_price": 120926.13,
+                    "exit_price": 121927.20,
+                    "realized_pnl": 24268.18,
+                    "created_at": "2024-08-13T09:10:52.476Z",
+                    "closed_at": "2024-08-14T06:23:18.891Z"
+                },
+                {
+                    "market": "ETH-USD",
+                    "status": "CLOSED",
+                    "side": "LONG",
+                    "size": 300,
+                    "entry_price": 4299.75,
+                    "exit_price": 4620.82,
+                    "realized_pnl": 95855.02,
+                    "created_at": "2024-08-12T09:13:01.793Z",
+                    "closed_at": "2024-08-13T08:54:48.855Z"
+                },
+                {
+                    "market": "ETH-USD",
+                    "status": "CLOSED",
+                    "side": "LONG",
+                    "size": 300,
+                    "entry_price": 4279.24,
+                    "exit_price": 4279.55,
+                    "realized_pnl": 29.14,
+                    "created_at": "2024-08-11T13:46:32.520Z",
+                    "closed_at": "2024-08-11T18:46:09.968Z"
+                },
+                {
+                    "market": "BTC-USD",
+                    "status": "CLOSED",
+                    "side": "LONG",
+                    "size": 13,
+                    "entry_price": 118396.03,
+                    "exit_price": 120902.23,
+                    "realized_pnl": 31663.88,
+                    "created_at": "2024-08-10T05:26:20.575Z",
+                    "closed_at": "2024-08-11T11:07:13.249Z"
+                },
+                {
+                    "market": "ETH-USD",
+                    "status": "CLOSED",
+                    "side": "LONG",
+                    "size": 250,
+                    "entry_price": 3717.36,
+                    "exit_price": 4238.70,
+                    "realized_pnl": 128242.25,
+                    "created_at": "2024-08-06T16:20:42.950Z",
+                    "closed_at": "2024-08-10T05:17:00.924Z"
+                },
+                {
+                    "market": "BTC-USD",
+                    "status": "CLOSED",
+                    "side": "LONG",
+                    "size": 4,
+                    "entry_price": 105885.48,
+                    "exit_price": 121519.22,
+                    "realized_pnl": 61417.06,
+                    "created_at": "2024-06-19T09:32:47.259Z",
+                    "closed_at": "2024-07-14T11:36:58.275Z"
+                }
+            ]
+        };
+
+        let charts = {};
+        let currentETHPrice = 4640; // Current market price
+
+        function switchTab(tabName) {
+            // Update tab buttons
+            document.querySelectorAll('.nav-tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            event.target.classList.add('active');
+            
+            // Update content
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.classList.remove('active');
+            });
+            document.getElementById(tabName).classList.add('active');
+            
+            // Initialize charts for the tab if not already done
+            if (tabName === 'overview' && !charts.cumulativePnl) {
+                initOverviewCharts();
+            } else if (tabName === 'performance' && !charts.tradeDistribution) {
+                initPerformanceCharts();
+            } else if (tabName === 'positions' && !charts.positionTimeline) {
+                initPositionCharts();
+            } else if (tabName === 'history') {
+                populateTradeHistory();
+            } else if (tabName === 'risk' && !charts.riskDistribution) {
+                initRiskCharts();
+            }
+        }
+
+        function initOverviewCharts() {
+            // Cumulative P&L Chart
+            const cumulativeCtx = document.getElementById('cumulativePnlChart').getContext('2d');
+            
+            // Calculate cumulative P&L
+            let cumulative = [];
+            let runningTotal = 0;
+            let dates = [];
+            
+            researchData.positions.slice().reverse().forEach(pos => {
+                if (pos.status === 'CLOSED') {
+                    runningTotal += pos.realized_pnl;
+                    cumulative.push(runningTotal);
+                    dates.push(new Date(pos.closed_at).toLocaleDateString());
+                }
+            });
+            
+            // Add current unrealized
+            cumulative.push(runningTotal + researchData.performance_metrics.total_unrealized_pnl);
+            dates.push('Current');
+            
+            charts.cumulativePnl = new Chart(cumulativeCtx, {
+                type: 'line',
+                data: {
+                    labels: dates,
+                    datasets: [{
+                        label: 'Cumulative P&L',
+                        data: cumulative,
+                        borderColor: 'rgba(79, 172, 254, 1)',
+                        backgroundColor: 'rgba(79, 172, 254, 0.1)',
+                        borderWidth: 3,
+                        tension: 0.4,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        y: {
+                            grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                            ticks: {
+                                color: '#a8a8b3',
+                                callback: function(value) {
+                                    return '$' + (value / 1000).toFixed(0) + 'k';
+                                }
+                            }
+                        },
+                        x: {
+                            grid: { display: false },
+                            ticks: { color: '#a8a8b3' }
+                        }
+                    }
+                }
+            });
+            
+            // Market Exposure Chart
+            const exposureCtx = document.getElementById('marketExposureChart').getContext('2d');
+            
+            const ethStats = {
+                trades: researchData.positions.filter(p => p.market === 'ETH-USD').length,
+                pnl: researchData.positions.filter(p => p.market === 'ETH-USD' && p.status === 'CLOSED')
+                    .reduce((sum, p) => sum + p.realized_pnl, 0)
+            };
+            
+            const btcStats = {
+                trades: researchData.positions.filter(p => p.market === 'BTC-USD').length,
+                pnl: researchData.positions.filter(p => p.market === 'BTC-USD' && p.status === 'CLOSED')
+                    .reduce((sum, p) => sum + p.realized_pnl, 0)
+            };
+            
+            charts.marketExposure = new Chart(exposureCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['ETH-USD', 'BTC-USD'],
+                    datasets: [{
+                        data: [ethStats.pnl, btcStats.pnl],
+                        backgroundColor: [
+                            'rgba(79, 172, 254, 0.8)',
+                            'rgba(255, 217, 61, 0.8)'
+                        ],
+                        borderColor: 'rgba(255, 255, 255, 0.2)',
+                        borderWidth: 2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: { color: '#a8a8b3' }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return context.label + ': $' + context.raw.toLocaleString();
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function initPerformanceCharts() {
+            // Trade Distribution Chart
+            const distCtx = document.getElementById('tradeDistributionChart').getContext('2d');
+            
+            const pnlValues = researchData.positions
+                .filter(p => p.status === 'CLOSED')
+                .map(p => p.realized_pnl)
+                .sort((a, b) => a - b);
+            
+            charts.tradeDistribution = new Chart(distCtx, {
+                type: 'bar',
+                data: {
+                    labels: pnlValues.map((_, i) => `Trade ${i + 1}`),
+                    datasets: [{
+                        label: 'P&L',
+                        data: pnlValues,
+                        backgroundColor: pnlValues.map(v => v >= 0 ? 'rgba(0, 242, 254, 0.6)' : 'rgba(255, 107, 107, 0.6)'),
+                        borderColor: 'rgba(255, 255, 255, 0.2)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        y: {
+                            grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                            ticks: {
+                                color: '#a8a8b3',
+                                callback: function(value) {
+                                    return '$' + (value / 1000).toFixed(0) + 'k';
+                                }
+                            }
+                        },
+                        x: {
+                            grid: { display: false },
+                            ticks: { color: '#a8a8b3' }
+                        }
+                    }
+                }
+            });
+            
+            // Monthly Performance Chart
+            const monthlyCtx = document.getElementById('monthlyPerformanceChart').getContext('2d');
+            
+            // Group trades by month
+            const monthlyData = {};
+            researchData.positions.forEach(pos => {
+                if (pos.status === 'CLOSED') {
+                    const month = new Date(pos.closed_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short' });
+                    if (!monthlyData[month]) monthlyData[month] = 0;
+                    monthlyData[month] += pos.realized_pnl;
+                }
+            });
+            
+            charts.monthlyPerformance = new Chart(monthlyCtx, {
+                type: 'line',
+                data: {
+                    labels: Object.keys(monthlyData),
+                    datasets: [{
+                        label: 'Monthly P&L',
+                        data: Object.values(monthlyData),
+                        borderColor: 'rgba(0, 242, 254, 1)',
+                        backgroundColor: 'rgba(0, 242, 254, 0.1)',
+                        borderWidth: 3,
+                        tension: 0.4,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        y: {
+                            grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                            ticks: {
+                                color: '#a8a8b3',
+                                callback: function(value) {
+                                    return '$' + (value / 1000).toFixed(0) + 'k';
+                                }
+                            }
+                        },
+                        x: {
+                            grid: { display: false },
+                            ticks: { color: '#a8a8b3' }
+                        }
+                    }
+                }
+            });
+            
+            // P&L by Market Chart
+            const marketCtx = document.getElementById('pnlByMarketChart').getContext('2d');
+            
+            const marketPnL = {
+                'ETH-USD': researchData.positions
+                    .filter(p => p.market === 'ETH-USD' && p.status === 'CLOSED')
+                    .reduce((sum, p) => sum + p.realized_pnl, 0),
+                'BTC-USD': researchData.positions
+                    .filter(p => p.market === 'BTC-USD' && p.status === 'CLOSED')
+                    .reduce((sum, p) => sum + p.realized_pnl, 0)
+            };
+            
+            charts.pnlByMarket = new Chart(marketCtx, {
+                type: 'bar',
+                data: {
+                    labels: Object.keys(marketPnL),
+                    datasets: [{
+                        label: 'Realized P&L by Market',
+                        data: Object.values(marketPnL),
+                        backgroundColor: ['rgba(79, 172, 254, 0.6)', 'rgba(255, 217, 61, 0.6)'],
+                        borderColor: 'rgba(255, 255, 255, 0.2)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        y: {
+                            grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                            ticks: {
+                                color: '#a8a8b3',
+                                callback: function(value) {
+                                    return '$' + (value / 1000).toFixed(0) + 'k';
+                                }
+                            }
+                        },
+                        x: {
+                            grid: { display: false },
+                            ticks: { color: '#a8a8b3' }
+                        }
+                    }
+                }
+            });
+        }
+
+        function initPositionCharts() {
+            // Position Timeline Chart
+            const timelineCtx = document.getElementById('positionTimelineChart').getContext('2d');
+            
+            const currentPosition = researchData.positions.find(p => p.status === 'OPEN');
+            const entryPrice = currentPosition.entry_price;
+            
+            // Simulate price movement
+            const pricePoints = [];
+            const labels = [];
+            for (let i = 0; i <= 10; i++) {
+                labels.push(`Day ${i}`);
+                pricePoints.push(entryPrice - (i * 13)); // Simulating decline
+            }
+            pricePoints[10] = currentETHPrice; // Current price
+            
+            charts.positionTimeline = new Chart(timelineCtx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'ETH Price',
+                        data: pricePoints,
+                        borderColor: 'rgba(79, 172, 254, 1)',
+                        backgroundColor: 'rgba(79, 172, 254, 0.1)',
+                        borderWidth: 3,
+                        tension: 0.4,
+                        fill: true
+                    }, {
+                        label: 'Entry Price',
+                        data: new Array(labels.length).fill(entryPrice),
+                        borderColor: 'rgba(255, 217, 61, 1)',
+                        borderWidth: 2,
+                        borderDash: [5, 5],
+                        fill: false
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: {
+                            labels: { color: '#a8a8b3' }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                            ticks: {
+                                color: '#a8a8b3',
+                                callback: function(value) {
+                                    return '$' + value.toFixed(0);
+                                }
+                            }
+                        },
+                        x: {
+                            grid: { display: false },
+                            ticks: { color: '#a8a8b3' }
+                        }
+                    }
+                }
+            });
+            
+            // Scenario Analysis Chart
+            const scenarioCtx = document.getElementById('scenarioChart').getContext('2d');
+            
+            const scenarios = [4000, 4200, 4400, 4600, 4770, 5000, 5200, 5500];
+            const scenarioPnL = scenarios.map(price => (price - entryPrice) * currentPosition.size);
+            
+            charts.scenario = new Chart(scenarioCtx, {
+                type: 'bar',
+                data: {
+                    labels: scenarios.map(p => '$' + p),
+                    datasets: [{
+                        label: 'P&L at Price',
+                        data: scenarioPnL,
+                        backgroundColor: scenarioPnL.map(v => v >= 0 ? 'rgba(0, 242, 254, 0.6)' : 'rgba(255, 107, 107, 0.6)'),
+                        borderColor: 'rgba(255, 255, 255, 0.2)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        y: {
+                            grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                            ticks: {
+                                color: '#a8a8b3',
+                                callback: function(value) {
+                                    return '$' + (value / 1000).toFixed(0) + 'k';
+                                }
+                            }
+                        },
+                        x: {
+                            grid: { display: false },
+                            ticks: { color: '#a8a8b3' }
+                        }
+                    }
+                }
+            });
+        }
+
+        function initRiskCharts() {
+            // Risk Distribution Chart
+            const riskCtx = document.getElementById('riskDistributionChart').getContext('2d');
+            
+            charts.riskDistribution = new Chart(riskCtx, {
+                type: 'radar',
+                data: {
+                    labels: ['Win Rate', 'Profit Factor', 'Risk/Reward', 'Free Collateral', 'Position Diversity'],
+                    datasets: [{
+                        label: 'Risk Profile',
+                        data: [85.7, 80, 75, 91.9, 40], // Normalized to 0-100
+                        borderColor: 'rgba(79, 172, 254, 1)',
+                        backgroundColor: 'rgba(79, 172, 254, 0.2)',
+                        borderWidth: 2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        r: {
+                            grid: { color: 'rgba(255, 255, 255, 0.1)' },
+                            ticks: { color: '#a8a8b3' },
+                            pointLabels: { color: '#a8a8b3' }
+                        }
+                    }
+                }
+            });
+            
+            // Drawdown Chart
+            const drawdownCtx = document.getElementById('drawdownChart').getContext('2d');
+            
+            // Calculate drawdown series
+            let equity = [];
+            let peak = 0;
+            let drawdowns = [];
+            
+            researchData.positions.slice().reverse().forEach(pos => {
+                if (pos.status === 'CLOSED') {
+                    const value = pos.realized_pnl;
+                    equity.push(value);
+                    peak = Math.max(peak, value);
+                    drawdowns.push(((value - peak) / peak) * 100);
+                }
+            });
+            
+            charts.drawdown = new Chart(drawdownCtx, {
+                type: 'line',
+                data: {
+                    labels: drawdowns.map((_, i) => `Trade ${i + 1}`),
+                    datasets: [{
+                        label: 'Drawdown %',
+                        data: drawdowns,
+                        borderColor: 'rgba(255, 107, 107, 1)',
+                        backgroundColor: 'rgba(255, 107, 107, 0.1)',
+                        borderWidth: 2,
+                        tension: 0.4,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        y: {
+                            grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                            ticks: {
+                                color: '#a8a8b3',
+                                callback: function(value) {
+                                    return value.toFixed(1) + '%';
+                                }
+                            }
+                        },
+                        x: {
+                            grid: { display: false },
+                            ticks: { color: '#a8a8b3' }
+                        }
+                    }
+                }
+            });
+        }
+
+        function populateTradeHistory() {
+            const tbody = document.getElementById('tradesTableBody');
+            tbody.innerHTML = '';
+            
+            researchData.positions.forEach(pos => {
+                const row = document.createElement('tr');
+                const duration = pos.closed_at ? 
+                    Math.floor((new Date(pos.closed_at) - new Date(pos.created_at)) / (1000 * 60 * 60)) + 'h' : 
+                    'Active';
+                
+                const roi = pos.entry_price ? ((pos.realized_pnl / (pos.size * pos.entry_price)) * 100).toFixed(2) : '0';
+                
+                row.innerHTML = `
+                    <td>${new Date(pos.created_at).toLocaleDateString()}</td>
+                    <td>${pos.market}</td>
+                    <td><span class="side-badge ${pos.side.toLowerCase()}">${pos.side}</span></td>
+                    <td>${pos.size}</td>
+                    <td>$${pos.entry_price?.toFixed(2) || '-'}</td>
+                    <td>$${pos.exit_price?.toFixed(2) || '-'}</td>
+                    <td class="${pos.realized_pnl >= 0 ? 'positive' : 'negative'}">
+                        $${pos.realized_pnl.toLocaleString()}
+                    </td>
+                    <td class="${roi >= 0 ? 'positive' : 'negative'}">${roi}%</td>
+                    <td><span class="status-badge ${pos.status.toLowerCase()}">${pos.status}</span></td>
+                    <td>${duration}</td>
+                `;
+                tbody.appendChild(row);
+            });
+        }
+
+        function filterTrades() {
+            const market = document.getElementById('marketFilter').value;
+            const status = document.getElementById('statusFilter').value;
+            const result = document.getElementById('resultFilter').value;
+            
+            const rows = document.querySelectorAll('#tradesTableBody tr');
+            rows.forEach(row => {
+                const marketCell = row.cells[1].textContent;
+                const statusCell = row.cells[8].textContent;
+                const pnlCell = parseFloat(row.cells[6].textContent.replace(/[$,]/g, ''));
+                
+                let show = true;
+                
+                if (market !== 'all' && marketCell !== market) show = false;
+                if (status !== 'all' && statusCell !== status) show = false;
+                if (result === 'profit' && pnlCell < 0) show = false;
+                if (result === 'loss' && pnlCell >= 0) show = false;
+                
+                row.style.display = show ? '' : 'none';
+            });
+        }
+
+        // Initialize on load
+        window.addEventListener('load', () => {
+            initOverviewCharts();
+            
+            // Update live price
+            fetch('https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd')
+                .then(response => response.json())
+                .then(data => {
+                    currentETHPrice = data.ethereum.usd;
+                    // Update current P&L calculation
+                    const openPos = researchData.positions.find(p => p.status === 'OPEN');
+                    if (openPos) {
+                        openPos.unrealized_pnl = (currentETHPrice - openPos.entry_price) * openPos.size;
+                        // Update displays
+                        document.querySelector('.metric-value.negative').textContent = 
+                            '$' + Math.abs(openPos.unrealized_pnl).toLocaleString();
+                    }
+                })
+                .catch(error => console.error('Error fetching price:', error));
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,23 @@
+# Data files
+*.json
+*.md
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+
+# Personal data
+*research*
+*analysis*
+/tmp/
