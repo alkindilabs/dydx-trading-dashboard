@@ -439,10 +439,17 @@
             document.getElementById('errorMessage').style.display = 'none';
             
             try {
-                // Fetch current ETH price
-                const priceResponse = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd');
+                // Fetch current ETH price from dYdX
+                const candlesUrl = `${apiBaseUrl}/candles/perpetualMarkets/ETH-USD?resolution=1MIN&limit=1`;
+                const priceResponse = await fetch(candlesUrl, { headers });
                 const priceData = await priceResponse.json();
-                currentETHPrice = priceData.ethereum.usd;
+                if (priceData.candles && priceData.candles.length > 0) {
+                    currentETHPrice = parseFloat(priceData.candles[0].close);
+                } else {
+                    // Fallback to a default or throw error
+                    console.warn('No candle data available, using default price');
+                    currentETHPrice = 4650;
+                }
                 
                 // Fetch positions from dYdX v4 API
                 const apiBaseUrl = DYDX_API[network];
@@ -555,10 +562,13 @@
         
         async function updateLiveDataV4(dydxAddress, network, apiKey) {
             try {
-                // Fetch latest ETH price
-                const priceResponse = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd');
+                // Fetch latest ETH price from dYdX
+                const candlesUrl = `${apiBaseUrl}/candles/perpetualMarkets/ETH-USD?resolution=1MIN&limit=1`;
+                const priceResponse = await fetch(candlesUrl, { headers });
                 const priceData = await priceResponse.json();
-                currentETHPrice = priceData.ethereum.usd;
+                if (priceData.candles && priceData.candles.length > 0) {
+                    currentETHPrice = parseFloat(priceData.candles[0].close);
+                }
                 
                 // Fetch latest position data
                 const apiBaseUrl = DYDX_API[network];
@@ -805,10 +815,18 @@
         
         async function updateLiveData() {
             try {
-                // Fetch latest ETH price
-                const response = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd');
-                const data = await response.json();
-                currentETHPrice = data.ethereum.usd;
+                // Fetch latest ETH price from dYdX
+                // This function is for manual data, so we'll keep a simple approach
+                try {
+                    const candlesUrl = `${DYDX_API.mainnet}/candles/perpetualMarkets/ETH-USD?resolution=1MIN&limit=1`;
+                    const response = await fetch(candlesUrl);
+                    const data = await response.json();
+                    if (data.candles && data.candles.length > 0) {
+                        currentETHPrice = parseFloat(data.candles[0].close);
+                    }
+                } catch (error) {
+                    console.error('Error fetching price from dYdX:', error);
+                }
                 
                 if (positionData) {
                     positionData.currentPrice = currentETHPrice;
@@ -877,14 +895,16 @@
                 document.getElementById('ethAddress').value = defaultAddress;
             }
             
-            // Fetch current ETH price on load
-            fetch('https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd')
+            // Fetch current ETH price on load from dYdX
+            fetch(`${DYDX_API.mainnet}/candles/perpetualMarkets/ETH-USD?resolution=1MIN&limit=1`)
                 .then(response => response.json())
                 .then(data => {
-                    currentETHPrice = data.ethereum.usd;
-                    console.log('Current ETH Price:', currentETHPrice);
+                    if (data.candles && data.candles.length > 0) {
+                        currentETHPrice = parseFloat(data.candles[0].close);
+                        console.log('Current ETH Price:', currentETHPrice);
+                    }
                 })
-                .catch(error => console.error('Error fetching price:', error));
+                .catch(error => console.error('Error fetching price from dYdX:', error));
         });
     </script>
 </body>

@@ -1242,10 +1242,16 @@
             showMessage('Loading portfolio data...', 'info');
             
             try {
-                // Fetch current ETH price
-                const priceResponse = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd');
+                // Fetch current ETH price from dYdX
+                const candlesUrl = `${DYDX_API}/candles/perpetualMarkets/ETH-USD?resolution=1MIN&limit=1`;
+                const priceResponse = await fetch(candlesUrl);
                 const priceData = await priceResponse.json();
-                currentETHPrice = priceData.ethereum?.usd || 4640;
+                if (priceData.candles && priceData.candles.length > 0) {
+                    currentETHPrice = parseFloat(priceData.candles[0].close);
+                } else {
+                    currentETHPrice = 4640; // Fallback price
+                    console.warn('No candle data available, using fallback price');
+                }
                 
                 // Fetch account and positions data
                 const [accountResponse, positionsResponse] = await Promise.all([
@@ -1381,14 +1387,16 @@
                     try {
                         // Fetch latest data
                         const [priceResponse, accountResponse, positionsResponse] = await Promise.all([
-                            fetch('https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd'),
+                            fetch(`${DYDX_API}/candles/perpetualMarkets/ETH-USD?resolution=1MIN&limit=1`),
                             fetch(`${DYDX_API}/addresses/${currentAddress}/subaccountNumber/0`),
                             fetch(`${DYDX_API}/perpetualPositions?address=${currentAddress}&subaccountNumber=0`)
                         ]);
                         
                         if (priceResponse.ok) {
                             const priceData = await priceResponse.json();
-                            currentETHPrice = priceData.ethereum?.usd || currentETHPrice;
+                            if (priceData.candles && priceData.candles.length > 0) {
+                                currentETHPrice = parseFloat(priceData.candles[0].close);
+                            }
                         }
                         
                         if (accountResponse.ok && positionsResponse.ok) {
