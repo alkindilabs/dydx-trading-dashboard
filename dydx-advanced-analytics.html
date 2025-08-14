@@ -365,7 +365,7 @@
         <div class="header">
             <h1>Advanced Trading Analytics</h1>
             <div class="subtitle">dYdX Portfolio Performance & Risk Analysis</div>
-            <div class="subtitle" style="font-size: 0.9em; color: #6a6a75;">Account: dydx1redacted</div>
+            <div class="subtitle" style="font-size: 0.9em; color: #6a6a75;" id="accountDisplay">Enter address to load dashboard</div>
         </div>
         
         <div class="nav-tabs">
@@ -678,8 +678,21 @@
     </div>
 
     <script>
-        // Research data embedded
-        const researchData = {
+        // Global variables
+        let researchData = null;
+        let currentAddress = '';
+        let charts = {};
+        let currentETHPrice = 4640;
+        const DYDX_API = 'https://indexer.dydx.trade/v4';
+        
+        // Get address from URL parameters
+        function getAddressFromURL() {
+            const urlParams = new URLSearchParams(window.location.search);
+            return urlParams.get('address');
+        }
+        
+        // Placeholder data structure
+        const placeholderData = {
             "account_summary": {
                 "equity": 507589.12,
                 "free_collateral": 466795.65,
@@ -790,8 +803,6 @@
             ]
         };
 
-        let charts = {};
-        let currentETHPrice = 4640; // Current market price
 
         function switchTab(tabName) {
             // Update tab buttons
@@ -1310,25 +1321,212 @@
             });
         }
 
+        // Load dashboard with address
+        async function loadDashboard(address) {
+            if (!address || !address.startsWith('dydx')) {
+                showMessage('Please enter a valid dYdX address (starting with dydx)');
+                return;
+            }
+            
+            currentAddress = address;
+            document.getElementById('accountDisplay').textContent = `Account: ${address}`;
+            
+            // Update URL
+            const newUrl = `${window.location.pathname}?address=${address}`;
+            window.history.pushState({ address }, '', newUrl);
+            
+            showMessage('Loading portfolio data...', 'info');
+            
+            try {
+                // Fetch current ETH price
+                const priceResponse = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd');
+                const priceData = await priceResponse.json();
+                currentETHPrice = priceData.ethereum?.usd || 4640;
+                
+                // Fetch account and positions data
+                const [accountResponse, positionsResponse] = await Promise.all([
+                    fetch(`${DYDX_API}/addresses/${address}/subaccountNumber/0`),
+                    fetch(`${DYDX_API}/perpetualPositions?address=${address}&subaccountNumber=0`)
+                ]);
+                
+                if (!accountResponse.ok) {
+                    throw new Error('Failed to fetch account data');
+                }
+                
+                const accountData = await accountResponse.json();
+                const positionsData = await positionsResponse.json();
+                
+                // Process data into research format
+                researchData = processPortfolioData(accountData, positionsData);
+                
+                // Initialize charts and UI
+                initOverviewCharts();
+                populateTradeHistory();
+                
+                hideMessage();
+                
+                // Start live updates
+                startLiveUpdates();
+                
+            } catch (error) {
+                console.error('Error loading dashboard:', error);
+                showMessage(`Failed to load data: ${error.message}`, 'error');
+            }
+        }
+        
+        function processPortfolioData(accountData, positionsData) {
+            const subaccount = accountData.subaccount || {};
+            const positions = positionsData.positions || [];
+            
+            // Calculate metrics
+            const openPositions = positions.filter(p => p.status === 'OPEN');
+            const closedPositions = positions.filter(p => p.status === 'CLOSED');
+            
+            const wins = closedPositions.filter(p => parseFloat(p.realizedPnl) > 0);
+            const losses = closedPositions.filter(p => parseFloat(p.realizedPnl) <= 0);
+            
+            const totalWins = wins.reduce((sum, p) => sum + parseFloat(p.realizedPnl), 0);
+            const totalLosses = Math.abs(losses.reduce((sum, p) => sum + parseFloat(p.realizedPnl), 0));
+            
+            const winRate = closedPositions.length > 0 ? (wins.length / closedPositions.length) * 100 : 0;
+            const profitFactor = totalLosses > 0 ? totalWins / totalLosses : totalWins > 0 ? 999 : 0;
+            
+            const totalRealized = closedPositions.reduce((sum, p) => sum + parseFloat(p.realizedPnl), 0);
+            const totalUnrealized = openPositions.reduce((sum, p) => sum + parseFloat(p.unrealizedPnl || 0), 0);
+            const totalFunding = positions.reduce((sum, p) => sum + parseFloat(p.netFunding || 0), 0);
+            
+            return {
+                account_summary: {
+                    equity: parseFloat(subaccount.equity || 0),
+                    free_collateral: parseFloat(subaccount.freeCollateral || 0),
+                    usdc_balance: parseFloat(subaccount.assetPositions?.USDC?.size || 0)
+                },
+                performance_metrics: {
+                    total_positions: positions.length,
+                    open_positions: openPositions.length,
+                    closed_positions: closedPositions.length,
+                    total_realized_pnl: totalRealized,
+                    total_unrealized_pnl: totalUnrealized,
+                    total_funding_paid: totalFunding,
+                    win_rate: winRate,
+                    average_win: wins.length > 0 ? totalWins / wins.length : 0,
+                    average_loss: losses.length > 0 ? totalLosses / losses.length : 0,
+                    profit_factor: profitFactor
+                },
+                positions: positions.map(p => ({
+                    market: p.market,
+                    status: p.status,
+                    side: p.side,
+                    size: parseFloat(p.size),
+                    entry_price: parseFloat(p.entryPrice || 0),
+                    exit_price: parseFloat(p.exitPrice || 0),
+                    realized_pnl: parseFloat(p.realizedPnl || 0),
+                    unrealized_pnl: parseFloat(p.unrealizedPnl || 0),
+                    created_at: p.createdAt,
+                    closed_at: p.closedAt
+                }))
+            };
+        }
+        
+        function showMessage(text, type = 'info') {
+            // Create or update message element
+            let messageEl = document.getElementById('messageBox');
+            if (!messageEl) {
+                messageEl = document.createElement('div');
+                messageEl.id = 'messageBox';
+                messageEl.style.cssText = `
+                    position: fixed;
+                    top: 50%;
+                    left: 50%;
+                    transform: translate(-50%, -50%);
+                    padding: 20px 40px;
+                    background: rgba(79, 172, 254, 0.9);
+                    border-radius: 12px;
+                    color: white;
+                    font-size: 1.1em;
+                    z-index: 9999;
+                    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+                `;
+                document.body.appendChild(messageEl);
+            }
+            
+            if (type === 'error') {
+                messageEl.style.background = 'rgba(255, 107, 107, 0.9)';
+            } else {
+                messageEl.style.background = 'rgba(79, 172, 254, 0.9)';
+            }
+            
+            messageEl.textContent = text;
+            messageEl.style.display = 'block';
+        }
+        
+        function hideMessage() {
+            const messageEl = document.getElementById('messageBox');
+            if (messageEl) {
+                messageEl.style.display = 'none';
+            }
+        }
+        
+        let updateInterval = null;
+        
+        function startLiveUpdates() {
+            if (updateInterval) clearInterval(updateInterval);
+            
+            updateInterval = setInterval(async () => {
+                if (currentAddress) {
+                    try {
+                        // Fetch latest data
+                        const [priceResponse, accountResponse, positionsResponse] = await Promise.all([
+                            fetch('https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd'),
+                            fetch(`${DYDX_API}/addresses/${currentAddress}/subaccountNumber/0`),
+                            fetch(`${DYDX_API}/perpetualPositions?address=${currentAddress}&subaccountNumber=0`)
+                        ]);
+                        
+                        if (priceResponse.ok) {
+                            const priceData = await priceResponse.json();
+                            currentETHPrice = priceData.ethereum?.usd || currentETHPrice;
+                        }
+                        
+                        if (accountResponse.ok && positionsResponse.ok) {
+                            const accountData = await accountResponse.json();
+                            const positionsData = await positionsResponse.json();
+                            
+                            researchData = processPortfolioData(accountData, positionsData);
+                            
+                            // Update metrics displays
+                            updateMetricsDisplay();
+                        }
+                    } catch (error) {
+                        console.error('Error updating data:', error);
+                    }
+                }
+            }, 10000); // Update every 10 seconds
+        }
+        
+        function updateMetricsDisplay() {
+            if (!researchData) return;
+            
+            // Update all metric displays with latest data
+            // This function updates the DOM elements with new values
+            // Implementation depends on your specific UI structure
+        }
+        
         // Initialize on load
         window.addEventListener('load', () => {
-            initOverviewCharts();
+            // Check for address in URL
+            const urlAddress = getAddressFromURL();
             
-            // Update live price
-            fetch('https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd')
-                .then(response => response.json())
-                .then(data => {
-                    currentETHPrice = data.ethereum.usd;
-                    // Update current P&L calculation
-                    const openPos = researchData.positions.find(p => p.status === 'OPEN');
-                    if (openPos) {
-                        openPos.unrealized_pnl = (currentETHPrice - openPos.entry_price) * openPos.size;
-                        // Update displays
-                        document.querySelector('.metric-value.negative').textContent = 
-                            '$' + Math.abs(openPos.unrealized_pnl).toLocaleString();
-                    }
-                })
-                .catch(error => console.error('Error fetching price:', error));
+            if (urlAddress) {
+                loadDashboard(urlAddress);
+            } else {
+                // Show input prompt
+                const address = prompt('Enter your dYdX address (e.g., dydx1redacted):');
+                if (address) {
+                    loadDashboard(address);
+                } else {
+                    showMessage('No address provided. Refresh the page to try again.', 'error');
+                }
+            }
         });
     </script>
 </body>
