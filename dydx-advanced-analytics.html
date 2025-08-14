@@ -368,6 +368,13 @@
             <div class="subtitle" style="font-size: 0.9em; color: #6a6a75;" id="accountDisplay">Enter address to load dashboard</div>
         </div>
         
+        <div style="background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px; padding: 20px; margin-bottom: 30px; backdrop-filter: blur(10px);">
+            <div style="display: flex; gap: 15px; align-items: center; justify-content: center;">
+                <input type="text" id="addressInput" placeholder="Enter dYdX address (e.g., dydx1...)" style="flex: 1; max-width: 600px; padding: 12px; border: 1px solid rgba(255, 255, 255, 0.2); background: rgba(255, 255, 255, 0.05); color: #fff; border-radius: 8px; font-size: 1em; font-family: monospace;" />
+                <button onclick="loadDashboardFromInput()" style="padding: 12px 24px; background: linear-gradient(90deg, #4facfe, #00f2fe); color: #fff; border: none; border-radius: 8px; font-size: 1em; font-weight: bold; cursor: pointer;">Load Dashboard</button>
+            </div>
+        </div>
+        
         <div class="nav-tabs">
             <div class="nav-tab active" onclick="switchTab('overview')">Overview</div>
             <div class="nav-tab" onclick="switchTab('performance')">Performance</div>
@@ -690,9 +697,6 @@
             const urlParams = new URLSearchParams(window.location.search);
             return urlParams.get('address');
         }
-        
-        // Placeholder data structure
-        const placeholderData = {
             "account_summary": {
                 "equity": 507589.12,
                 "free_collateral": 466795.65,
@@ -1343,39 +1347,21 @@
                 const priceData = await priceResponse.json();
                 currentETHPrice = priceData.ethereum?.usd || 4640;
                 
-                // Try to fetch account and positions data
-                // Note: Direct API calls may fail due to CORS restrictions
-                // Consider using a proxy server or backend API for production
+                // Fetch account and positions data
                 const [accountResponse, positionsResponse] = await Promise.all([
-                    fetch(`${DYDX_API}/addresses/${address}/subaccountNumber/0`, {
-                        method: 'GET',
-                        headers: {
-                            'Accept': 'application/json'
-                        }
-                    }),
-                    fetch(`${DYDX_API}/perpetualPositions?address=${address}&subaccountNumber=0`, {
-                        method: 'GET',
-                        headers: {
-                            'Accept': 'application/json'
-                        }
-                    })
-                ]).catch(error => {
-                    console.error('CORS error - using demo data:', error);
-                    // Use demo data if API fails
-                    return [null, null];
-                });
+                    fetch(`${DYDX_API}/addresses/${address}/subaccountNumber/0`),
+                    fetch(`${DYDX_API}/perpetualPositions?address=${address}&subaccountNumber=0`)
+                ]);
                 
-                if (accountResponse && accountResponse.ok) {
-                    const accountData = await accountResponse.json();
-                    const positionsData = await positionsResponse.json();
-                    
-                    // Process data into research format
-                    researchData = processPortfolioData(accountData, positionsData);
-                } else {
-                    // Use demo data for the provided address
-                    console.log('Using demo data due to CORS restrictions');
-                    researchData = getDemoData(address);
+                if (!accountResponse.ok) {
+                    throw new Error('Failed to fetch account data');
                 }
+                
+                const accountData = await accountResponse.json();
+                const positionsData = await positionsResponse.json();
+                
+                // Process data into research format
+                researchData = processPortfolioData(accountData, positionsData);
                 
                 // Initialize charts and UI
                 initOverviewCharts();
@@ -1388,110 +1374,8 @@
                 
             } catch (error) {
                 console.error('Error loading dashboard:', error);
-                // Fallback to demo data
-                researchData = getDemoData(address);
-                initOverviewCharts();
-                populateTradeHistory();
-                hideMessage();
-                showMessage('Note: Using demo data. For live data, a backend proxy is required.', 'info');
-                setTimeout(hideMessage, 5000);
+                showMessage(`Failed to load data: ${error.message}`, 'error');
             }
-        }
-        
-        function getDemoData(address) {
-            // Demo data structure for demonstration
-            const isDefaultAddress = address === 'dydx1redacted';
-            
-            return {
-                account_summary: {
-                    equity: isDefaultAddress ? 507589.12 : 250000,
-                    free_collateral: isDefaultAddress ? 466795.65 : 200000,
-                    usdc_balance: isDefaultAddress ? 1532084.45 : 750000
-                },
-                performance_metrics: {
-                    total_positions: isDefaultAddress ? 8 : 5,
-                    open_positions: isDefaultAddress ? 1 : 0,
-                    closed_positions: isDefaultAddress ? 7 : 5,
-                    total_realized_pnl: isDefaultAddress ? 330661.30 : 50000,
-                    total_unrealized_pnl: isDefaultAddress ? -107175.63 : 0,
-                    total_funding_paid: isDefaultAddress ? -6804.72 : -1500,
-                    win_rate: isDefaultAddress ? 85.7 : 60,
-                    average_win: isDefaultAddress ? 56912.59 : 15000,
-                    average_loss: isDefaultAddress ? 10814.23 : 5000,
-                    profit_factor: isDefaultAddress ? 31.58 : 3
-                },
-                positions: isDefaultAddress ? [
-                    {
-                        market: "ETH-USD",
-                        status: "OPEN",
-                        side: "LONG",
-                        size: 450,
-                        entry_price: 4770.78,
-                        exit_price: null,
-                        realized_pnl: -1245.6,
-                        unrealized_pnl: -107175.63,
-                        created_at: "2024-12-14T06:30:08.715Z",
-                        closed_at: null
-                    },
-                    {
-                        market: "ETH-USD",
-                        status: "CLOSED",
-                        side: "LONG",
-                        size: 200,
-                        entry_price: 4699.35,
-                        exit_price: 4646.00,
-                        realized_pnl: -10814.23,
-                        created_at: "2024-08-13T11:49:15.373Z",
-                        closed_at: "2024-08-13T15:05:36.197Z"
-                    },
-                    {
-                        market: "BTC-USD",
-                        status: "CLOSED",
-                        side: "LONG",
-                        size: 25,
-                        entry_price: 120926.13,
-                        exit_price: 121927.20,
-                        realized_pnl: 24268.18,
-                        created_at: "2024-08-13T09:10:52.476Z",
-                        closed_at: "2024-08-14T06:23:18.891Z"
-                    },
-                    {
-                        market: "ETH-USD",
-                        status: "CLOSED",
-                        side: "LONG",
-                        size: 300,
-                        entry_price: 4299.75,
-                        exit_price: 4620.82,
-                        realized_pnl: 95855.02,
-                        created_at: "2024-08-12T09:13:01.793Z",
-                        closed_at: "2024-08-13T08:54:48.855Z"
-                    },
-                    {
-                        market: "ETH-USD",
-                        status: "CLOSED",
-                        side: "LONG",
-                        size: 250,
-                        entry_price: 3717.36,
-                        exit_price: 4238.70,
-                        realized_pnl: 128242.25,
-                        created_at: "2024-08-06T16:20:42.950Z",
-                        closed_at: "2024-08-10T05:17:00.924Z"
-                    }
-                ] : [
-                    {
-                        market: "ETH-USD",
-                        status: "CLOSED",
-                        side: "LONG",
-                        size: 100,
-                        entry_price: 4000,
-                        exit_price: 4500,
-                        realized_pnl: 50000,
-                        unrealized_pnl: 0,
-                        created_at: "2024-11-01T10:00:00.000Z",
-                        closed_at: "2024-11-15T10:00:00.000Z"
-                    }
-                ]
-            };
         }
         
         function processPortfolioData(accountData, positionsData) {
@@ -1631,21 +1515,27 @@
             // Implementation depends on your specific UI structure
         }
         
+        function loadDashboardFromInput() {
+            const address = document.getElementById('addressInput').value.trim();
+            if (address) {
+                loadDashboard(address);
+            } else {
+                showMessage('Please enter a dYdX address', 'error');
+                setTimeout(hideMessage, 3000);
+            }
+        }
+        
         // Initialize on load
         window.addEventListener('load', () => {
             // Check for address in URL
             const urlAddress = getAddressFromURL();
             
             if (urlAddress) {
+                document.getElementById('addressInput').value = urlAddress;
                 loadDashboard(urlAddress);
             } else {
-                // Show input prompt
-                const address = prompt('Enter your dYdX address (e.g., dydx1redacted):');
-                if (address) {
-                    loadDashboard(address);
-                } else {
-                    showMessage('No address provided. Refresh the page to try again.', 'error');
-                }
+                // Pre-fill with example address
+                document.getElementById('addressInput').value = 'dydx1redacted';
             }
         });
     </script>
