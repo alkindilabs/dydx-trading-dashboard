@@ -697,115 +697,15 @@
             const urlParams = new URLSearchParams(window.location.search);
             return urlParams.get('address');
         }
-            "account_summary": {
-                "equity": 507589.12,
-                "free_collateral": 466795.65,
-                "usdc_balance": 1532084.45
-            },
-            "performance_metrics": {
-                "total_positions": 8,
-                "open_positions": 1,
-                "closed_positions": 7,
-                "total_realized_pnl": 330661.30,
-                "total_unrealized_pnl": -107175.63,
-                "total_funding_paid": -6804.72,
-                "win_rate": 85.7,
-                "average_win": 56912.59,
-                "average_loss": 10814.23,
-                "profit_factor": 31.58
-            },
-            "positions": [
-                {
-                    "market": "ETH-USD",
-                    "status": "OPEN",
-                    "side": "LONG",
-                    "size": 450,
-                    "entry_price": 4770.78,
-                    "exit_price": null,
-                    "realized_pnl": -1245.6,
-                    "unrealized_pnl": -107175.63,
-                    "created_at": "2024-12-14T06:30:08.715Z",
-                    "closed_at": null
-                },
-                {
-                    "market": "ETH-USD",
-                    "status": "CLOSED",
-                    "side": "LONG",
-                    "size": 200,
-                    "entry_price": 4699.35,
-                    "exit_price": 4646.00,
-                    "realized_pnl": -10814.23,
-                    "created_at": "2024-08-13T11:49:15.373Z",
-                    "closed_at": "2024-08-13T15:05:36.197Z"
-                },
-                {
-                    "market": "BTC-USD",
-                    "status": "CLOSED",
-                    "side": "LONG",
-                    "size": 25,
-                    "entry_price": 120926.13,
-                    "exit_price": 121927.20,
-                    "realized_pnl": 24268.18,
-                    "created_at": "2024-08-13T09:10:52.476Z",
-                    "closed_at": "2024-08-14T06:23:18.891Z"
-                },
-                {
-                    "market": "ETH-USD",
-                    "status": "CLOSED",
-                    "side": "LONG",
-                    "size": 300,
-                    "entry_price": 4299.75,
-                    "exit_price": 4620.82,
-                    "realized_pnl": 95855.02,
-                    "created_at": "2024-08-12T09:13:01.793Z",
-                    "closed_at": "2024-08-13T08:54:48.855Z"
-                },
-                {
-                    "market": "ETH-USD",
-                    "status": "CLOSED",
-                    "side": "LONG",
-                    "size": 300,
-                    "entry_price": 4279.24,
-                    "exit_price": 4279.55,
-                    "realized_pnl": 29.14,
-                    "created_at": "2024-08-11T13:46:32.520Z",
-                    "closed_at": "2024-08-11T18:46:09.968Z"
-                },
-                {
-                    "market": "BTC-USD",
-                    "status": "CLOSED",
-                    "side": "LONG",
-                    "size": 13,
-                    "entry_price": 118396.03,
-                    "exit_price": 120902.23,
-                    "realized_pnl": 31663.88,
-                    "created_at": "2024-08-10T05:26:20.575Z",
-                    "closed_at": "2024-08-11T11:07:13.249Z"
-                },
-                {
-                    "market": "ETH-USD",
-                    "status": "CLOSED",
-                    "side": "LONG",
-                    "size": 250,
-                    "entry_price": 3717.36,
-                    "exit_price": 4238.70,
-                    "realized_pnl": 128242.25,
-                    "created_at": "2024-08-06T16:20:42.950Z",
-                    "closed_at": "2024-08-10T05:17:00.924Z"
-                },
-                {
-                    "market": "BTC-USD",
-                    "status": "CLOSED",
-                    "side": "LONG",
-                    "size": 4,
-                    "entry_price": 105885.48,
-                    "exit_price": 121519.22,
-                    "realized_pnl": 61417.06,
-                    "created_at": "2024-06-19T09:32:47.259Z",
-                    "closed_at": "2024-07-14T11:36:58.275Z"
-                }
-            ]
-        };
+        
+        // Initialize empty researchData structure if needed
+        if (!researchData) {
+            researchData = {
+                account_summary: {},
+                performance_metrics: {},
+                positions: []
+            };
+        }
 
 
         function switchTab(tabName) {
