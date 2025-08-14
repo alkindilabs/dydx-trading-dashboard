@@ -405,9 +405,7 @@
                 </div>
             </div>
             <div class="example-addresses">
-                Example addresses:
-                <a class="example-link" onclick="loadExample('dydx1redacted')">Demo Account</a>
-                <a class="example-link" onclick="loadExample('')">Enter Custom</a>
+                Example address: dydx1redacted
             </div>
             <div class="share-section" id="shareSection" style="display: none;">
                 <span>Share this dashboard:</span>
@@ -565,14 +563,6 @@
         function getAddressFromURL() {
             const urlParams = new URLSearchParams(window.location.search);
             return urlParams.get('address');
-        }
-        
-        // Load example address
-        function loadExample(address) {
-            document.getElementById('dydxAddress').value = address;
-            if (address) {
-                loadDashboard();
-            }
         }
         
         // Main load function

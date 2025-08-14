@@ -328,13 +328,8 @@
                     <label>API Key (Optional)</label>
                     <input type="password" id="apiKey" placeholder="Your API key" />
                 </div>
-                <div class="input-wrapper">
-                    <label>Manual Entry Price</label>
-                    <input type="number" id="manualEntry" value="4770" placeholder="Entry price" />
-                </div>
             </div>
             <button class="btn-connect" onclick="connectToDydx()">Connect & Fetch Position</button>
-            <button class="btn-connect" onclick="useManualData()" style="margin-left: 10px; background: linear-gradient(90deg, #ff6b6b, #ff9a00);">Use Manual Data</button>
         </div>
         
         <div class="error-message" id="errorMessage"></div>
@@ -509,32 +504,6 @@
             }
         }
         
-        function useManualData() {
-            const manualEntry = parseFloat(document.getElementById('manualEntry').value) || 4770;
-            
-            // Use your actual position data
-            positionData = {
-                entryPrice: manualEntry,
-                currentPrice: currentETHPrice,
-                positionSize: 450,
-                leverage: 3.4,
-                collateral: 600000,
-                liquidationPrice: 3450,
-                notionalValue: 450 * currentETHPrice,
-                unrealizedPnl: 450 * (currentETHPrice - manualEntry),
-                marginUsed: 600000,
-                freeCollateral: 600000 // Reserve
-            };
-            
-            updateUI();
-            createCharts();
-            document.getElementById('positionData').style.display = 'block';
-            updateConnectionStatus(true);
-            
-            // Fetch live price updates
-            setInterval(updateLiveData, 5000);
-        }
-        
         function processV4PositionData(position, accountData) {
             // Extract position details from dYdX v4 response
             const size = parseFloat(position.size || 0);
@@ -618,27 +587,6 @@
             } catch (error) {
                 console.error('Error updating live data:', error);
             }
-        }
-        
-        function simulateDydxData() {
-            // Simulate position data based on your actual position
-            const entryPrice = parseFloat(document.getElementById('manualEntry').value) || 4770;
-            
-            positionData = {
-                entryPrice: entryPrice,
-                currentPrice: currentETHPrice,
-                positionSize: 450,
-                leverage: 3.4,
-                collateral: 600000,
-                liquidationPrice: 3450,
-                notionalValue: 450 * currentETHPrice,
-                unrealizedPnl: 450 * (currentETHPrice - entryPrice),
-                marginUsed: 600000,
-                freeCollateral: 600000
-            };
-            
-            updateUI();
-            createCharts();
         }
         
         function updateUI() {
