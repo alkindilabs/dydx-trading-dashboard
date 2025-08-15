@@ -372,7 +372,7 @@
             <h1>Advanced Trading Analytics</h1>
             <div class="subtitle">dYdX Portfolio Performance & Risk Analysis</div>
             <div class="subtitle" style="font-size: 0.9em; color: #6a6a75;" id="accountDisplay">Enter address to load dashboard</div>
-            <div style="position: absolute; top: 10px; right: 10px; font-size: 0.8em; color: #6a6a75; opacity: 0.7;">v1.0.6-beta</div>
+            <div style="position: absolute; top: 10px; right: 10px; font-size: 0.8em; color: #6a6a75; opacity: 0.7;">v1.0.7-beta</div>
         </div>
         
         <div style="background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px; padding: 20px; margin-bottom: 30px; backdrop-filter: blur(10px);">
@@ -707,6 +707,90 @@
         let currentETHPrice = 0;
         const DYDX_API = 'https://indexer.dydx.trade/v4';
         
+        // Theme configuration
+        const THEME = {
+            colors: {
+                primary: 'rgba(79, 172, 254, 0.8)',
+                secondary: '#00f2fe',
+                positive: '#00f2fe',
+                negative: '#ff3737',
+                warning: '#ffd93d',
+                text: '#a8a8b3',
+                textLight: '#6a6a75',
+                background: 'rgba(255, 255, 255, 0.05)',
+                backgroundDark: 'rgba(255, 255, 255, 0.02)',
+                gridLine: 'rgba(255, 255, 255, 0.05)',
+                border: 'rgba(255, 255, 255, 0.1)'
+            },
+            chart: {
+                fontFamily: '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+                fontSize: 12,
+                fontColor: '#a8a8b3',
+                gridColor: 'rgba(255, 255, 255, 0.05)'
+            }
+        };
+        
+        // Common chart configuration
+        const getChartDefaults = () => ({
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: {
+                intersect: false,
+                mode: 'index'
+            },
+            plugins: {
+                legend: {
+                    display: false
+                },
+                tooltip: {
+                    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                    padding: 12,
+                    cornerRadius: 8,
+                    titleFont: { size: 14 },
+                    bodyFont: { size: 13 }
+                }
+            },
+            scales: {
+                x: {
+                    grid: {
+                        display: false
+                    },
+                    ticks: {
+                        color: THEME.colors.text,
+                        font: {
+                            family: THEME.chart.fontFamily
+                        }
+                    }
+                },
+                y: {
+                    grid: {
+                        color: THEME.chart.gridColor,
+                        drawBorder: false
+                    },
+                    ticks: {
+                        color: THEME.colors.text,
+                        font: {
+                            family: THEME.chart.fontFamily
+                        }
+                    }
+                }
+            }
+        });
+        
+        // API helper functions
+        async function fetchFromAPI(endpoint) {
+            const response = await fetch(`${DYDX_API}${endpoint}`);
+            if (!response.ok) {
+                throw new Error(`Failed to fetch from ${endpoint}`);
+            }
+            return response.json();
+        }
+        
+        async function fetchMultiple(endpoints) {
+            const promises = endpoints.map(endpoint => fetchFromAPI(endpoint));
+            return Promise.all(promises);
+        }
+        
         // Get address from URL parameters
         function sanitizeInput(input) {
             if (!input) return '';
@@ -735,6 +819,48 @@
         }
         
         // currentPortfolioData should only be populated from actual API responses, never initialized with empty data
+        
+        // Chart helper functions
+        function createChart(canvasId, type, data, customOptions = {}) {
+            const ctx = document.getElementById(canvasId).getContext('2d');
+            const defaultOptions = getChartDefaults();
+            
+            // Merge custom options with defaults
+            const options = {
+                ...defaultOptions,
+                ...customOptions,
+                plugins: {
+                    ...defaultOptions.plugins,
+                    ...customOptions.plugins
+                },
+                scales: {
+                    ...defaultOptions.scales,
+                    ...customOptions.scales
+                }
+            };
+            
+            return new Chart(ctx, {
+                type: type,
+                data: data,
+                options: options
+            });
+        }
+        
+        function formatCurrency(value) {
+            if (value >= 1000000) {
+                return '$' + (value / 1000000).toFixed(1) + 'M';
+            } else if (value >= 1000) {
+                return '$' + (value / 1000).toFixed(0) + 'k';
+            }
+            return '$' + value.toFixed(0);
+        }
+        
+        // Batch update helper to reduce repetitive updateElement calls
+        function updateMetrics(updates) {
+            updates.forEach(({ id, value, format = 'currency', condition = null }) => {
+                updateElement(id, value, format, condition);
+            });
+        }
         
         // Function to destroy all existing charts
         function destroyAllCharts() {
@@ -1608,24 +1734,18 @@
             updateInterval = setInterval(async () => {
                 if (currentAddress) {
                     try {
-                        // Fetch latest data
-                        const [priceResponse, accountResponse, positionsResponse] = await Promise.all([
-                            fetch(`${DYDX_API}/candles/perpetualMarkets/ETH-USD?resolution=1MIN&limit=1`),
-                            fetch(`${DYDX_API}/addresses/${currentAddress}/subaccountNumber/0`),
-                            fetch(`${DYDX_API}/perpetualPositions?address=${currentAddress}&subaccountNumber=0`)
+                        // Fetch latest data using helper
+                        const [priceData, accountData, positionsData] = await fetchMultiple([
+                            `/candles/perpetualMarkets/ETH-USD?resolution=1MIN&limit=1`,
+                            `/addresses/${currentAddress}/subaccountNumber/0`,
+                            `/perpetualPositions?address=${currentAddress}&subaccountNumber=0`
                         ]);
                         
-                        if (priceResponse.ok) {
-                            const priceData = await priceResponse.json();
-                            if (priceData.candles && priceData.candles.length > 0) {
-                                currentETHPrice = parseFloat(priceData.candles[0].close);
-                            }
+                        if (priceData && priceData.candles && priceData.candles.length > 0) {
+                            currentETHPrice = parseFloat(priceData.candles[0].close);
                         }
                         
-                        if (accountResponse.ok && positionsResponse.ok) {
-                            const accountData = await accountResponse.json();
-                            const positionsData = await positionsResponse.json();
-                            
+                        if (accountData && positionsData) {
                             currentPortfolioData = processPortfolioData(accountData, positionsData);
                             
                             // Update metrics displays
@@ -1679,19 +1799,21 @@
             const metrics = currentPortfolioData.performance_metrics;
             const summary = currentPortfolioData.account_summary;
             
-            // Overview metrics
-            updateElement('totalEquity', summary.equity, 'currency', 'positive');
-            updateElement('winRate', metrics.win_rate, 'percent', 'positive');
-            updateElement('profitFactor', metrics.profit_factor, 'number', 'positive');
-            updateElement('totalRealized', metrics.total_realized_pnl, 'currency', 'positive');
-            updateElement('openPositions', metrics.open_positions, 'raw', 'warning');
-            updateElement('freeCollateral', summary.free_collateral, 'currency', 'positive');
-            
-            // Performance metrics
-            updateElement('totalWins', metrics.average_win * (metrics.total_positions * metrics.win_rate / 100), 'currency', 'positive');
-            updateElement('unrealizedPnl', metrics.total_unrealized_pnl, 'currency', metrics.total_unrealized_pnl >= 0 ? 'positive' : 'negative');
-            updateElement('avgWin', metrics.average_win, 'currency', 'positive');
-            updateElement('avgLoss', metrics.average_loss, 'currency', 'negative');
+            // Batch update overview and performance metrics
+            updateMetrics([
+                // Overview metrics
+                { id: 'totalEquity', value: summary.equity, format: 'currency', condition: 'positive' },
+                { id: 'winRate', value: metrics.win_rate, format: 'percent', condition: 'positive' },
+                { id: 'profitFactor', value: metrics.profit_factor, format: 'number', condition: 'positive' },
+                { id: 'totalRealized', value: metrics.total_realized_pnl, format: 'currency', condition: 'positive' },
+                { id: 'openPositions', value: metrics.open_positions, format: 'raw', condition: 'warning' },
+                { id: 'freeCollateral', value: summary.free_collateral, format: 'currency', condition: 'positive' },
+                // Performance metrics
+                { id: 'totalWins', value: metrics.average_win * (metrics.total_positions * metrics.win_rate / 100), format: 'currency', condition: 'positive' },
+                { id: 'unrealizedPnl', value: metrics.total_unrealized_pnl, format: 'currency', condition: metrics.total_unrealized_pnl >= 0 ? 'positive' : 'negative' },
+                { id: 'avgWin', value: metrics.average_win, format: 'currency', condition: 'positive' },
+                { id: 'avgLoss', value: metrics.average_loss, format: 'currency', condition: 'negative' }
+            ]);
             
             // Find best and worst trades
             const trades = currentPortfolioData.positions.filter(p => p.status === 'CLOSED');
