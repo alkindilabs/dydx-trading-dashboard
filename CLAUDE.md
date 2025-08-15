@@ -2,6 +2,20 @@
 
 ## Version History
 
+### v1.0.5-beta (2024-08-15)
+- Fixed Risk Analysis tab with proper data display
+- Replaced placeholder IDs with correct ones (totalFundingRisk, maxDrawdown, leverageUsed, liquidationPrice)
+- Added real calculations for risk metrics:
+  - Max drawdown from historical trades
+  - Sharpe ratio (simplified calculation)
+  - Calmar ratio (return/max drawdown)
+  - Leverage calculation
+  - Liquidation price estimation
+- Made Risk Assessment section dynamic with real data
+- Added overall risk score calculation (0-100)
+- Added beta disclaimer warning
+- Updated index.html to preserve URL parameters when redirecting
+
 ### v1.0.4 (2024-08-15)
 - Fixed incorrect unrealized P&L display
 - Changed element ID from 'totalLosses' to 'unrealizedPnl'

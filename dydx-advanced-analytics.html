@@ -366,7 +366,10 @@
             <h1>Advanced Trading Analytics</h1>
             <div class="subtitle">dYdX Portfolio Performance & Risk Analysis</div>
             <div class="subtitle" style="font-size: 0.9em; color: #6a6a75;" id="accountDisplay">Enter address to load dashboard</div>
-            <div style="position: absolute; top: 10px; right: 10px; font-size: 0.8em; color: #6a6a75; opacity: 0.7;">v1.0.3</div>
+            <div style="position: absolute; top: 10px; right: 10px; font-size: 0.8em; color: #6a6a75; opacity: 0.7;">v1.0.5-beta</div>
+            <div style="position: absolute; top: 10px; left: 10px; font-size: 0.75em; color: #ffd93d; opacity: 0.8;">
+                ⚠️ Beta Version: Data calculations are experimental and may not reflect exact values
+            </div>
         </div>
         
         <div style="background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px; padding: 20px; margin-bottom: 30px; backdrop-filter: blur(10px);">
@@ -624,14 +627,14 @@
         <div id="risk" class="tab-content">
             <div class="metrics-grid">
                 <div class="metric-card">
-                    <div class="metric-label">Value at Risk (95%)</div>
-                    <div class="metric-value" id="totalFunding">-</div>
-                    <div class="metric-change">Daily VaR Estimate</div>
+                    <div class="metric-label">Total Funding Paid</div>
+                    <div class="metric-value" id="totalFundingRisk">-</div>
+                    <div class="metric-change">Cumulative funding costs</div>
                 </div>
                 <div class="metric-card">
                     <div class="metric-label">Max Drawdown</div>
-                    <div class="metric-value" id="totalLosses">-</div>
-                    <div class="metric-change">Current Drawdown</div>
+                    <div class="metric-value" id="maxDrawdown">-</div>
+                    <div class="metric-change" id="maxDrawdownPercent">-</div>
                 </div>
                 <div class="metric-card">
                     <div class="metric-label">Sharpe Ratio</div>
@@ -644,14 +647,14 @@
                     <div class="metric-change">Return/Max DD</div>
                 </div>
                 <div class="metric-card">
-                    <div class="metric-label">Funding Costs</div>
-                    <div class="metric-value" id="dailyVar">-</div>
-                    <div class="metric-change">Total Paid</div>
+                    <div class="metric-label">Leverage Used</div>
+                    <div class="metric-value" id="leverageUsed">-</div>
+                    <div class="metric-change" id="leverageText">-</div>
                 </div>
                 <div class="metric-card">
-                    <div class="metric-label">Liquidation Buffer</div>
-                    <div class="metric-value" id="accountEquity2">-</div>
-                    <div class="metric-change">Safe Margin</div>
+                    <div class="metric-label">Liquidation Price</div>
+                    <div class="metric-value" id="liquidationPrice">-</div>
+                    <div class="metric-change" id="liquidationBuffer">-</div>
                 </div>
             </div>
             
@@ -674,13 +677,13 @@
                 <div class="insight-title">
                     <span>⚠️</span> Risk Assessment
                 </div>
-                <div class="insight-content">
+                <div class="insight-content" id="riskAssessmentContent">
                     <strong>Current Risk Profile:</strong><br>
-                    • <span style="color: #00f2fe;">Low Liquidation Risk:</span> 91.9% free collateral provides substantial buffer<br>
-                    • <span style="color: #ffd93d;">Concentration Risk:</span> Single large position (450 ETH) creates exposure concentration<br>
+                    • <span style="color: #00f2fe;">Collateral Status:</span> <span id="riskCollateralStatus">Loading...</span><br>
+                    • <span style="color: #ffd93d;">Position Risk:</span> <span id="riskPositionStatus">Loading...</span><br>
                     • <span style="color: #00f2fe;">Track Record:</span> <span id="trackRecordSummary">Loading...</span><br>
-                    • <span style="color: #ffd93d;">Current Drawdown:</span> -21.1% from equity high requires 26.7% gain to recover<br>
-                    • <span style="color: #00f2fe;">Risk Management:</span> Historical data shows disciplined position sizing and exit strategy
+                    • <span style="color: #ffd93d;">Drawdown Status:</span> <span id="riskDrawdownStatus">Loading...</span><br>
+                    • <span style="color: #00f2fe;">Risk Score:</span> <span id="riskScoreStatus">Loading...</span>
                 </div>
             </div>
         </div>
@@ -1636,11 +1639,55 @@
             }
             
             // Risk metrics
-            updateElement('totalFunding', metrics.total_funding_paid, 'currency', 'negative');
-            updateElement('sharpeRatio', 0, 'number'); // Would need historical data to calculate
-            updateElement('calmarRatio', 0, 'number'); // Would need historical data to calculate
-            updateElement('dailyVar', 0, 'currency', 'negative'); // Would need historical data to calculate
-            updateElement('accountEquity2', summary.equity, 'currency', 'positive');
+            updateElement('totalFundingRisk', metrics.total_funding_paid, 'currency', 'negative');
+            
+            // Calculate max drawdown from closed positions
+            let runningPnL = 0;
+            let peak = 0;
+            let maxDrawdownValue = 0;
+            const sortedPositions = currentPortfolioData.positions
+                .filter(p => p.status === 'CLOSED')
+                .sort((a, b) => new Date(a.closed_at) - new Date(b.closed_at));
+            
+            sortedPositions.forEach(p => {
+                runningPnL += p.realized_pnl;
+                if (runningPnL > peak) peak = runningPnL;
+                const drawdown = peak - runningPnL;
+                if (drawdown > maxDrawdownValue) maxDrawdownValue = drawdown;
+            });
+            
+            updateElement('maxDrawdown', maxDrawdownValue, 'currency', 'negative');
+            const maxDrawdownPct = peak > 0 ? (maxDrawdownValue / peak * 100) : 0;
+            updateDescription('maxDrawdownPercent', maxDrawdownPct > 0 ? `${maxDrawdownPct.toFixed(1)}% from peak` : 'No drawdown');
+            
+            // Calculate Sharpe Ratio (simplified - would need daily returns for accurate calculation)
+            const avgReturn = metrics.total_positions > 0 ? metrics.total_realized_pnl / metrics.total_positions : 0;
+            const volatility = Math.sqrt(Math.abs(metrics.average_win * metrics.average_win * metrics.win_rate/100 + 
+                                                  metrics.average_loss * metrics.average_loss * (100-metrics.win_rate)/100));
+            const sharpe = volatility > 0 ? (avgReturn / volatility) : 0;
+            updateElement('sharpeRatio', sharpe, 'number');
+            
+            // Calculate Calmar Ratio
+            const calmar = maxDrawdownValue > 0 ? Math.abs(metrics.total_realized_pnl / maxDrawdownValue) : 0;
+            updateElement('calmarRatio', calmar, 'number');
+            
+            // Calculate leverage and liquidation info
+            const positionNotional = currentPos ? Math.abs(currentPos.size * currentETHPrice) : 0;
+            const leverage = summary.equity > 0 ? positionNotional / summary.equity : 0;
+            updateElement('leverageUsed', leverage, 'number');
+            updateDescription('leverageText', leverage > 0 ? `${leverage.toFixed(2)}x leverage` : 'No leverage');
+            
+            // Estimate liquidation price (simplified calculation)
+            if (currentPos && currentPos.side === 'LONG') {
+                const maintenanceMargin = 0.03; // 3% maintenance margin for ETH
+                const liqPrice = currentPos.entry_price * (1 - (summary.free_collateral / positionNotional));
+                updateElement('liquidationPrice', liqPrice, 'currency');
+                const buffer = ((currentETHPrice - liqPrice) / currentETHPrice * 100);
+                updateDescription('liquidationBuffer', buffer > 0 ? `${buffer.toFixed(1)}% buffer` : 'At risk');
+            } else {
+                updateElement('liquidationPrice', 0, 'currency');
+                updateDescription('liquidationBuffer', 'No position');
+            }
             
             // Update change descriptions
             const updateDescription = (id, text) => {
@@ -1727,6 +1774,46 @@
                 } else {
                     trackRecord.textContent = 'No trading history';
                 }
+            }
+            
+            // Update risk assessment details
+            const collateralPercent = summary.equity > 0 ? (summary.free_collateral / summary.equity * 100) : 0;
+            const collateralStatus = document.getElementById('riskCollateralStatus');
+            if (collateralStatus) {
+                collateralStatus.textContent = `${collateralPercent.toFixed(1)}% free collateral ${collateralPercent > 80 ? '(Low Risk)' : collateralPercent > 50 ? '(Medium Risk)' : '(High Risk)'}`;
+            }
+            
+            const positionStatus = document.getElementById('riskPositionStatus');
+            if (positionStatus && currentPos) {
+                positionStatus.textContent = `${Math.abs(currentPos.size)} ETH ${currentPos.side} position (${leverage.toFixed(2)}x leverage)`;
+            } else if (positionStatus) {
+                positionStatus.textContent = 'No open positions';
+            }
+            
+            const drawdownStatus = document.getElementById('riskDrawdownStatus');
+            if (drawdownStatus) {
+                if (maxDrawdownValue > 0) {
+                    const recoveryNeeded = (maxDrawdownValue / (peak - maxDrawdownValue)) * 100;
+                    drawdownStatus.textContent = `${maxDrawdownPct.toFixed(1)}% max drawdown, needs ${recoveryNeeded.toFixed(1)}% gain to recover`;
+                } else {
+                    drawdownStatus.textContent = 'No significant drawdowns';
+                }
+            }
+            
+            const riskScore = document.getElementById('riskScoreStatus');
+            if (riskScore) {
+                // Calculate overall risk score based on multiple factors
+                let score = 100;
+                if (collateralPercent < 50) score -= 30;
+                else if (collateralPercent < 80) score -= 10;
+                if (leverage > 5) score -= 30;
+                else if (leverage > 2) score -= 15;
+                if (maxDrawdownPct > 30) score -= 20;
+                else if (maxDrawdownPct > 15) score -= 10;
+                if (metrics.profit_factor < 1) score -= 20;
+                
+                const riskLevel = score >= 80 ? 'Low Risk' : score >= 60 ? 'Medium Risk' : 'High Risk';
+                riskScore.textContent = `${score}/100 (${riskLevel})`;
             }
             
             // Update radar chart with real metrics
