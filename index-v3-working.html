@@ -35,6 +35,15 @@
             </div>
         </div>
 
+        <!-- Data Status Badge -->
+        <div id="dataStatus" style="position: fixed; top: 70px; right: 20px; z-index: 100; display: none;">
+            <div style="background: var(--bg-elevated); border: 1px solid var(--border); padding: 8px 12px; 
+                        border-radius: 4px; font-size: 12px; display: flex; align-items: center; gap: 8px;">
+                <div id="statusDot" style="width: 8px; height: 8px; border-radius: 50%; background: var(--profit);"></div>
+                <span id="statusText" style="color: var(--text-secondary);">All systems operational</span>
+            </div>
+        </div>
+
         <!-- Data Warning (shown when data is incomplete) -->
         <div id="dataWarning" style="background: rgba(245, 158, 11, 0.1); border: 1px solid var(--warning); 
                                      padding: 12px; margin-bottom: 20px; border-radius: 4px; display: none;">
@@ -477,14 +486,27 @@
 
                 console.log('All data loaded:', allData);
 
-                // Show warning if some data failed to load
+                // Show status badge and warning if some data failed to load
+                const statusDiv = document.getElementById('dataStatus');
+                const statusDot = document.getElementById('statusDot');
+                const statusText = document.getElementById('statusText');
+                statusDiv.style.display = 'block';
+                
                 if (dataErrors.length > 0) {
                     const warningDiv = document.getElementById('dataWarning');
                     const warningText = document.getElementById('warningText');
                     warningText.textContent = `Failed to load: ${dataErrors.join(', ')}. Some metrics may be unavailable.`;
                     warningDiv.style.display = 'block';
+                    
+                    // Update status badge
+                    statusDot.style.background = 'var(--warning)';
+                    statusText.textContent = `${dataErrors.length} data source${dataErrors.length > 1 ? 's' : ''} unavailable`;
                 } else {
                     document.getElementById('dataWarning').style.display = 'none';
+                    
+                    // Update status badge
+                    statusDot.style.background = 'var(--profit)';
+                    statusText.textContent = 'All data loaded';
                 }
 
                 // Process and display data
