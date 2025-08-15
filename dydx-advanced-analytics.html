@@ -366,7 +366,7 @@
             <h1>Advanced Trading Analytics</h1>
             <div class="subtitle">dYdX Portfolio Performance & Risk Analysis</div>
             <div class="subtitle" style="font-size: 0.9em; color: #6a6a75;" id="accountDisplay">Enter address to load dashboard</div>
-            <div style="position: absolute; top: 10px; right: 10px; font-size: 0.8em; color: #6a6a75; opacity: 0.7;">v1.0.2</div>
+            <div style="position: absolute; top: 10px; right: 10px; font-size: 0.8em; color: #6a6a75; opacity: 0.7;">v1.0.3</div>
         </div>
         
         <div style="background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px; padding: 20px; margin-bottom: 30px; backdrop-filter: blur(10px);">
@@ -443,7 +443,8 @@
                 </div>
                 <div class="chart-container">
                     <div class="chart-header">
-                        <div class="chart-title">Market Exposure</div>
+                        <div class="chart-title">Trading Activity by Market</div>
+                        <div style="font-size: 0.85em; color: #a8a8b3; margin-top: 5px;">Distribution of trades across different markets</div>
                     </div>
                     <canvas id="marketExposureChart"></canvas>
                 </div>
@@ -460,8 +461,8 @@
                 </div>
                 <div class="metric-card">
                     <div class="metric-label">Unrealized P&L</div>
-                    <div class="metric-value" id="totalLosses">-</div>
-                    <div class="metric-change">Current ETH Position</div>
+                    <div class="metric-value" id="unrealizedPnl">-</div>
+                    <div class="metric-change">Open Positions</div>
                 </div>
                 <div class="metric-card">
                     <div class="metric-label">Average Win</div>
@@ -856,49 +857,108 @@
                 }
             });
             
-            // Market Exposure Chart - Shows distribution of trading activity across markets
+            // Trading Activity Chart - Shows distribution of trading across markets
             const exposureCtx = document.getElementById('marketExposureChart').getContext('2d');
             
             // Aggregate data by market
             const marketStats = {};
+            let totalTrades = 0;
+            
             currentPortfolioData.positions.forEach(p => {
                 if (!marketStats[p.market]) {
-                    marketStats[p.market] = { trades: 0, pnl: 0, volume: 0 };
+                    marketStats[p.market] = { 
+                        trades: 0, 
+                        pnl: 0, 
+                        volume: 0,
+                        openPositions: 0
+                    };
                 }
                 marketStats[p.market].trades++;
-                marketStats[p.market].pnl += p.realized_pnl || 0;
+                totalTrades++;
+                marketStats[p.market].pnl += p.realized_pnl || p.unrealized_pnl || 0;
                 marketStats[p.market].volume += Math.abs(p.size * (p.entry_price || 0));
+                if (p.status === 'OPEN') {
+                    marketStats[p.market].openPositions++;
+                }
             });
             
-            const markets = Object.keys(marketStats);
-            const tradeData = markets.map(m => marketStats[m].trades);
-            const hasData = tradeData.some(d => d > 0);
+            // Sort markets by trade count
+            const sortedMarkets = Object.entries(marketStats)
+                .sort((a, b) => b[1].trades - a[1].trades)
+                .slice(0, 5); // Show top 5 markets
+            
+            const hasData = sortedMarkets.length > 0;
+            
+            // Prepare data for chart
+            const labels = hasData ? 
+                sortedMarkets.map(([market, stats]) => 
+                    `${market} (${stats.trades} ${stats.trades === 1 ? 'trade' : 'trades'})`
+                ) : ['No Trading Data'];
+            
+            const data = hasData ? 
+                sortedMarkets.map(([market, stats]) => stats.trades) : [1];
+            
+            // Generate colors for each market
+            const colors = [
+                'rgba(79, 172, 254, 0.8)',   // Blue
+                'rgba(255, 217, 61, 0.8)',    // Yellow
+                'rgba(0, 242, 254, 0.8)',     // Cyan
+                'rgba(255, 107, 107, 0.8)',   // Red
+                'rgba(0, 255, 136, 0.8)'      // Green
+            ];
             
             charts.marketExposure = new Chart(exposureCtx, {
                 type: 'doughnut',
                 data: {
-                    labels: hasData ? markets : ['No Trading Data'],
+                    labels: labels,
                     datasets: [{
-                        data: hasData ? tradeData : [1],
-                        backgroundColor: [
-                            'rgba(79, 172, 254, 0.8)',
-                            'rgba(255, 217, 61, 0.8)'
-                        ],
+                        data: data,
+                        backgroundColor: hasData ? colors.slice(0, sortedMarkets.length) : ['rgba(100, 100, 100, 0.3)'],
                         borderColor: 'rgba(255, 255, 255, 0.2)',
                         borderWidth: 2
                     }]
                 },
                 options: {
                     responsive: true,
+                    maintainAspectRatio: true,
                     plugins: {
                         legend: {
                             position: 'bottom',
-                            labels: { color: '#a8a8b3' }
+                            labels: { 
+                                color: '#a8a8b3',
+                                padding: 15,
+                                font: { size: 11 },
+                                generateLabels: function(chart) {
+                                    const data = chart.data;
+                                    if (data.labels.length && data.datasets.length) {
+                                        return data.labels.map((label, i) => {
+                                            const value = data.datasets[0].data[i];
+                                            const percentage = hasData ? ((value / totalTrades) * 100).toFixed(1) : 0;
+                                            return {
+                                                text: hasData ? `${label} (${percentage}%)` : label,
+                                                fillStyle: data.datasets[0].backgroundColor[i],
+                                                hidden: false,
+                                                index: i
+                                            };
+                                        });
+                                    }
+                                    return [];
+                                }
+                            }
                         },
                         tooltip: {
                             callbacks: {
                                 label: function(context) {
-                                    return context.label + ': $' + context.raw.toLocaleString();
+                                    if (!hasData) return '';
+                                    const market = sortedMarkets[context.dataIndex];
+                                    if (!market) return context.label;
+                                    const stats = market[1];
+                                    const percentage = ((stats.trades / totalTrades) * 100).toFixed(1);
+                                    return [
+                                        `${stats.trades} trades (${percentage}% of total)`,
+                                        `Total P&L: $${stats.pnl.toFixed(2)}`,
+                                        stats.openPositions > 0 ? `${stats.openPositions} open position${stats.openPositions > 1 ? 's' : ''}` : 'No open positions'
+                                    ];
                                 }
                             }
                         }
@@ -1556,7 +1616,7 @@
             
             // Performance metrics
             updateElement('totalWins', metrics.average_win * (metrics.total_positions * metrics.win_rate / 100), 'currency', 'positive');
-            updateElement('totalLosses', metrics.average_loss * (metrics.total_positions * (100 - metrics.win_rate) / 100), 'currency', 'negative');
+            updateElement('unrealizedPnl', metrics.total_unrealized_pnl, 'currency', metrics.total_unrealized_pnl >= 0 ? 'positive' : 'negative');
             updateElement('avgWin', metrics.average_win, 'currency', 'positive');
             updateElement('avgLoss', metrics.average_loss, 'currency', 'negative');
             
@@ -1589,6 +1649,14 @@
             };
             
             // Update metric descriptions with real data
+            // Update equity change subtitle
+            const totalPnL = metrics.total_realized_pnl + metrics.total_unrealized_pnl;
+            const equityChangePercent = summary.usdc_balance !== 0 ? (totalPnL / Math.abs(summary.usdc_balance)) * 100 : 0;
+            updateDescription('equityChange', equityChangePercent !== 0 ? `${equityChangePercent >= 0 ? '+' : ''}${equityChangePercent.toFixed(2)}% All-time` : 'No change');
+            
+            // Update P&L breakdown
+            updateDescription('pnlBreakdown', `Realized: $${metrics.total_realized_pnl.toLocaleString()} | Unrealized: $${metrics.total_unrealized_pnl.toLocaleString()}`);
+            
             if (metrics.total_positions > 0) {
                 updateDescription('winLossRatio', `${metrics.win_rate > 0 ? Math.round(metrics.win_rate / (100 - metrics.win_rate)) : 0} Wins / 1 Loss`);
                 updateDescription('riskRewardText', metrics.profit_factor > 2 ? 'Excellent Risk/Reward' : metrics.profit_factor > 1 ? 'Good Risk/Reward' : 'Poor Risk/Reward');

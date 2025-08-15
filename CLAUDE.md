@@ -2,6 +2,24 @@
 
 ## Version History
 
+### v1.0.4 (2024-08-15)
+- Fixed incorrect unrealized P&L display
+- Changed element ID from 'totalLosses' to 'unrealizedPnl'
+- Now correctly displays unrealized P&L from API data
+- Unrealized P&L shows with proper formatting and color (red for negative, green for positive)
+- Fixed Total Equity subtitle to show all-time percentage change
+- Added P&L breakdown subtitle showing realized and unrealized amounts
+
+### v1.0.3 (2024-08-15)
+- Refined Market Exposure chart for better clarity
+- Renamed to "Trading Activity by Market"
+- Added subtitle explaining the chart purpose
+- Improved legend to show percentages
+- Enhanced tooltips with P&L and open positions info
+- Shows top 5 markets by trade count
+- Better color coding for different markets
+- Displays "(X trades)" in labels for clarity
+
 ### v1.0.2 (2024-08-15)
 - Fixed chart reuse error when loading different users
 - Added destroyAllCharts() function to properly cleanup before reinitializing
@@ -25,12 +43,18 @@
 
 ## Chart Explanations
 
-### Market Exposure
-The Market Exposure chart (doughnut chart on Overview tab) shows:
-- Distribution of trading activity across different markets (ETH-USD, BTC-USD, etc.)
-- Each segment represents the number of trades in that market
-- Helps visualize portfolio diversification and market focus
-- Shows "No Trading Data" when there are no positions
+### Trading Activity by Market (formerly Market Exposure)
+The Trading Activity chart (doughnut chart on Overview tab) shows:
+- Distribution of your trades across different markets (ETH-USD, BTC-USD, etc.)
+- Each slice size = number of trades in that market
+- Labels show market name and trade count
+- Legend shows percentage of total trading activity
+- Hover tooltip displays:
+  - Number of trades and percentage
+  - Total P&L for that market
+  - Number of open positions
+- Shows top 5 most traded markets
+- Helps identify trading focus and diversification
 
 ## Dashboard Components
 
