@@ -220,16 +220,29 @@ class DashboardApp {
      * Update Overview tab
      */
     updateOverviewTab(data) {
-        // Update primary metrics
-        document.getElementById('totalPnL').textContent = formatCurrency(data.metrics.totalPnL);
-        document.getElementById('winRate').textContent = formatPercent(data.metrics.winRate);
-        document.getElementById('profitFactor').textContent = formatNumber(data.metrics.profitFactor);
-        document.getElementById('sharpeRatio').textContent = formatNumber(data.metrics.sharpeRatio);
-        document.getElementById('sortinoRatio').textContent = formatNumber(data.metrics.sortinoRatio);
-        document.getElementById('maxDrawdown').textContent = formatPercent(data.metrics.maxDrawdown.percentage);
+        // Update primary metrics with safe access
+        this.safeUpdate('totalPnL', formatCurrency(data.metrics.totalPnL));
+        this.safeUpdate('winRate', formatPercent(data.metrics.winRate));
+        this.safeUpdate('profitFactor', formatNumber(data.metrics.profitFactor));
+        this.safeUpdate('sharpeRatio', formatNumber(data.metrics.sharpeRatio));
+        this.safeUpdate('sortinoRatio', formatNumber(data.metrics.sortinoRatio));
+        
+        if (data.metrics.maxDrawdown) {
+            this.safeUpdate('maxDrawdown', formatPercent(data.metrics.maxDrawdown.percentage));
+        }
         
         // Update quick stats
         this.updateQuickStats(data);
+    }
+    
+    /**
+     * Safe element update
+     */
+    safeUpdate(elementId, value) {
+        const element = document.getElementById(elementId);
+        if (element) {
+            element.textContent = value || '-';
+        }
     }
 
     /**
@@ -414,15 +427,15 @@ class DashboardApp {
      */
     updateQuickStats(data) {
         // Trading Statistics
-        document.getElementById('avgWin').textContent = formatCurrency(data.metrics.avgWin);
-        document.getElementById('avgLoss').textContent = formatCurrency(data.metrics.avgLoss);
-        document.getElementById('riskRewardRatio').textContent = '1:' + formatNumber(data.metrics.riskRewardRatio);
-        document.getElementById('expectancy').textContent = formatCurrency(data.metrics.expectancy);
-        document.getElementById('recoveryFactor').textContent = formatNumber(data.metrics.recoveryFactor);
+        this.safeUpdate('avgWin', formatCurrency(data.metrics.avgWin));
+        this.safeUpdate('avgLoss', formatCurrency(data.metrics.avgLoss));
+        this.safeUpdate('riskRewardRatio', data.metrics.riskRewardRatio ? '1:' + formatNumber(data.metrics.riskRewardRatio) : '-');
+        this.safeUpdate('expectancy', formatCurrency(data.metrics.expectancy));
+        this.safeUpdate('recoveryFactor', formatNumber(data.metrics.recoveryFactor));
         
         // Time Analysis
-        document.getElementById('avgWinHoldTime').textContent = this.formatDuration(data.metrics.avgWinHoldTime);
-        document.getElementById('avgLossHoldTime').textContent = this.formatDuration(data.metrics.avgLossHoldTime);
+        this.safeUpdate('avgWinHoldTime', this.formatDuration(data.metrics.avgWinHoldTime));
+        this.safeUpdate('avgLossHoldTime', this.formatDuration(data.metrics.avgLossHoldTime));
     }
 
     /**
