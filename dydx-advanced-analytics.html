@@ -384,37 +384,37 @@
         </div>
         
         <!-- Overview Tab -->
-        <div id="overview" class="tab-content active">
+        <div id="overview" class="tab-content active" style="display: none;">
             <div class="metrics-grid">
                 <div class="metric-card highlight">
                     <div class="metric-label">Total Equity</div>
                     <div class="metric-value" id="totalEquity">-</div>
-                    <div class="metric-change positive">+65.1% All-Time</div>
+                    <div class="metric-change" id="equityChange">-</div>
                 </div>
                 <div class="metric-card">
                     <div class="metric-label">Total P&L</div>
                     <div class="metric-value" id="totalRealized">-</div>
-                    <div class="metric-change">Realized + Unrealized</div>
+                    <div class="metric-change" id="pnlBreakdown">-</div>
                 </div>
                 <div class="metric-card">
                     <div class="metric-label">Win Rate</div>
                     <div class="metric-value" id="winRate">-</div>
-                    <div class="metric-change">6 Wins / 1 Loss</div>
+                    <div class="metric-change" id="winLossRatio">-</div>
                 </div>
                 <div class="metric-card">
                     <div class="metric-label">Profit Factor</div>
                     <div class="metric-value" id="profitFactor">-</div>
-                    <div class="metric-change">Excellent Risk/Reward</div>
+                    <div class="metric-change" id="riskRewardText">-</div>
                 </div>
                 <div class="metric-card">
                     <div class="metric-label">Active Positions</div>
                     <div class="metric-value" id="openPositions">-</div>
-                    <div class="metric-change">450 ETH Long</div>
+                    <div class="metric-change" id="positionSummary">-</div>
                 </div>
                 <div class="metric-card">
                     <div class="metric-label">Free Collateral</div>
                     <div class="metric-value" id="totalVolume">-</div>
-                    <div class="metric-change">91.9% Available</div>
+                    <div class="metric-change" id="collateralPercent">-</div>
                 </div>
             </div>
             
@@ -425,10 +425,10 @@
                 <div class="insight-content">
                     <ul style="margin-left: 20px; line-height: 1.8;">
                         <li id="performanceSummary">Loading performance data...</li>
-                        <li>Current ETH position down $107k but strong historical recovery pattern</li>
-                        <li>Excellent risk management with average win 5.26x larger than average loss</li>
-                        <li>Primary focus on ETH (5 trades) and BTC (3 trades) with consistent profits</li>
-                        <li>Healthy free collateral at 91.9% despite large position size</li>
+                        <li id="insightPosition">-</li>
+                        <li id="insightRisk">-</li>
+                        <li id="insightFocus">-</li>
+                        <li id="insightCollateral">-</li>
                     </ul>
                 </div>
             </div>
@@ -686,7 +686,7 @@
 
     <script>
         // Global variables
-        let researchData = null;
+        let currentPortfolioData = null; // Only populated with real data from dYdX API
         let currentAddress = '';
         let charts = {};
         let currentETHPrice = 0;
@@ -698,14 +698,27 @@
             return urlParams.get('address');
         }
         
-        // Initialize empty researchData structure if needed
-        if (!researchData) {
-            researchData = {
-                account_summary: {},
-                performance_metrics: {},
-                positions: []
-            };
-        }
+        // currentPortfolioData should only be populated from actual API responses, never initialized with empty data
+        
+        // Show initial message when page loads
+        window.addEventListener('DOMContentLoaded', () => {
+            if (!currentPortfolioData) {
+                // Hide all tab content
+                document.querySelectorAll('.tab-content').forEach(tab => {
+                    tab.style.display = 'none';
+                });
+                
+                // Create and show no data message
+                let noDataMsg = document.getElementById('noDataMessage');
+                if (!noDataMsg) {
+                    noDataMsg = document.createElement('div');
+                    noDataMsg.id = 'noDataMessage';
+                    noDataMsg.style.cssText = 'text-align: center; padding: 100px 20px; color: #a8a8b3;';
+                    noDataMsg.innerHTML = '<h2>No Portfolio Data Loaded</h2><p>Enter a dYdX address above and click "Load Dashboard" to view portfolio analytics.</p>';
+                    document.querySelector('.dashboard-container').appendChild(noDataMsg);
+                }
+            }
+        });
 
 
         function switchTab(tabName) {
@@ -736,7 +749,7 @@
         }
 
         function initOverviewCharts() {
-            if (!researchData || !researchData.positions || researchData.positions.length === 0) {
+            if (!currentPortfolioData || !currentPortfolioData.positions || currentPortfolioData.positions.length === 0) {
                 console.log('No position data available for charts');
                 return;
             }
@@ -749,7 +762,7 @@
             let runningTotal = 0;
             let dates = [];
             
-            researchData.positions.slice().reverse().forEach(pos => {
+            currentPortfolioData.positions.slice().reverse().forEach(pos => {
                 if (pos.status === 'CLOSED') {
                     runningTotal += pos.realized_pnl;
                     cumulative.push(runningTotal);
@@ -758,7 +771,7 @@
             });
             
             // Add current unrealized
-            cumulative.push(runningTotal + researchData.performance_metrics.total_unrealized_pnl);
+            cumulative.push(runningTotal + currentPortfolioData.performance_metrics.total_unrealized_pnl);
             dates.push('Current');
             
             charts.cumulativePnl = new Chart(cumulativeCtx, {
@@ -802,14 +815,14 @@
             const exposureCtx = document.getElementById('marketExposureChart').getContext('2d');
             
             const ethStats = {
-                trades: researchData.positions.filter(p => p.market === 'ETH-USD').length,
-                pnl: researchData.positions.filter(p => p.market === 'ETH-USD' && p.status === 'CLOSED')
+                trades: currentPortfolioData.positions.filter(p => p.market === 'ETH-USD').length,
+                pnl: currentPortfolioData.positions.filter(p => p.market === 'ETH-USD' && p.status === 'CLOSED')
                     .reduce((sum, p) => sum + p.realized_pnl, 0)
             };
             
             const btcStats = {
-                trades: researchData.positions.filter(p => p.market === 'BTC-USD').length,
-                pnl: researchData.positions.filter(p => p.market === 'BTC-USD' && p.status === 'CLOSED')
+                trades: currentPortfolioData.positions.filter(p => p.market === 'BTC-USD').length,
+                pnl: currentPortfolioData.positions.filter(p => p.market === 'BTC-USD' && p.status === 'CLOSED')
                     .reduce((sum, p) => sum + p.realized_pnl, 0)
             };
             
@@ -847,14 +860,14 @@
         }
 
         function initPerformanceCharts() {
-            if (!researchData || !researchData.positions || researchData.positions.length === 0) {
+            if (!currentPortfolioData || !currentPortfolioData.positions || currentPortfolioData.positions.length === 0) {
                 console.log('No position data available for performance charts');
                 return;
             }
             // Trade Distribution Chart
             const distCtx = document.getElementById('tradeDistributionChart').getContext('2d');
             
-            const pnlValues = researchData.positions
+            const pnlValues = currentPortfolioData.positions
                 .filter(p => p.status === 'CLOSED')
                 .map(p => p.realized_pnl)
                 .sort((a, b) => a - b);
@@ -899,7 +912,7 @@
             
             // Group trades by month
             const monthlyData = {};
-            researchData.positions.forEach(pos => {
+            currentPortfolioData.positions.forEach(pos => {
                 if (pos.status === 'CLOSED') {
                     const month = new Date(pos.closed_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short' });
                     if (!monthlyData[month]) monthlyData[month] = 0;
@@ -948,10 +961,10 @@
             const marketCtx = document.getElementById('pnlByMarketChart').getContext('2d');
             
             const marketPnL = {
-                'ETH-USD': researchData.positions
+                'ETH-USD': currentPortfolioData.positions
                     .filter(p => p.market === 'ETH-USD' && p.status === 'CLOSED')
                     .reduce((sum, p) => sum + p.realized_pnl, 0),
-                'BTC-USD': researchData.positions
+                'BTC-USD': currentPortfolioData.positions
                     .filter(p => p.market === 'BTC-USD' && p.status === 'CLOSED')
                     .reduce((sum, p) => sum + p.realized_pnl, 0)
             };
@@ -996,7 +1009,7 @@
             // Position Timeline Chart
             const timelineCtx = document.getElementById('positionTimelineChart').getContext('2d');
             
-            const currentPosition = researchData.positions.find(p => p.status === 'OPEN');
+            const currentPosition = currentPortfolioData.positions.find(p => p.status === 'OPEN');
             const entryPrice = currentPosition.entry_price;
             
             // Show only actual current price - no fake historical data
@@ -1097,7 +1110,7 @@
         }
 
         function initRiskCharts() {
-            if (!researchData || !researchData.positions || researchData.positions.length === 0) {
+            if (!currentPortfolioData || !currentPortfolioData.positions || currentPortfolioData.positions.length === 0) {
                 console.log('No position data available for risk charts');
                 return;
             }
@@ -1139,7 +1152,7 @@
             let peak = 0;
             let drawdowns = [];
             
-            researchData.positions.slice().reverse().forEach(pos => {
+            currentPortfolioData.positions.slice().reverse().forEach(pos => {
                 if (pos.status === 'CLOSED') {
                     const value = pos.realized_pnl;
                     equity.push(value);
@@ -1187,14 +1200,14 @@
         }
 
         function populateTradeHistory() {
-            if (!researchData || !researchData.positions || researchData.positions.length === 0) {
+            if (!currentPortfolioData || !currentPortfolioData.positions || currentPortfolioData.positions.length === 0) {
                 console.log('No position data available for trade history');
                 return;
             }
             const tbody = document.getElementById('tradesTableBody');
             tbody.innerHTML = '';
             
-            researchData.positions.forEach(pos => {
+            currentPortfolioData.positions.forEach(pos => {
                 const row = document.createElement('tr');
                 const duration = pos.closed_at ? 
                     Math.floor((new Date(pos.closed_at) - new Date(pos.created_at)) / (1000 * 60 * 60)) + 'h' : 
@@ -1284,7 +1297,16 @@
                 const positionsData = await positionsResponse.json();
                 
                 // Process data into research format
-                researchData = processPortfolioData(accountData, positionsData);
+                currentPortfolioData = processPortfolioData(accountData, positionsData);
+                
+                // Hide no data message and show dashboard
+                const noDataMsg = document.getElementById('noDataMessage');
+                if (noDataMsg) {
+                    noDataMsg.style.display = 'none';
+                }
+                
+                // Show the overview tab
+                document.getElementById('overview').style.display = 'block';
                 
                 // Update metrics display with real data
                 updateMetricsDisplay();
@@ -1423,7 +1445,7 @@
                             const accountData = await accountResponse.json();
                             const positionsData = await positionsResponse.json();
                             
-                            researchData = processPortfolioData(accountData, positionsData);
+                            currentPortfolioData = processPortfolioData(accountData, positionsData);
                             
                             // Update metrics displays
                             updateMetricsDisplay();
@@ -1436,7 +1458,7 @@
         }
         
         function updateMetricsDisplay() {
-            if (!researchData) return;
+            if (!currentPortfolioData) return;
             
             // Update overview metrics with real data
             const updateElement = (id, value, format = 'currency', condition = null) => {
@@ -1467,8 +1489,8 @@
                 }
             };
             
-            const metrics = researchData.performance_metrics;
-            const summary = researchData.account_summary;
+            const metrics = currentPortfolioData.performance_metrics;
+            const summary = currentPortfolioData.account_summary;
             
             // Overview metrics
             updateElement('totalEquity', summary.equity, 'currency', 'positive');
@@ -1485,14 +1507,14 @@
             updateElement('avgLoss', metrics.average_loss, 'currency', 'negative');
             
             // Find best and worst trades
-            const trades = researchData.positions.filter(p => p.status === 'CLOSED');
+            const trades = currentPortfolioData.positions.filter(p => p.status === 'CLOSED');
             const bestTrade = trades.reduce((max, p) => p.realized_pnl > max ? p.realized_pnl : max, 0);
             const worstTrade = trades.reduce((min, p) => p.realized_pnl < min ? p.realized_pnl : min, 0);
             updateElement('bestTrade', bestTrade, 'currency', 'positive');
             updateElement('worstTrade', worstTrade, 'currency', 'negative');
             
             // Current position metrics
-            const currentPos = researchData.positions.find(p => p.status === 'OPEN');
+            const currentPos = currentPortfolioData.positions.find(p => p.status === 'OPEN');
             if (currentPos) {
                 updateElement('positionSize', Math.abs(currentPos.size), 'eth');
                 updateElement('currentPriceDisplay', currentETHPrice, 'currency');
@@ -1506,11 +1528,30 @@
             updateElement('dailyVar', 0, 'currency', 'negative'); // Would need historical data to calculate
             updateElement('accountEquity2', summary.equity, 'currency', 'positive');
             
+            // Update change descriptions
+            const updateDescription = (id, text) => {
+                const element = document.getElementById(id);
+                if (element) element.textContent = text;
+            };
+            
+            // Update metric descriptions with real data
+            if (metrics.total_positions > 0) {
+                updateDescription('winLossRatio', `${metrics.win_rate > 0 ? Math.round(metrics.win_rate / (100 - metrics.win_rate)) : 0} Wins / 1 Loss`);
+                updateDescription('riskRewardText', metrics.profit_factor > 2 ? 'Excellent Risk/Reward' : metrics.profit_factor > 1 ? 'Good Risk/Reward' : 'Poor Risk/Reward');
+            }
+            
+            if (currentPos) {
+                updateDescription('positionSummary', `${Math.abs(currentPos.size)} ETH ${currentPos.side}`);
+            }
+            
+            const collateralUsed = summary.equity > 0 ? ((summary.equity - summary.free_collateral) / summary.equity * 100) : 0;
+            updateDescription('collateralPercent', `${(100 - collateralUsed).toFixed(1)}% Available`);
+            
             // Update performance summary
             const perfSummary = document.getElementById('performanceSummary');
             if (perfSummary) {
-                const rate = researchData.performance_metrics.win_rate || 0;
-                const factor = researchData.performance_metrics.profit_factor || 0;
+                const rate = currentPortfolioData.performance_metrics.win_rate || 0;
+                const factor = currentPortfolioData.performance_metrics.profit_factor || 0;
                 if (rate > 0 || factor > 0) {
                     perfSummary.textContent = `Performance: ${rate.toFixed(1)}% win rate with ${factor.toFixed(2)} profit factor`;
                 } else {
@@ -1521,8 +1562,8 @@
             // Update track record summary
             const trackRecord = document.getElementById('trackRecordSummary');
             if (trackRecord) {
-                const rate = researchData.performance_metrics.win_rate || 0;
-                const factor = researchData.performance_metrics.profit_factor || 0;
+                const rate = currentPortfolioData.performance_metrics.win_rate || 0;
+                const factor = currentPortfolioData.performance_metrics.profit_factor || 0;
                 if (rate > 0 || factor > 0) {
                     trackRecord.textContent = `${rate.toFixed(1)}% win rate, ${factor.toFixed(2)} profit factor`;
                 } else {
@@ -1532,7 +1573,7 @@
             
             // Update radar chart with real metrics
             if (charts.performanceRadar) {
-                const metrics = researchData.performance_metrics;
+                const metrics = currentPortfolioData.performance_metrics;
                 const normalizedData = [
                     Math.min(metrics.win_rate || 0, 100),
                     Math.min((metrics.profit_factor || 0) * 20, 100), // Scale profit factor
