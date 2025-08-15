@@ -372,16 +372,16 @@
                 ] = await Promise.all([
                     // Get subaccount details
                     fetch(`${DYDX_API}/addresses/${address}/subaccountNumber/0`),
-                    // Get perpetual positions  
-                    fetch(`${DYDX_API}/addresses/${address}/subaccountNumber/0/perpetualPositions?limit=100`),
-                    // Get orders
-                    fetch(`${DYDX_API}/addresses/${address}/subaccountNumber/0/orders?limit=100`),
-                    // Get fills
-                    fetch(`${DYDX_API}/addresses/${address}/subaccountNumber/0/fills?limit=100`),
-                    // Get transfers
-                    fetch(`${DYDX_API}/addresses/${address}/subaccountNumber/0/transfers?limit=100`),
-                    // Get historical P&L
-                    fetch(`${DYDX_API}/addresses/${address}/subaccountNumber/0/historicalPNLs?limit=90`)
+                    // Get perpetual positions - using query params
+                    fetch(`${DYDX_API}/perpetualPositions?address=${address}&subaccountNumber=0&limit=100`),
+                    // Get orders - using query params
+                    fetch(`${DYDX_API}/orders?address=${address}&subaccountNumber=0&limit=100`),
+                    // Get fills - using query params
+                    fetch(`${DYDX_API}/fills?address=${address}&subaccountNumber=0&limit=100`),
+                    // Get transfers - using query params
+                    fetch(`${DYDX_API}/transfers?address=${address}&subaccountNumber=0&limit=100`),
+                    // Get historical P&L - using query params
+                    fetch(`${DYDX_API}/historicalPNL?address=${address}&subaccountNumber=0&limit=90`)
                 ]);
 
                 // Parse responses
@@ -440,9 +440,25 @@
                 document.getElementById('updatedAt').textContent = formatDateTime(sub.updatedAt);
             }
 
-            // Process positions
-            if (allData.positions?.positions) {
-                const positions = allData.positions.positions;
+            // Process positions - first check subaccount, then separate endpoint
+            let positions = [];
+            
+            // First try to get positions from subaccount response
+            if (allData.subaccount?.subaccount?.openPerpetualPositions) {
+                // Convert object to array
+                positions = Object.values(allData.subaccount.subaccount.openPerpetualPositions).map(pos => ({
+                    ...pos,
+                    status: pos.status || 'OPEN'
+                }));
+                console.log('Using positions from subaccount response:', positions);
+            }
+            // Fall back to separate positions endpoint
+            else if (allData.positions?.positions) {
+                positions = allData.positions.positions;
+                console.log('Using positions from separate endpoint:', positions);
+            }
+            
+            if (positions.length > 0) {
                 let openCount = 0;
                 let totalRealized = 0;
                 let totalUnrealized = 0;
