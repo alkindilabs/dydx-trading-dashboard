@@ -3,13 +3,2073 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>dYdX Trading Dashboard - Redirecting...</title>
-    <script type="text/javascript">
-        // Preserve URL parameters when redirecting
-        window.location.replace("dydx-advanced-analytics.html" + window.location.search);
-    </script>
+    <title>dYdX Advanced Trading Analytics</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js" 
+            integrity="sha512-ElRFoEQdI5Ht6kZvyzXhYG9NqjtkmlkfYk0wr6wHxU9JEHakS7UJZNeml5ALk+8IKlU6jDgMabC3vkumRokgJA=="
+            crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios@1.6.2/dist/axios.min.js"
+            integrity="sha512-sI/MvQ2Du4gZIvC2YSgtNnCiOJJm7Gd1Z2zcEe8LlFAKzYk3wZWNWWqe5mYU2TO89SkCGxGZvQKT9DfyAB3KDqA=="
+            crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/date-fns@2.29.3/index.min.js"
+            integrity="sha512-dDde0kzMj7wq7BaKFn5TwKJV4jwoan6IypjJUS0RCJbMUv6hZ7ApFCftu8cXOXhVww1kEd0SRLDiZiOoKU6xqA=="
+            crossorigin="anonymous"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%);
+            color: #fff;
+            margin: 0;
+            padding: 20px;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .dashboard {
+            max-width: 1800px;
+            margin: 0 auto;
+            width: 100%;
+        }
+        
+        .footer {
+            margin-top: auto;
+            padding: 15px;
+            text-align: center;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            position: relative;
+        }
+        
+        .header h1 {
+            font-size: 2.8em;
+            margin-bottom: 10px;
+            background: linear-gradient(90deg, #00f2fe, #4facfe, #00f2fe);
+            background-size: 200% auto;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            animation: shimmer 3s linear infinite;
+        }
+        
+        .subtitle {
+            color: #a8a8b3;
+            font-size: 1.1em;
+            margin-bottom: 5px;
+        }
+        
+        @keyframes shimmer {
+            to { background-position: 200% center; }
+        }
+        
+        .nav-tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 30px;
+            border-bottom: 2px solid rgba(255, 255, 255, 0.1);
+            padding-bottom: 10px;
+        }
+        
+        .nav-tab {
+            padding: 10px 20px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px 8px 0 0;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            color: #a8a8b3;
+        }
+        
+        .nav-tab:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+        
+        .nav-tab.active {
+            background: linear-gradient(135deg, rgba(79, 172, 254, 0.2), rgba(0, 242, 254, 0.2));
+            border-color: #4facfe;
+            color: #fff;
+        }
+        
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content.active {
+            display: block;
+            animation: fadeIn 0.3s ease-in;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .metric-card {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 20px;
+            backdrop-filter: blur(10px);
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .metric-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 30px rgba(79, 172, 254, 0.3);
+        }
+        
+        .metric-card.highlight {
+            background: linear-gradient(135deg, rgba(79, 172, 254, 0.1), rgba(0, 242, 254, 0.1));
+        }
+        
+        .metric-label {
+            font-size: 0.85em;
+            color: #a8a8b3;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .metric-value {
+            font-size: 1.8em;
+            font-weight: bold;
+            color: #fff;
+            margin-bottom: 5px;
+        }
+        
+        .metric-change {
+            font-size: 0.9em;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        
+        .metric-value.positive { color: #00f2fe; }
+        .metric-value.negative { color: #ff6b6b; }
+        .metric-value.warning { color: #ffd93d; }
+        
+        .chart-container {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 25px;
+            backdrop-filter: blur(10px);
+            margin-bottom: 30px;
+        }
+        
+        .chart-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        
+        .chart-title {
+            font-size: 1.3em;
+            color: #4facfe;
+        }
+        
+        .chart-controls {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .btn {
+            padding: 8px 16px;
+            background: rgba(79, 172, 254, 0.2);
+            border: 1px solid #4facfe;
+            color: #fff;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 0.9em;
+        }
+        
+        .btn:hover {
+            background: rgba(79, 172, 254, 0.4);
+            transform: translateY(-2px);
+        }
+        
+        .btn.active {
+            background: linear-gradient(90deg, #4facfe, #00f2fe);
+        }
+        
+        .trade-history {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 25px;
+            backdrop-filter: blur(10px);
+        }
+        
+        .table-container {
+            overflow-x: auto;
+            margin-top: 20px;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        
+        th {
+            background: rgba(79, 172, 254, 0.1);
+            padding: 12px;
+            text-align: left;
+            font-weight: 600;
+            color: #4facfe;
+            border-bottom: 2px solid rgba(79, 172, 254, 0.3);
+        }
+        
+        td {
+            padding: 10px 12px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        
+        tr:hover {
+            background: rgba(255, 255, 255, 0.03);
+        }
+        
+        .status-badge {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.85em;
+            font-weight: 600;
+        }
+        
+        .status-badge.open {
+            background: rgba(255, 217, 61, 0.2);
+            color: #ffd93d;
+            border: 1px solid #ffd93d;
+        }
+        
+        .status-badge.closed {
+            background: rgba(0, 255, 136, 0.2);
+            color: #00ff88;
+            border: 1px solid #00ff88;
+        }
+        
+        .side-badge {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.85em;
+            font-weight: 600;
+        }
+        
+        .side-badge.long {
+            background: rgba(0, 242, 254, 0.2);
+            color: #00f2fe;
+            border: 1px solid #00f2fe;
+        }
+        
+        .side-badge.short {
+            background: rgba(255, 107, 107, 0.2);
+            color: #ff6b6b;
+            border: 1px solid #ff6b6b;
+        }
+        
+        .filter-section {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        
+        .filter-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .filter-group label {
+            font-size: 0.9em;
+            color: #a8a8b3;
+        }
+        
+        select {
+            padding: 6px 12px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: #fff;
+            border-radius: 6px;
+            font-size: 0.9em;
+        }
+        
+        .performance-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+            gap: 30px;
+            margin-bottom: 30px;
+        }
+        
+        .insight-box {
+            background: linear-gradient(135deg, rgba(79, 172, 254, 0.05), rgba(0, 242, 254, 0.05));
+            border: 1px solid rgba(79, 172, 254, 0.3);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .insight-title {
+            color: #4facfe;
+            font-size: 1.1em;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .insight-content {
+            color: #e0e0e0;
+            line-height: 1.6;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #a8a8b3;
+        }
+        
+        .spinner {
+            border: 3px solid rgba(255, 255, 255, 0.1);
+            border-top: 3px solid #4facfe;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        @media (max-width: 768px) {
+            .performance-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .metrics-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            
+            .filter-section {
+                flex-direction: column;
+            }
+        }
+    </style>
 </head>
 <body>
-    <p>If you are not redirected automatically, <a href="dydx-advanced-analytics.html">click here</a>.</p>
+    <div class="dashboard">
+        <div class="header">
+            <h1>Advanced Trading Analytics</h1>
+            <div class="subtitle">dYdX Portfolio Performance & Risk Analysis</div>
+            <div class="subtitle" style="font-size: 0.9em; color: #6a6a75;" id="accountDisplay">Enter address to load dashboard</div>
+            <div style="position: absolute; top: 10px; right: 10px; font-size: 0.8em; color: #6a6a75; opacity: 0.7;">v1.0.7-beta</div>
+        </div>
+        
+        <div style="background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px; padding: 20px; margin-bottom: 30px; backdrop-filter: blur(10px);">
+            <div style="display: flex; gap: 15px; align-items: center; justify-content: center;">
+                <input type="text" id="addressInput" placeholder="Enter dYdX address (e.g., dydx1...)" style="flex: 1; max-width: 600px; padding: 12px; border: 1px solid rgba(255, 255, 255, 0.2); background: rgba(255, 255, 255, 0.05); color: #fff; border-radius: 8px; font-size: 1em; font-family: monospace;" />
+                <button onclick="loadDashboardFromInput()" style="padding: 12px 24px; background: linear-gradient(90deg, #4facfe, #00f2fe); color: #fff; border: none; border-radius: 8px; font-size: 1em; font-weight: bold; cursor: pointer;">Load Dashboard</button>
+            </div>
+        </div>
+        
+        <div class="nav-tabs">
+            <div class="nav-tab" onclick="switchTab('overview', this)">Overview</div>
+            <div class="nav-tab" onclick="switchTab('performance', this)">Performance</div>
+            <div class="nav-tab" onclick="switchTab('positions', this)">Positions</div>
+            <div class="nav-tab" onclick="switchTab('history', this)">Trade History</div>
+            <div class="nav-tab" onclick="switchTab('risk', this)">Risk Analysis</div>
+        </div>
+        
+        <!-- Overview Tab (hidden by default until data loads) -->
+        <div id="overview" class="tab-content">
+            <div class="metrics-grid">
+                <div class="metric-card highlight">
+                    <div class="metric-label">Total Equity</div>
+                    <div class="metric-value" id="totalEquity">-</div>
+                    <div class="metric-change" id="equityChange">-</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Total P&L</div>
+                    <div class="metric-value" id="totalRealized">-</div>
+                    <div class="metric-change" id="pnlBreakdown">-</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Win Rate</div>
+                    <div class="metric-value" id="winRate">-</div>
+                    <div class="metric-change" id="winLossRatio">-</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Profit Factor</div>
+                    <div class="metric-value" id="profitFactor">-</div>
+                    <div class="metric-change" id="riskRewardText">-</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Active Positions</div>
+                    <div class="metric-value" id="openPositions">-</div>
+                    <div class="metric-change" id="positionSummary">-</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Free Collateral</div>
+                    <div class="metric-value" id="freeCollateral">-</div>
+                    <div class="metric-change" id="collateralPercent">-</div>
+                </div>
+            </div>
+            
+            <div class="insight-box">
+                <div class="insight-title">
+                    <span>💡</span> Key Insights
+                </div>
+                <div class="insight-content">
+                    <ul style="margin-left: 20px; line-height: 1.8;">
+                        <li id="performanceSummary">Loading performance data...</li>
+                        <li id="insightPosition">-</li>
+                        <li id="insightRisk">-</li>
+                        <li id="insightFocus">-</li>
+                        <li id="insightCollateral">-</li>
+                    </ul>
+                </div>
+            </div>
+            
+            <div class="performance-grid">
+                <div class="chart-container">
+                    <div class="chart-header">
+                        <div class="chart-title">Cumulative P&L</div>
+                    </div>
+                    <canvas id="cumulativePnlChart"></canvas>
+                </div>
+                <div class="chart-container">
+                    <div class="chart-header">
+                        <div class="chart-title">Trading Activity by Market</div>
+                        <div style="font-size: 0.85em; color: #a8a8b3; margin-top: 5px;">Distribution of trades across different markets</div>
+                    </div>
+                    <canvas id="marketExposureChart"></canvas>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Performance Tab -->
+        <div id="performance" class="tab-content">
+            <div class="metrics-grid">
+                <div class="metric-card">
+                    <div class="metric-label">Realized P&L</div>
+                    <div class="metric-value" id="totalWins">-</div>
+                    <div class="metric-change">From 7 Closed Trades</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Unrealized P&L</div>
+                    <div class="metric-value" id="unrealizedPnl">-</div>
+                    <div class="metric-change">Open Positions</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Average Win</div>
+                    <div class="metric-value" id="avgWin">-</div>
+                    <div class="metric-change">6 Winning Trades</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Average Loss</div>
+                    <div class="metric-value" id="avgLoss">-</div>
+                    <div class="metric-change">1 Losing Trade</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Best Trade</div>
+                    <div class="metric-value" id="bestTrade">-</div>
+                    <div class="metric-change">ETH Aug 6-10</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Worst Trade</div>
+                    <div class="metric-value" id="worstTrade">-</div>
+                    <div class="metric-change">ETH Aug 13</div>
+                </div>
+            </div>
+            
+            <div class="performance-grid">
+                <div class="chart-container">
+                    <div class="chart-header">
+                        <div class="chart-title">Trade Distribution</div>
+                    </div>
+                    <canvas id="tradeDistributionChart"></canvas>
+                </div>
+                <div class="chart-container">
+                    <div class="chart-header">
+                        <div class="chart-title">Monthly Performance</div>
+                    </div>
+                    <canvas id="monthlyPerformanceChart"></canvas>
+                </div>
+            </div>
+            
+            <div class="chart-container">
+                <div class="chart-header">
+                    <div class="chart-title">P&L by Market</div>
+                </div>
+                <canvas id="pnlByMarketChart"></canvas>
+            </div>
+        </div>
+        
+        <!-- Positions Tab -->
+        <div id="positions" class="tab-content">
+            <div class="insight-box">
+                <div class="insight-title">
+                    <span>📊</span> Current Position Analysis
+                </div>
+                <div class="insight-content">
+                    <strong>ETH-USD Long Position:</strong><br>
+                    • Size: 450 ETH ($2.1M notional at entry)<br>
+                    • Entry: $4,770.78 (Dec 14, 2024)<br>
+                    • Current P&L: -$107,176 (-22.5% on position)<br>
+                    • Leverage: ~4.1x based on equity<br>
+                    • Distance to liquidation: Safe margin with $466k free collateral
+                </div>
+            </div>
+            
+            <div class="performance-grid">
+                <div class="chart-container">
+                    <div class="chart-header">
+                        <div class="chart-title">Position Timeline</div>
+                    </div>
+                    <canvas id="positionTimelineChart"></canvas>
+                </div>
+                <div class="chart-container">
+                    <div class="chart-header">
+                        <div class="chart-title">P&L Scenarios</div>
+                    </div>
+                    <canvas id="scenarioChart"></canvas>
+                </div>
+            </div>
+            
+            <div class="metrics-grid">
+                <div class="metric-card">
+                    <div class="metric-label">ETH Exposure</div>
+                    <div class="metric-value" id="positionSize">-</div>
+                    <div class="metric-change">$2.09M Notional</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Entry Price</div>
+                    <div class="metric-value" id="currentPriceDisplay">-</div>
+                    <div class="metric-change">Dec 14, 06:30 UTC</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Break-even</div>
+                    <div class="metric-value" id="currentPriceDisplay">-</div>
+                    <div class="metric-change">+2.8% from current</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Target (10% Gain)</div>
+                    <div class="metric-value" id="targetPrice">-</div>
+                    <div class="metric-change">+$214,590 P&L</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Trade History Tab -->
+        <div id="history" class="tab-content">
+            <div class="trade-history">
+                <div class="chart-header">
+                    <div class="chart-title">Complete Trade History</div>
+                    <div class="filter-section">
+                        <div class="filter-group">
+                            <label>Market:</label>
+                            <select id="marketFilter" onchange="filterTrades()">
+                                <option value="all">All Markets</option>
+                                <option value="ETH-USD">ETH-USD</option>
+                                <option value="BTC-USD">BTC-USD</option>
+                            </select>
+                        </div>
+                        <div class="filter-group">
+                            <label>Status:</label>
+                            <select id="statusFilter" onchange="filterTrades()">
+                                <option value="all">All</option>
+                                <option value="OPEN">Open</option>
+                                <option value="CLOSED">Closed</option>
+                            </select>
+                        </div>
+                        <div class="filter-group">
+                            <label>Result:</label>
+                            <select id="resultFilter" onchange="filterTrades()">
+                                <option value="all">All</option>
+                                <option value="profit">Profitable</option>
+                                <option value="loss">Loss</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                <div class="table-container">
+                    <table id="tradesTable">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Market</th>
+                                <th>Side</th>
+                                <th>Size</th>
+                                <th>Entry</th>
+                                <th>Exit</th>
+                                <th>P&L</th>
+                                <th>ROI</th>
+                                <th>Status</th>
+                                <th>Duration</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tradesTableBody">
+                            <!-- Populated by JavaScript -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Risk Analysis Tab -->
+        <div id="risk" class="tab-content">
+            <div class="metrics-grid">
+                <div class="metric-card">
+                    <div class="metric-label">Total Funding Paid</div>
+                    <div class="metric-value" id="totalFundingRisk">-</div>
+                    <div class="metric-change">Cumulative funding costs</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Max Drawdown</div>
+                    <div class="metric-value" id="maxDrawdown">-</div>
+                    <div class="metric-change" id="maxDrawdownPercent">-</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Sharpe Ratio</div>
+                    <div class="metric-value" id="sharpeRatio">-</div>
+                    <div class="metric-change">Risk-Adjusted Return</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Calmar Ratio</div>
+                    <div class="metric-value" id="calmarRatio">-</div>
+                    <div class="metric-change">Return/Max DD</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Leverage Used</div>
+                    <div class="metric-value" id="leverageUsed">-</div>
+                    <div class="metric-change" id="leverageText">-</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Liquidation Price</div>
+                    <div class="metric-value" id="liquidationPrice">-</div>
+                    <div class="metric-change" id="liquidationBuffer">-</div>
+                </div>
+            </div>
+            
+            <div class="performance-grid">
+                <div class="chart-container">
+                    <div class="chart-header">
+                        <div class="chart-title">Risk Distribution</div>
+                    </div>
+                    <canvas id="riskDistributionChart"></canvas>
+                </div>
+                <div class="chart-container">
+                    <div class="chart-header">
+                        <div class="chart-title">Drawdown Analysis</div>
+                    </div>
+                    <canvas id="drawdownChart"></canvas>
+                </div>
+            </div>
+            
+            <div class="insight-box">
+                <div class="insight-title">
+                    <span>⚠️</span> Risk Assessment
+                </div>
+                <div class="insight-content" id="riskAssessmentContent">
+                    <strong>Current Risk Profile:</strong><br>
+                    • <span style="color: #00f2fe;">Collateral Status:</span> <span id="riskCollateralStatus">Loading...</span><br>
+                    • <span style="color: #ffd93d;">Position Risk:</span> <span id="riskPositionStatus">Loading...</span><br>
+                    • <span style="color: #00f2fe;">Track Record:</span> <span id="trackRecordSummary">Loading...</span><br>
+                    • <span style="color: #ffd93d;">Drawdown Status:</span> <span id="riskDrawdownStatus">Loading...</span><br>
+                    • <span style="color: #00f2fe;">Risk Score:</span> <span id="riskScoreStatus">Loading...</span>
+                </div>
+            </div>
+        </div>
+    </div> <!-- End dashboard -->
+    
+    <!-- Footer with beta disclaimer -->
+    <div class="footer">
+        <div style="font-size: 0.75em; color: #ffd93d; opacity: 0.8;">
+            ⚠️ Beta Version: Data calculations are experimental and may not reflect exact values
+        </div>
+    </div>
+
+    <script>
+        // Global variables
+        let currentPortfolioData = null; // Only populated with real data from dYdX API
+        let currentAddress = '';
+        let charts = {};
+        let currentETHPrice = 0;
+        const DYDX_API = 'https://indexer.dydx.trade/v4';
+        
+        // Theme configuration
+        const THEME = {
+            colors: {
+                primary: 'rgba(79, 172, 254, 0.8)',
+                secondary: '#00f2fe',
+                positive: '#00f2fe',
+                negative: '#ff3737',
+                warning: '#ffd93d',
+                text: '#a8a8b3',
+                textLight: '#6a6a75',
+                background: 'rgba(255, 255, 255, 0.05)',
+                backgroundDark: 'rgba(255, 255, 255, 0.02)',
+                gridLine: 'rgba(255, 255, 255, 0.05)',
+                border: 'rgba(255, 255, 255, 0.1)'
+            },
+            chart: {
+                fontFamily: '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+                fontSize: 12,
+                fontColor: '#a8a8b3',
+                gridColor: 'rgba(255, 255, 255, 0.05)'
+            }
+        };
+        
+        // Common chart configuration
+        const getChartDefaults = () => ({
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: {
+                intersect: false,
+                mode: 'index'
+            },
+            plugins: {
+                legend: {
+                    display: false
+                },
+                tooltip: {
+                    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                    padding: 12,
+                    cornerRadius: 8,
+                    titleFont: { size: 14 },
+                    bodyFont: { size: 13 }
+                }
+            },
+            scales: {
+                x: {
+                    grid: {
+                        display: false
+                    },
+                    ticks: {
+                        color: THEME.colors.text,
+                        font: {
+                            family: THEME.chart.fontFamily
+                        }
+                    }
+                },
+                y: {
+                    grid: {
+                        color: THEME.chart.gridColor,
+                        drawBorder: false
+                    },
+                    ticks: {
+                        color: THEME.colors.text,
+                        font: {
+                            family: THEME.chart.fontFamily
+                        }
+                    }
+                }
+            }
+        });
+        
+        // API helper functions
+        async function fetchFromAPI(endpoint) {
+            const response = await fetch(`${DYDX_API}${endpoint}`);
+            if (!response.ok) {
+                throw new Error(`Failed to fetch from ${endpoint}`);
+            }
+            return response.json();
+        }
+        
+        async function fetchMultiple(endpoints) {
+            const promises = endpoints.map(endpoint => fetchFromAPI(endpoint));
+            return Promise.all(promises);
+        }
+        
+        // Get address from URL parameters
+        function sanitizeInput(input) {
+            if (!input) return '';
+            // Remove any HTML tags and script content
+            return input.replace(/<[^>]*>/g, '').replace(/[<>"'&]/g, '');
+        }
+        
+        function validateDydxAddress(address) {
+            // dYdX addresses start with 'dydx' and are alphanumeric
+            const dydxPattern = /^dydx[a-z0-9]{39,}$/;
+            return dydxPattern.test(address);
+        }
+        
+        function getAddressFromURL() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const address = urlParams.get('address');
+            if (address) {
+                const sanitized = sanitizeInput(address);
+                if (validateDydxAddress(sanitized)) {
+                    return sanitized;
+                }
+                console.warn('Invalid dYdX address format in URL');
+                return null;
+            }
+            return null;
+        }
+        
+        // currentPortfolioData should only be populated from actual API responses, never initialized with empty data
+        
+        // Chart helper functions
+        function createChart(canvasId, type, data, customOptions = {}) {
+            const ctx = document.getElementById(canvasId).getContext('2d');
+            const defaultOptions = getChartDefaults();
+            
+            // Merge custom options with defaults
+            const options = {
+                ...defaultOptions,
+                ...customOptions,
+                plugins: {
+                    ...defaultOptions.plugins,
+                    ...customOptions.plugins
+                },
+                scales: {
+                    ...defaultOptions.scales,
+                    ...customOptions.scales
+                }
+            };
+            
+            return new Chart(ctx, {
+                type: type,
+                data: data,
+                options: options
+            });
+        }
+        
+        function formatCurrency(value) {
+            if (value >= 1000000) {
+                return '$' + (value / 1000000).toFixed(1) + 'M';
+            } else if (value >= 1000) {
+                return '$' + (value / 1000).toFixed(0) + 'k';
+            }
+            return '$' + value.toFixed(0);
+        }
+        
+        // Update element helper function
+        function updateElement(id, value, format = 'currency', condition = null) {
+            const element = document.getElementById(id);
+            if (!element) return;
+            
+            if (format === 'currency') {
+                element.textContent = value !== 0 ? `$${Math.abs(value).toLocaleString()}` : '-';
+            } else if (format === 'percent') {
+                element.textContent = value !== 0 ? `${value.toFixed(1)}%` : '-';
+            } else if (format === 'number') {
+                element.textContent = value !== 0 ? value.toFixed(2) : '-';
+            } else if (format === 'eth') {
+                element.textContent = value !== 0 ? `${value} ETH` : '-';
+            } else {
+                element.textContent = value || '-';
+            }
+            
+            // Apply color classes based on condition
+            if (condition === 'positive' && value > 0) {
+                element.className = 'metric-value positive';
+            } else if (condition === 'negative' && value < 0) {
+                element.className = 'metric-value negative';
+            } else if (condition === 'warning' && value > 0) {
+                element.className = 'metric-value warning';
+            } else {
+                element.className = 'metric-value';
+            }
+        }
+        
+        // Batch update helper to reduce repetitive updateElement calls
+        function updateMetrics(updates) {
+            updates.forEach(({ id, value, format = 'currency', condition = null }) => {
+                updateElement(id, value, format, condition);
+            });
+        }
+        
+        // Function to destroy all existing charts
+        function destroyAllCharts() {
+            Object.keys(charts).forEach(key => {
+                if (charts[key] && typeof charts[key].destroy === 'function') {
+                    charts[key].destroy();
+                    charts[key] = null;
+                }
+            });
+            charts = {}; // Reset charts object
+        }
+        
+        // Show initial message when page loads
+        window.addEventListener('DOMContentLoaded', () => {
+            if (!currentPortfolioData) {
+                // Make sure no tab content is active (CSS will hide them)
+                document.querySelectorAll('.tab-content').forEach(tab => {
+                    tab.classList.remove('active');
+                });
+                
+                // Remove active from all nav tabs
+                document.querySelectorAll('.nav-tab').forEach(tab => {
+                    tab.classList.remove('active');
+                });
+                
+                // Create and show no data message
+                let noDataMsg = document.getElementById('noDataMessage');
+                if (!noDataMsg) {
+                    noDataMsg = document.createElement('div');
+                    noDataMsg.id = 'noDataMessage';
+                    noDataMsg.style.cssText = 'text-align: center; padding: 100px 20px; color: #a8a8b3;';
+                    noDataMsg.textContent = '';
+                    const title = document.createElement('h2');
+                    title.textContent = 'No Portfolio Data Loaded';
+                    const desc = document.createElement('p');
+                    desc.textContent = 'Enter a dYdX address above and click "Load Dashboard" to view portfolio analytics.';
+                    noDataMsg.appendChild(title);
+                    noDataMsg.appendChild(desc);
+                    // Insert after the nav tabs
+                    const navTabs = document.querySelector('.nav-tabs');
+                    if (navTabs && navTabs.parentNode) {
+                        navTabs.parentNode.insertBefore(noDataMsg, navTabs.nextSibling);
+                    }
+                }
+            }
+        });
+
+
+        function switchTab(tabName, clickedElement) {
+            // Don't switch tabs if no data is loaded
+            if (!currentPortfolioData) {
+                console.log('No data loaded, cannot switch tabs');
+                showMessage('Please load data first by entering an address and clicking "Load Dashboard"', 'error');
+                setTimeout(hideMessage, 3000);
+                return;
+            }
+            
+            // Update tab buttons
+            document.querySelectorAll('.nav-tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            
+            // Find the clicked tab or use the element parameter
+            if (clickedElement) {
+                clickedElement.classList.add('active');
+            } else {
+                // Find tab by name if no element provided
+                const tabs = document.querySelectorAll('.nav-tab');
+                const tabNames = ['overview', 'performance', 'positions', 'history', 'risk'];
+                const tabIndex = tabNames.indexOf(tabName);
+                if (tabIndex >= 0 && tabs[tabIndex]) {
+                    tabs[tabIndex].classList.add('active');
+                }
+            }
+            
+            // Update content - remove active from all, then add to selected
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.classList.remove('active');
+            });
+            
+            const selectedTab = document.getElementById(tabName);
+            if (selectedTab) {
+                selectedTab.classList.add('active');
+            }
+            
+            // Initialize charts for the tab if needed
+            if (tabName === 'overview') {
+                if (!charts.cumulativePnl) initOverviewCharts();
+            } else if (tabName === 'performance') {
+                if (!charts.tradeDistribution) initPerformanceCharts();
+            } else if (tabName === 'positions') {
+                if (!charts.positionTimeline) initPositionCharts();
+            } else if (tabName === 'history') {
+                populateTradeHistory();
+            } else if (tabName === 'risk') {
+                if (!charts.riskDistribution) initRiskCharts();
+            }
+        }
+
+        function initOverviewCharts() {
+            if (!currentPortfolioData || !currentPortfolioData.positions || currentPortfolioData.positions.length === 0) {
+                console.log('No position data available for charts');
+                return;
+            }
+            
+            // Cumulative P&L Chart
+            const cumulativeCtx = document.getElementById('cumulativePnlChart').getContext('2d');
+            
+            // Calculate cumulative P&L
+            let cumulative = [];
+            let runningTotal = 0;
+            let dates = [];
+            
+            currentPortfolioData.positions.slice().reverse().forEach(pos => {
+                if (pos.status === 'CLOSED') {
+                    runningTotal += pos.realized_pnl;
+                    cumulative.push(runningTotal);
+                    dates.push(new Date(pos.closed_at).toLocaleDateString());
+                }
+            });
+            
+            // Add current unrealized
+            cumulative.push(runningTotal + currentPortfolioData.performance_metrics.total_unrealized_pnl);
+            dates.push('Current');
+            
+            charts.cumulativePnl = new Chart(cumulativeCtx, {
+                type: 'line',
+                data: {
+                    labels: dates,
+                    datasets: [{
+                        label: 'Cumulative P&L',
+                        data: cumulative,
+                        borderColor: 'rgba(79, 172, 254, 1)',
+                        backgroundColor: 'rgba(79, 172, 254, 0.1)',
+                        borderWidth: 3,
+                        tension: 0.4,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        y: {
+                            grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                            ticks: {
+                                color: '#a8a8b3',
+                                callback: function(value) {
+                                    return '$' + (value / 1000).toFixed(0) + 'k';
+                                }
+                            }
+                        },
+                        x: {
+                            grid: { display: false },
+                            ticks: { color: '#a8a8b3' }
+                        }
+                    }
+                }
+            });
+            
+            // Trading Activity Chart - Shows distribution of trading across markets
+            const exposureCtx = document.getElementById('marketExposureChart').getContext('2d');
+            
+            // Aggregate data by market
+            const marketStats = {};
+            let totalTrades = 0;
+            
+            currentPortfolioData.positions.forEach(p => {
+                if (!marketStats[p.market]) {
+                    marketStats[p.market] = { 
+                        trades: 0, 
+                        pnl: 0, 
+                        volume: 0,
+                        openPositions: 0
+                    };
+                }
+                marketStats[p.market].trades++;
+                totalTrades++;
+                marketStats[p.market].pnl += p.realized_pnl || p.unrealized_pnl || 0;
+                marketStats[p.market].volume += Math.abs(p.size * (p.entry_price || 0));
+                if (p.status === 'OPEN') {
+                    marketStats[p.market].openPositions++;
+                }
+            });
+            
+            // Sort markets by trade count
+            const sortedMarkets = Object.entries(marketStats)
+                .sort((a, b) => b[1].trades - a[1].trades)
+                .slice(0, 5); // Show top 5 markets
+            
+            const hasData = sortedMarkets.length > 0;
+            
+            // Prepare data for chart
+            const labels = hasData ? 
+                sortedMarkets.map(([market, stats]) => 
+                    `${market} (${stats.trades} ${stats.trades === 1 ? 'trade' : 'trades'})`
+                ) : ['No Trading Data'];
+            
+            const data = hasData ? 
+                sortedMarkets.map(([market, stats]) => stats.trades) : [1];
+            
+            // Generate colors for each market
+            const colors = [
+                'rgba(79, 172, 254, 0.8)',   // Blue
+                'rgba(255, 217, 61, 0.8)',    // Yellow
+                'rgba(0, 242, 254, 0.8)',     // Cyan
+                'rgba(255, 107, 107, 0.8)',   // Red
+                'rgba(0, 255, 136, 0.8)'      // Green
+            ];
+            
+            charts.marketExposure = new Chart(exposureCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        data: data,
+                        backgroundColor: hasData ? colors.slice(0, sortedMarkets.length) : ['rgba(100, 100, 100, 0.3)'],
+                        borderColor: 'rgba(255, 255, 255, 0.2)',
+                        borderWidth: 2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: { 
+                                color: '#a8a8b3',
+                                padding: 15,
+                                font: { size: 11 },
+                                generateLabels: function(chart) {
+                                    const data = chart.data;
+                                    if (data.labels.length && data.datasets.length) {
+                                        return data.labels.map((label, i) => {
+                                            const value = data.datasets[0].data[i];
+                                            const percentage = hasData ? ((value / totalTrades) * 100).toFixed(1) : 0;
+                                            return {
+                                                text: hasData ? `${label} (${percentage}%)` : label,
+                                                fillStyle: data.datasets[0].backgroundColor[i],
+                                                hidden: false,
+                                                index: i
+                                            };
+                                        });
+                                    }
+                                    return [];
+                                }
+                            }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    if (!hasData) return '';
+                                    const market = sortedMarkets[context.dataIndex];
+                                    if (!market) return context.label;
+                                    const stats = market[1];
+                                    const percentage = ((stats.trades / totalTrades) * 100).toFixed(1);
+                                    return [
+                                        `${stats.trades} trades (${percentage}% of total)`,
+                                        `Total P&L: $${stats.pnl.toFixed(2)}`,
+                                        stats.openPositions > 0 ? `${stats.openPositions} open position${stats.openPositions > 1 ? 's' : ''}` : 'No open positions'
+                                    ];
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function initPerformanceCharts() {
+            if (!currentPortfolioData || !currentPortfolioData.positions || currentPortfolioData.positions.length === 0) {
+                console.log('No position data available for performance charts');
+                return;
+            }
+            // Trade Distribution Chart
+            const distCtx = document.getElementById('tradeDistributionChart').getContext('2d');
+            
+            const pnlValues = currentPortfolioData.positions
+                .filter(p => p.status === 'CLOSED')
+                .map(p => p.realized_pnl)
+                .sort((a, b) => a - b);
+            
+            charts.tradeDistribution = new Chart(distCtx, {
+                type: 'bar',
+                data: {
+                    labels: pnlValues.map((_, i) => `Trade ${i + 1}`),
+                    datasets: [{
+                        label: 'P&L',
+                        data: pnlValues,
+                        backgroundColor: pnlValues.map(v => v >= 0 ? 'rgba(0, 242, 254, 0.6)' : 'rgba(255, 107, 107, 0.6)'),
+                        borderColor: 'rgba(255, 255, 255, 0.2)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        y: {
+                            grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                            ticks: {
+                                color: '#a8a8b3',
+                                callback: function(value) {
+                                    return '$' + (value / 1000).toFixed(0) + 'k';
+                                }
+                            }
+                        },
+                        x: {
+                            grid: { display: false },
+                            ticks: { color: '#a8a8b3' }
+                        }
+                    }
+                }
+            });
+            
+            // Monthly Performance Chart
+            const monthlyCtx = document.getElementById('monthlyPerformanceChart').getContext('2d');
+            
+            // Group trades by month
+            const monthlyData = {};
+            currentPortfolioData.positions.forEach(pos => {
+                if (pos.status === 'CLOSED') {
+                    const month = new Date(pos.closed_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short' });
+                    if (!monthlyData[month]) monthlyData[month] = 0;
+                    monthlyData[month] += pos.realized_pnl;
+                }
+            });
+            
+            charts.monthlyPerformance = new Chart(monthlyCtx, {
+                type: 'line',
+                data: {
+                    labels: Object.keys(monthlyData),
+                    datasets: [{
+                        label: 'Monthly P&L',
+                        data: Object.values(monthlyData),
+                        borderColor: 'rgba(0, 242, 254, 1)',
+                        backgroundColor: 'rgba(0, 242, 254, 0.1)',
+                        borderWidth: 3,
+                        tension: 0.4,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        y: {
+                            grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                            ticks: {
+                                color: '#a8a8b3',
+                                callback: function(value) {
+                                    return '$' + (value / 1000).toFixed(0) + 'k';
+                                }
+                            }
+                        },
+                        x: {
+                            grid: { display: false },
+                            ticks: { color: '#a8a8b3' }
+                        }
+                    }
+                }
+            });
+            
+            // P&L by Market Chart
+            const marketCtx = document.getElementById('pnlByMarketChart').getContext('2d');
+            
+            const marketPnL = {
+                'ETH-USD': currentPortfolioData.positions
+                    .filter(p => p.market === 'ETH-USD' && p.status === 'CLOSED')
+                    .reduce((sum, p) => sum + p.realized_pnl, 0),
+                'BTC-USD': currentPortfolioData.positions
+                    .filter(p => p.market === 'BTC-USD' && p.status === 'CLOSED')
+                    .reduce((sum, p) => sum + p.realized_pnl, 0)
+            };
+            
+            charts.pnlByMarket = new Chart(marketCtx, {
+                type: 'bar',
+                data: {
+                    labels: Object.keys(marketPnL),
+                    datasets: [{
+                        label: 'Realized P&L by Market',
+                        data: Object.values(marketPnL),
+                        backgroundColor: ['rgba(79, 172, 254, 0.6)', 'rgba(255, 217, 61, 0.6)'],
+                        borderColor: 'rgba(255, 255, 255, 0.2)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        y: {
+                            grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                            ticks: {
+                                color: '#a8a8b3',
+                                callback: function(value) {
+                                    return '$' + (value / 1000).toFixed(0) + 'k';
+                                }
+                            }
+                        },
+                        x: {
+                            grid: { display: false },
+                            ticks: { color: '#a8a8b3' }
+                        }
+                    }
+                }
+            });
+        }
+
+        function initPositionCharts() {
+            // Position Timeline Chart
+            const timelineCtx = document.getElementById('positionTimelineChart').getContext('2d');
+            
+            const currentPosition = currentPortfolioData.positions.find(p => p.status === 'OPEN');
+            const entryPrice = currentPosition.entry_price;
+            
+            // Show only actual current price - no fake historical data
+            const pricePoints = [entryPrice, currentETHPrice];
+            const labels = ['Entry', 'Current'];
+            
+            charts.positionTimeline = new Chart(timelineCtx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'ETH Price',
+                        data: pricePoints,
+                        borderColor: 'rgba(79, 172, 254, 1)',
+                        backgroundColor: 'rgba(79, 172, 254, 0.1)',
+                        borderWidth: 3,
+                        tension: 0.4,
+                        fill: true
+                    }, {
+                        label: 'Entry Price',
+                        data: new Array(labels.length).fill(entryPrice),
+                        borderColor: 'rgba(255, 217, 61, 1)',
+                        borderWidth: 2,
+                        borderDash: [5, 5],
+                        fill: false
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: {
+                            labels: { color: '#a8a8b3' }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                            ticks: {
+                                color: '#a8a8b3',
+                                callback: function(value) {
+                                    return '$' + value.toFixed(0);
+                                }
+                            }
+                        },
+                        x: {
+                            grid: { display: false },
+                            ticks: { color: '#a8a8b3' }
+                        }
+                    }
+                }
+            });
+            
+            // Scenario Analysis Chart
+            const scenarioCtx = document.getElementById('scenarioChart').getContext('2d');
+            
+            // Generate scenarios based on current price
+            const priceStep = currentETHPrice * 0.05; // 5% steps
+            const scenarios = [];
+            for (let i = -3; i <= 4; i++) {
+                scenarios.push(Math.round(currentETHPrice + (i * priceStep)));
+            }
+            const scenarioPnL = scenarios.map(price => (price - entryPrice) * currentPosition.size);
+            
+            charts.scenario = new Chart(scenarioCtx, {
+                type: 'bar',
+                data: {
+                    labels: scenarios.map(p => '$' + p),
+                    datasets: [{
+                        label: 'P&L at Price',
+                        data: scenarioPnL,
+                        backgroundColor: scenarioPnL.map(v => v >= 0 ? 'rgba(0, 242, 254, 0.6)' : 'rgba(255, 107, 107, 0.6)'),
+                        borderColor: 'rgba(255, 255, 255, 0.2)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        y: {
+                            grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                            ticks: {
+                                color: '#a8a8b3',
+                                callback: function(value) {
+                                    return '$' + (value / 1000).toFixed(0) + 'k';
+                                }
+                            }
+                        },
+                        x: {
+                            grid: { display: false },
+                            ticks: { color: '#a8a8b3' }
+                        }
+                    }
+                }
+            });
+        }
+
+        function initRiskCharts() {
+            if (!currentPortfolioData || !currentPortfolioData.positions || currentPortfolioData.positions.length === 0) {
+                console.log('No position data available for risk charts');
+                return;
+            }
+            // Risk Distribution Chart
+            const riskCtx = document.getElementById('riskDistributionChart').getContext('2d');
+            
+            charts.riskDistribution = new Chart(riskCtx, {
+                type: 'radar',
+                data: {
+                    labels: ['Win Rate', 'Profit Factor', 'Risk/Reward', 'Free Collateral', 'Position Diversity'],
+                    datasets: [{
+                        label: 'Risk Profile',
+                        data: [0, 0, 0, 0, 0], // Will be updated with real data
+                        borderColor: 'rgba(79, 172, 254, 1)',
+                        backgroundColor: 'rgba(79, 172, 254, 0.2)',
+                        borderWidth: 2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        r: {
+                            grid: { color: 'rgba(255, 255, 255, 0.1)' },
+                            ticks: { color: '#a8a8b3' },
+                            pointLabels: { color: '#a8a8b3' }
+                        }
+                    }
+                }
+            });
+            
+            // Drawdown Chart
+            const drawdownCtx = document.getElementById('drawdownChart').getContext('2d');
+            
+            // Calculate drawdown series
+            let equity = [];
+            let peak = 0;
+            let drawdowns = [];
+            
+            currentPortfolioData.positions.slice().reverse().forEach(pos => {
+                if (pos.status === 'CLOSED') {
+                    const value = pos.realized_pnl;
+                    equity.push(value);
+                    peak = Math.max(peak, value);
+                    drawdowns.push(((value - peak) / peak) * 100);
+                }
+            });
+            
+            charts.drawdown = new Chart(drawdownCtx, {
+                type: 'line',
+                data: {
+                    labels: drawdowns.map((_, i) => `Trade ${i + 1}`),
+                    datasets: [{
+                        label: 'Drawdown %',
+                        data: drawdowns,
+                        borderColor: 'rgba(255, 107, 107, 1)',
+                        backgroundColor: 'rgba(255, 107, 107, 0.1)',
+                        borderWidth: 2,
+                        tension: 0.4,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        y: {
+                            grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                            ticks: {
+                                color: '#a8a8b3',
+                                callback: function(value) {
+                                    return value.toFixed(1) + '%';
+                                }
+                            }
+                        },
+                        x: {
+                            grid: { display: false },
+                            ticks: { color: '#a8a8b3' }
+                        }
+                    }
+                }
+            });
+        }
+
+        function populateTradeHistory() {
+            if (!currentPortfolioData || !currentPortfolioData.positions || currentPortfolioData.positions.length === 0) {
+                console.log('No position data available for trade history');
+                return;
+            }
+            const tbody = document.getElementById('tradesTableBody');
+            while (tbody.firstChild) {
+                tbody.removeChild(tbody.firstChild);
+            }
+            
+            currentPortfolioData.positions.forEach(pos => {
+                const row = document.createElement('tr');
+                const duration = pos.closed_at ? 
+                    Math.floor((new Date(pos.closed_at) - new Date(pos.created_at)) / (1000 * 60 * 60)) + 'h' : 
+                    'Active';
+                
+                const roi = pos.entry_price ? ((pos.realized_pnl / (pos.size * pos.entry_price)) * 100).toFixed(2) : '0';
+                
+                // Create cells safely using DOM methods
+                const cells = [
+                    new Date(pos.created_at).toLocaleDateString(),
+                    pos.market,
+                    { type: 'side', side: pos.side },
+                    pos.size,
+                    '$' + (pos.entry_price?.toFixed(2) || '-'),
+                    '$' + (pos.exit_price?.toFixed(2) || '-'),
+                    { type: 'pnl', value: pos.realized_pnl },
+                    { type: 'roi', value: roi },
+                    { type: 'status', status: pos.status },
+                    duration
+                ];
+                
+                cells.forEach(cell => {
+                    const td = document.createElement('td');
+                    if (typeof cell === 'object' && cell !== null) {
+                        if (cell.type === 'side') {
+                            const span = document.createElement('span');
+                            span.className = 'side-badge ' + cell.side.toLowerCase();
+                            span.textContent = cell.side;
+                            td.appendChild(span);
+                        } else if (cell.type === 'pnl') {
+                            td.className = cell.value >= 0 ? 'positive' : 'negative';
+                            td.textContent = '$' + cell.value.toLocaleString();
+                        } else if (cell.type === 'roi') {
+                            td.className = cell.value >= 0 ? 'positive' : 'negative';
+                            td.textContent = cell.value + '%';
+                        } else if (cell.type === 'status') {
+                            const span = document.createElement('span');
+                            span.className = 'status-badge ' + cell.status.toLowerCase();
+                            span.textContent = cell.status;
+                            td.appendChild(span);
+                        }
+                    } else {
+                        td.textContent = cell;
+                    }
+                    row.appendChild(td);
+                });
+                tbody.appendChild(row);
+            });
+        }
+
+        function filterTrades() {
+            const market = document.getElementById('marketFilter').value;
+            const status = document.getElementById('statusFilter').value;
+            const result = document.getElementById('resultFilter').value;
+            
+            const rows = document.querySelectorAll('#tradesTableBody tr');
+            rows.forEach(row => {
+                const marketCell = row.cells[1].textContent;
+                const statusCell = row.cells[8].textContent;
+                const pnlCell = parseFloat(row.cells[6].textContent.replace(/[$,]/g, ''));
+                
+                let show = true;
+                
+                if (market !== 'all' && marketCell !== market) show = false;
+                if (status !== 'all' && statusCell !== status) show = false;
+                if (result === 'profit' && pnlCell < 0) show = false;
+                if (result === 'loss' && pnlCell >= 0) show = false;
+                
+                row.style.display = show ? '' : 'none';
+            });
+        }
+
+        // Load dashboard with address
+        async function loadDashboard(address) {
+            if (!address || !address.startsWith('dydx')) {
+                showMessage('Please enter a valid dYdX address (starting with dydx)');
+                return;
+            }
+            
+            // Destroy existing charts before loading new data
+            destroyAllCharts();
+            
+            currentAddress = address;
+            document.getElementById('accountDisplay').textContent = `Account: ${address}`;
+            
+            // Update URL
+            const newUrl = `${window.location.pathname}?address=${address}`;
+            window.history.pushState({ address }, '', newUrl);
+            
+            showMessage('Loading portfolio data...', 'info');
+            
+            try {
+                // Fetch current ETH price from dYdX
+                const candlesUrl = `${DYDX_API}/candles/perpetualMarkets/ETH-USD?resolution=1MIN&limit=1`;
+                const priceResponse = await fetch(candlesUrl);
+                const priceData = await priceResponse.json();
+                if (priceData.candles && priceData.candles.length > 0) {
+                    currentETHPrice = parseFloat(priceData.candles[0].close);
+                } else {
+                    currentETHPrice = 0; // No fallback - real data only
+                    console.warn('No candle data available, using fallback price');
+                }
+                
+                // Fetch account and positions data
+                const [accountResponse, positionsResponse] = await Promise.all([
+                    fetch(`${DYDX_API}/addresses/${address}/subaccountNumber/0`),
+                    fetch(`${DYDX_API}/perpetualPositions?address=${address}&subaccountNumber=0`)
+                ]);
+                
+                if (!accountResponse.ok) {
+                    throw new Error('Failed to fetch account data');
+                }
+                
+                const accountData = await accountResponse.json();
+                const positionsData = await positionsResponse.json();
+                
+                // Process data into research format
+                currentPortfolioData = processPortfolioData(accountData, positionsData);
+                
+                // Hide no data message and show dashboard
+                const noDataMsg = document.getElementById('noDataMessage');
+                if (noDataMsg) {
+                    noDataMsg.style.display = 'none';
+                }
+                
+                // Activate the overview tab and its nav button
+                document.getElementById('overview').classList.add('active');
+                // Make overview nav tab active (first tab)
+                document.querySelectorAll('.nav-tab').forEach(tab => tab.classList.remove('active'));
+                document.querySelector('.nav-tab').classList.add('active');
+                
+                // Update metrics display with real data
+                updateMetricsDisplay();
+                
+                // Initialize charts and UI
+                initOverviewCharts();
+                populateTradeHistory();
+                
+                hideMessage();
+                
+                // Start live updates
+                startLiveUpdates();
+                
+            } catch (error) {
+                console.error('Error loading dashboard:', error);
+                showMessage(`Failed to load data: ${error.message}`, 'error');
+            }
+        }
+        
+        function processPortfolioData(accountData, positionsData) {
+            const subaccount = accountData.subaccount || {};
+            const positions = positionsData.positions || [];
+            
+            // Calculate metrics
+            const openPositions = positions.filter(p => p.status === 'OPEN');
+            const closedPositions = positions.filter(p => p.status === 'CLOSED');
+            
+            const wins = closedPositions.filter(p => parseFloat(p.realizedPnl) > 0);
+            const losses = closedPositions.filter(p => parseFloat(p.realizedPnl) <= 0);
+            
+            const totalWins = wins.reduce((sum, p) => sum + parseFloat(p.realizedPnl), 0);
+            const totalLosses = Math.abs(losses.reduce((sum, p) => sum + parseFloat(p.realizedPnl), 0));
+            
+            const winRate = closedPositions.length > 0 ? (wins.length / closedPositions.length) * 100 : 0;
+            const profitFactor = totalLosses > 0 ? totalWins / totalLosses : totalWins > 0 ? 999 : 0;
+            
+            const totalRealized = closedPositions.reduce((sum, p) => sum + parseFloat(p.realizedPnl), 0);
+            const totalUnrealized = openPositions.reduce((sum, p) => sum + parseFloat(p.unrealizedPnl || 0), 0);
+            const totalFunding = positions.reduce((sum, p) => sum + parseFloat(p.netFunding || 0), 0);
+            
+            return {
+                account_summary: {
+                    equity: parseFloat(subaccount.equity || 0),
+                    free_collateral: parseFloat(subaccount.freeCollateral || 0),
+                    usdc_balance: parseFloat(subaccount.assetPositions?.USDC?.size || 0)
+                },
+                performance_metrics: {
+                    total_positions: positions.length,
+                    open_positions: openPositions.length,
+                    closed_positions: closedPositions.length,
+                    total_realized_pnl: totalRealized,
+                    total_unrealized_pnl: totalUnrealized,
+                    total_funding_paid: totalFunding,
+                    win_rate: winRate,
+                    average_win: wins.length > 0 ? totalWins / wins.length : 0,
+                    average_loss: losses.length > 0 ? totalLosses / losses.length : 0,
+                    profit_factor: profitFactor
+                },
+                positions: positions.map(p => ({
+                    market: p.market,
+                    status: p.status,
+                    side: p.side,
+                    size: parseFloat(p.size),
+                    entry_price: parseFloat(p.entryPrice || 0),
+                    exit_price: parseFloat(p.exitPrice || 0),
+                    realized_pnl: parseFloat(p.realizedPnl || 0),
+                    unrealized_pnl: parseFloat(p.unrealizedPnl || 0),
+                    created_at: p.createdAt,
+                    closed_at: p.closedAt
+                }))
+            };
+        }
+        
+        function showMessage(text, type = 'info') {
+            // Create or update message element
+            let messageEl = document.getElementById('messageBox');
+            if (!messageEl) {
+                messageEl = document.createElement('div');
+                messageEl.id = 'messageBox';
+                messageEl.style.cssText = `
+                    position: fixed;
+                    top: 50%;
+                    left: 50%;
+                    transform: translate(-50%, -50%);
+                    padding: 20px 40px;
+                    background: rgba(79, 172, 254, 0.9);
+                    border-radius: 12px;
+                    color: white;
+                    font-size: 1.1em;
+                    z-index: 9999;
+                    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+                `;
+                document.body.appendChild(messageEl);
+            }
+            
+            if (type === 'error') {
+                messageEl.style.background = 'rgba(255, 107, 107, 0.9)';
+            } else {
+                messageEl.style.background = 'rgba(79, 172, 254, 0.9)';
+            }
+            
+            messageEl.textContent = text;
+            messageEl.style.display = 'block';
+        }
+        
+        function hideMessage() {
+            const messageEl = document.getElementById('messageBox');
+            if (messageEl) {
+                messageEl.style.display = 'none';
+            }
+        }
+        
+        let updateInterval = null;
+        
+        function startLiveUpdates() {
+            if (updateInterval) clearInterval(updateInterval);
+            
+            updateInterval = setInterval(async () => {
+                if (currentAddress) {
+                    try {
+                        // Fetch latest data using helper
+                        const [priceData, accountData, positionsData] = await fetchMultiple([
+                            `/candles/perpetualMarkets/ETH-USD?resolution=1MIN&limit=1`,
+                            `/addresses/${currentAddress}/subaccountNumber/0`,
+                            `/perpetualPositions?address=${currentAddress}&subaccountNumber=0`
+                        ]);
+                        
+                        if (priceData && priceData.candles && priceData.candles.length > 0) {
+                            currentETHPrice = parseFloat(priceData.candles[0].close);
+                        }
+                        
+                        if (accountData && positionsData) {
+                            currentPortfolioData = processPortfolioData(accountData, positionsData);
+                            
+                            // Update metrics displays
+                            updateMetricsDisplay();
+                        }
+                    } catch (error) {
+                        console.error('Error updating data:', error);
+                    }
+                }
+            }, 10000); // Update every 10 seconds
+        }
+        
+        function updateMetricsDisplay() {
+            if (!currentPortfolioData) return;
+            
+            // Helper function to update text descriptions
+            const updateDescription = (id, text) => {
+                const element = document.getElementById(id);
+                if (element) element.textContent = text;
+            };
+            
+            const metrics = currentPortfolioData.performance_metrics;
+            const summary = currentPortfolioData.account_summary;
+            
+            // Batch update overview and performance metrics
+            updateMetrics([
+                // Overview metrics
+                { id: 'totalEquity', value: summary.equity, format: 'currency', condition: 'positive' },
+                { id: 'winRate', value: metrics.win_rate, format: 'percent', condition: 'positive' },
+                { id: 'profitFactor', value: metrics.profit_factor, format: 'number', condition: 'positive' },
+                { id: 'totalRealized', value: metrics.total_realized_pnl, format: 'currency', condition: 'positive' },
+                { id: 'openPositions', value: metrics.open_positions, format: 'raw', condition: 'warning' },
+                { id: 'freeCollateral', value: summary.free_collateral, format: 'currency', condition: 'positive' },
+                // Performance metrics
+                { id: 'totalWins', value: metrics.average_win * (metrics.total_positions * metrics.win_rate / 100), format: 'currency', condition: 'positive' },
+                { id: 'unrealizedPnl', value: metrics.total_unrealized_pnl, format: 'currency', condition: metrics.total_unrealized_pnl >= 0 ? 'positive' : 'negative' },
+                { id: 'avgWin', value: metrics.average_win, format: 'currency', condition: 'positive' },
+                { id: 'avgLoss', value: metrics.average_loss, format: 'currency', condition: 'negative' }
+            ]);
+            
+            // Find best and worst trades
+            const trades = currentPortfolioData.positions.filter(p => p.status === 'CLOSED');
+            const bestTrade = trades.reduce((max, p) => p.realized_pnl > max ? p.realized_pnl : max, 0);
+            const worstTrade = trades.reduce((min, p) => p.realized_pnl < min ? p.realized_pnl : min, 0);
+            updateElement('bestTrade', bestTrade, 'currency', 'positive');
+            updateElement('worstTrade', worstTrade, 'currency', 'negative');
+            
+            // Current position metrics
+            const currentPos = currentPortfolioData.positions.find(p => p.status === 'OPEN');
+            if (currentPos) {
+                updateElement('positionSize', Math.abs(currentPos.size), 'eth');
+                updateElement('currentPriceDisplay', currentETHPrice, 'currency');
+                updateElement('targetPrice', currentPos.entry_price * 1.1, 'currency', 'positive'); // 10% target
+            }
+            
+            // Risk metrics
+            updateElement('totalFundingRisk', metrics.total_funding_paid, 'currency', 'negative');
+            
+            // Calculate max drawdown from closed positions
+            let runningPnL = 0;
+            let peak = 0;
+            let maxDrawdownValue = 0;
+            const sortedPositions = currentPortfolioData.positions
+                .filter(p => p.status === 'CLOSED')
+                .sort((a, b) => new Date(a.closed_at) - new Date(b.closed_at));
+            
+            sortedPositions.forEach(p => {
+                runningPnL += p.realized_pnl;
+                if (runningPnL > peak) peak = runningPnL;
+                const drawdown = peak - runningPnL;
+                if (drawdown > maxDrawdownValue) maxDrawdownValue = drawdown;
+            });
+            
+            updateElement('maxDrawdown', maxDrawdownValue, 'currency', 'negative');
+            const maxDrawdownPct = peak > 0 ? (maxDrawdownValue / peak * 100) : 0;
+            updateDescription('maxDrawdownPercent', maxDrawdownPct > 0 ? `${maxDrawdownPct.toFixed(1)}% from peak` : 'No drawdown');
+            
+            // Calculate Sharpe Ratio (simplified - would need daily returns for accurate calculation)
+            const avgReturn = metrics.total_positions > 0 ? metrics.total_realized_pnl / metrics.total_positions : 0;
+            const volatility = Math.sqrt(Math.abs(metrics.average_win * metrics.average_win * metrics.win_rate/100 + 
+                                                  metrics.average_loss * metrics.average_loss * (100-metrics.win_rate)/100));
+            const sharpe = volatility > 0 ? (avgReturn / volatility) : 0;
+            updateElement('sharpeRatio', sharpe, 'number');
+            
+            // Calculate Calmar Ratio
+            const calmar = maxDrawdownValue > 0 ? Math.abs(metrics.total_realized_pnl / maxDrawdownValue) : 0;
+            updateElement('calmarRatio', calmar, 'number');
+            
+            // Calculate leverage and liquidation info
+            const positionNotional = currentPos ? Math.abs(currentPos.size * currentETHPrice) : 0;
+            const leverage = summary.equity > 0 ? positionNotional / summary.equity : 0;
+            updateElement('leverageUsed', leverage, 'number');
+            updateDescription('leverageText', leverage > 0 ? `${leverage.toFixed(2)}x leverage` : 'No leverage');
+            
+            // Calculate collateral percentage for use in multiple places
+            const collateralPercent = summary.equity > 0 ? (summary.free_collateral / summary.equity * 100) : 0;
+            
+            // Estimate liquidation price (simplified calculation)
+            if (currentPos && currentPos.side === 'LONG') {
+                const maintenanceMargin = 0.03; // 3% maintenance margin for ETH
+                const liqPrice = currentPos.entry_price * (1 - (summary.free_collateral / positionNotional));
+                updateElement('liquidationPrice', liqPrice, 'currency');
+                const buffer = ((currentETHPrice - liqPrice) / currentETHPrice * 100);
+                updateDescription('liquidationBuffer', buffer > 0 ? `${buffer.toFixed(1)}% buffer` : 'At risk');
+            } else {
+                updateElement('liquidationPrice', 0, 'currency');
+                updateDescription('liquidationBuffer', 'No position');
+            }
+            
+            // Update metric descriptions with real data
+            // Update equity change subtitle
+            const totalPnL = metrics.total_realized_pnl + metrics.total_unrealized_pnl;
+            const equityChangePercent = summary.usdc_balance !== 0 ? (totalPnL / Math.abs(summary.usdc_balance)) * 100 : 0;
+            updateDescription('equityChange', equityChangePercent !== 0 ? `${equityChangePercent >= 0 ? '+' : ''}${equityChangePercent.toFixed(2)}% All-time` : 'No change');
+            
+            // Update P&L breakdown
+            updateDescription('pnlBreakdown', `Realized: $${metrics.total_realized_pnl.toLocaleString()} | Unrealized: $${metrics.total_unrealized_pnl.toLocaleString()}`);
+            
+            if (metrics.total_positions > 0) {
+                updateDescription('winLossRatio', `${metrics.win_rate > 0 ? Math.round(metrics.win_rate / (100 - metrics.win_rate)) : 0} Wins / 1 Loss`);
+                updateDescription('riskRewardText', metrics.profit_factor > 2 ? 'Excellent Risk/Reward' : metrics.profit_factor > 1 ? 'Good Risk/Reward' : 'Poor Risk/Reward');
+            }
+            
+            if (currentPos) {
+                updateDescription('positionSummary', `${Math.abs(currentPos.size)} ETH ${currentPos.side}`);
+            }
+            
+            updateDescription('collateralPercent', `${collateralPercent.toFixed(1)}% Available`);
+            
+            // Update Key Insights
+            const updateInsight = (id, text) => {
+                const element = document.getElementById(id);
+                if (element) element.textContent = text;
+            };
+            
+            if (currentPos) {
+                const pnlAmount = currentPos.unrealized_pnl || 0;
+                const pnlDirection = pnlAmount >= 0 ? 'up' : 'down';
+                updateInsight('insightPosition', `Current ${currentPos.market} position ${pnlDirection} $${Math.abs(pnlAmount).toLocaleString()}`);
+            } else {
+                updateInsight('insightPosition', 'No open positions');
+            }
+            
+            if (metrics.average_win > 0 && metrics.average_loss > 0) {
+                const ratio = (metrics.average_win / metrics.average_loss).toFixed(2);
+                updateInsight('insightRisk', `Risk management: average win ${ratio}x larger than average loss`);
+            } else {
+                updateInsight('insightRisk', 'Insufficient trade history for risk analysis');
+            }
+            
+            // Analyze market focus
+            const markets = {};
+            currentPortfolioData.positions.forEach(p => {
+                markets[p.market] = (markets[p.market] || 0) + 1;
+            });
+            const topMarkets = Object.entries(markets).sort((a, b) => b[1] - a[1]).slice(0, 2);
+            if (topMarkets.length > 0) {
+                const focusText = topMarkets.map(([market, count]) => `${market} (${count} trades)`).join(', ');
+                updateInsight('insightFocus', `Primary focus on ${focusText}`);
+            } else {
+                updateInsight('insightFocus', 'No trading history available');
+            }
+            
+            updateInsight('insightCollateral', `${collateralPercent.toFixed(1)}% free collateral available`);
+            
+            // Update performance summary
+            const perfSummary = document.getElementById('performanceSummary');
+            if (perfSummary) {
+                const rate = currentPortfolioData.performance_metrics.win_rate || 0;
+                const factor = currentPortfolioData.performance_metrics.profit_factor || 0;
+                if (rate > 0 || factor > 0) {
+                    perfSummary.textContent = `Performance: ${rate.toFixed(1)}% win rate with ${factor.toFixed(2)} profit factor`;
+                } else {
+                    perfSummary.textContent = 'No trading history available';
+                }
+            }
+            
+            // Update track record summary
+            const trackRecord = document.getElementById('trackRecordSummary');
+            if (trackRecord) {
+                const rate = currentPortfolioData.performance_metrics.win_rate || 0;
+                const factor = currentPortfolioData.performance_metrics.profit_factor || 0;
+                if (rate > 0 || factor > 0) {
+                    trackRecord.textContent = `${rate.toFixed(1)}% win rate, ${factor.toFixed(2)} profit factor`;
+                } else {
+                    trackRecord.textContent = 'No trading history';
+                }
+            }
+            
+            // Update risk assessment details
+            const collateralStatus = document.getElementById('riskCollateralStatus');
+            if (collateralStatus) {
+                collateralStatus.textContent = `${collateralPercent.toFixed(1)}% free collateral ${collateralPercent > 80 ? '(Low Risk)' : collateralPercent > 50 ? '(Medium Risk)' : '(High Risk)'}`;
+            }
+            
+            const positionStatus = document.getElementById('riskPositionStatus');
+            if (positionStatus && currentPos) {
+                positionStatus.textContent = `${Math.abs(currentPos.size)} ETH ${currentPos.side} position (${leverage.toFixed(2)}x leverage)`;
+            } else if (positionStatus) {
+                positionStatus.textContent = 'No open positions';
+            }
+            
+            const drawdownStatus = document.getElementById('riskDrawdownStatus');
+            if (drawdownStatus) {
+                if (maxDrawdownValue > 0) {
+                    const recoveryNeeded = (maxDrawdownValue / (peak - maxDrawdownValue)) * 100;
+                    drawdownStatus.textContent = `${maxDrawdownPct.toFixed(1)}% max drawdown, needs ${recoveryNeeded.toFixed(1)}% gain to recover`;
+                } else {
+                    drawdownStatus.textContent = 'No significant drawdowns';
+                }
+            }
+            
+            const riskScore = document.getElementById('riskScoreStatus');
+            if (riskScore) {
+                // Calculate overall risk score based on multiple factors
+                let score = 100;
+                if (collateralPercent < 50) score -= 30;
+                else if (collateralPercent < 80) score -= 10;
+                if (leverage > 5) score -= 30;
+                else if (leverage > 2) score -= 15;
+                if (maxDrawdownPct > 30) score -= 20;
+                else if (maxDrawdownPct > 15) score -= 10;
+                if (metrics.profit_factor < 1) score -= 20;
+                
+                const riskLevel = score >= 80 ? 'Low Risk' : score >= 60 ? 'Medium Risk' : 'High Risk';
+                riskScore.textContent = `${score}/100 (${riskLevel})`;
+            }
+            
+            // Update radar chart with real metrics
+            if (charts.performanceRadar) {
+                const metrics = currentPortfolioData.performance_metrics;
+                const normalizedData = [
+                    Math.min(metrics.win_rate || 0, 100),
+                    Math.min((metrics.profit_factor || 0) * 20, 100), // Scale profit factor
+                    Math.min((metrics.total_positions || 0) / 10 * 100, 100), // Scale position count
+                    metrics.open_positions > 0 ? 50 : 0, // Risk management
+                    50 // Default sharpe ratio placeholder
+                ];
+                charts.performanceRadar.data.datasets[0].data = normalizedData;
+                charts.performanceRadar.update();
+            }
+        }
+        
+        function loadDashboardFromInput() {
+            const rawAddress = document.getElementById('addressInput').value.trim();
+            if (rawAddress) {
+                const sanitizedAddress = sanitizeInput(rawAddress);
+                if (validateDydxAddress(sanitizedAddress)) {
+                    loadDashboard(sanitizedAddress);
+                } else {
+                    showMessage('Invalid dYdX address format. Address should start with "dydx" followed by alphanumeric characters.', 'error');
+                    setTimeout(hideMessage, 3000);
+                }
+            } else {
+                showMessage('Please enter a dYdX address', 'error');
+                setTimeout(hideMessage, 3000);
+            }
+        }
+        
+        // Initialize on load
+        window.addEventListener('load', () => {
+            // Check for address in URL and auto-load if present
+            const urlAddress = getAddressFromURL();
+            
+            if (urlAddress) {
+                // Pre-fill the input
+                document.getElementById('addressInput').value = urlAddress;
+                // Show loading message immediately
+                const noDataMsg = document.getElementById('noDataMessage');
+                if (noDataMsg) {
+                    noDataMsg.textContent = '';
+                    const loadingTitle = document.createElement('h2');
+                    loadingTitle.textContent = 'Loading Portfolio...';
+                    const loadingDesc = document.createElement('p');
+                    loadingDesc.textContent = 'Fetching data for ' + urlAddress;
+                    noDataMsg.appendChild(loadingTitle);
+                    noDataMsg.appendChild(loadingDesc);
+                }
+                // Automatically load the dashboard for this address
+                console.log('Loading dashboard for address from URL:', urlAddress);
+                setTimeout(() => loadDashboard(urlAddress), 100); // Small delay to ensure DOM is ready
+            }
+            // No default address - user must provide one
+        });
+    </script>
 </body>
 </html>
