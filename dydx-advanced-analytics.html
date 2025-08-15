@@ -393,7 +393,7 @@
                 </div>
                 <div class="metric-card">
                     <div class="metric-label">Total P&L</div>
-                    <div class="metric-value positive">$223,486</div>
+                    <div class="metric-value" id="totalRealized">-</div>
                     <div class="metric-change">Realized + Unrealized</div>
                 </div>
                 <div class="metric-card">
@@ -408,12 +408,12 @@
                 </div>
                 <div class="metric-card">
                     <div class="metric-label">Active Positions</div>
-                    <div class="metric-value warning">1</div>
+                    <div class="metric-value" id="openPositions">-</div>
                     <div class="metric-change">450 ETH Long</div>
                 </div>
                 <div class="metric-card">
                     <div class="metric-label">Free Collateral</div>
-                    <div class="metric-value">$466,796</div>
+                    <div class="metric-value" id="totalVolume">-</div>
                     <div class="metric-change">91.9% Available</div>
                 </div>
             </div>
@@ -454,32 +454,32 @@
             <div class="metrics-grid">
                 <div class="metric-card">
                     <div class="metric-label">Realized P&L</div>
-                    <div class="metric-value positive">$330,661</div>
+                    <div class="metric-value" id="totalWins">-</div>
                     <div class="metric-change">From 7 Closed Trades</div>
                 </div>
                 <div class="metric-card">
                     <div class="metric-label">Unrealized P&L</div>
-                    <div class="metric-value negative">-$107,176</div>
+                    <div class="metric-value" id="totalLosses">-</div>
                     <div class="metric-change">Current ETH Position</div>
                 </div>
                 <div class="metric-card">
                     <div class="metric-label">Average Win</div>
-                    <div class="metric-value positive">$56,913</div>
+                    <div class="metric-value" id="avgWin">-</div>
                     <div class="metric-change">6 Winning Trades</div>
                 </div>
                 <div class="metric-card">
                     <div class="metric-label">Average Loss</div>
-                    <div class="metric-value negative">$10,814</div>
+                    <div class="metric-value" id="avgLoss">-</div>
                     <div class="metric-change">1 Losing Trade</div>
                 </div>
                 <div class="metric-card">
                     <div class="metric-label">Best Trade</div>
-                    <div class="metric-value positive">$128,242</div>
+                    <div class="metric-value" id="bestTrade">-</div>
                     <div class="metric-change">ETH Aug 6-10</div>
                 </div>
                 <div class="metric-card">
                     <div class="metric-label">Worst Trade</div>
-                    <div class="metric-value negative">-$10,814</div>
+                    <div class="metric-value" id="worstTrade">-</div>
                     <div class="metric-change">ETH Aug 13</div>
                 </div>
             </div>
@@ -541,22 +541,22 @@
             <div class="metrics-grid">
                 <div class="metric-card">
                     <div class="metric-label">ETH Exposure</div>
-                    <div class="metric-value">450 ETH</div>
+                    <div class="metric-value" id="positionSize">-</div>
                     <div class="metric-change">$2.09M Notional</div>
                 </div>
                 <div class="metric-card">
                     <div class="metric-label">Entry Price</div>
-                    <div class="metric-value">$4,770.78</div>
+                    <div class="metric-value" id="currentPriceDisplay">-</div>
                     <div class="metric-change">Dec 14, 06:30 UTC</div>
                 </div>
                 <div class="metric-card">
                     <div class="metric-label">Break-even</div>
-                    <div class="metric-value">$4,770.78</div>
+                    <div class="metric-value" id="currentPriceDisplay">-</div>
                     <div class="metric-change">+2.8% from current</div>
                 </div>
                 <div class="metric-card">
                     <div class="metric-label">Target (10% Gain)</div>
-                    <div class="metric-value positive">$5,247.86</div>
+                    <div class="metric-value" id="targetPrice">-</div>
                     <div class="metric-change">+$214,590 P&L</div>
                 </div>
             </div>
@@ -623,32 +623,32 @@
             <div class="metrics-grid">
                 <div class="metric-card">
                     <div class="metric-label">Value at Risk (95%)</div>
-                    <div class="metric-value negative">-$45,230</div>
+                    <div class="metric-value" id="totalFunding">-</div>
                     <div class="metric-change">Daily VaR Estimate</div>
                 </div>
                 <div class="metric-card">
                     <div class="metric-label">Max Drawdown</div>
-                    <div class="metric-value negative">-$107,176</div>
+                    <div class="metric-value" id="totalLosses">-</div>
                     <div class="metric-change">Current Drawdown</div>
                 </div>
                 <div class="metric-card">
                     <div class="metric-label">Sharpe Ratio</div>
-                    <div class="metric-value positive">2.84</div>
+                    <div class="metric-value" id="sharpeRatio">-</div>
                     <div class="metric-change">Risk-Adjusted Return</div>
                 </div>
                 <div class="metric-card">
                     <div class="metric-label">Calmar Ratio</div>
-                    <div class="metric-value positive">3.09</div>
+                    <div class="metric-value" id="calmarRatio">-</div>
                     <div class="metric-change">Return/Max DD</div>
                 </div>
                 <div class="metric-card">
                     <div class="metric-label">Funding Costs</div>
-                    <div class="metric-value negative">-$6,805</div>
+                    <div class="metric-value" id="dailyVar">-</div>
                     <div class="metric-change">Total Paid</div>
                 </div>
                 <div class="metric-card">
                     <div class="metric-label">Liquidation Buffer</div>
-                    <div class="metric-value positive">$466,796</div>
+                    <div class="metric-value" id="accountEquity2">-</div>
                     <div class="metric-change">Safe Margin</div>
                 </div>
             </div>
@@ -736,6 +736,11 @@
         }
 
         function initOverviewCharts() {
+            if (!researchData || !researchData.positions || researchData.positions.length === 0) {
+                console.log('No position data available for charts');
+                return;
+            }
+            
             // Cumulative P&L Chart
             const cumulativeCtx = document.getElementById('cumulativePnlChart').getContext('2d');
             
@@ -842,6 +847,10 @@
         }
 
         function initPerformanceCharts() {
+            if (!researchData || !researchData.positions || researchData.positions.length === 0) {
+                console.log('No position data available for performance charts');
+                return;
+            }
             // Trade Distribution Chart
             const distCtx = document.getElementById('tradeDistributionChart').getContext('2d');
             
@@ -1043,7 +1052,12 @@
             // Scenario Analysis Chart
             const scenarioCtx = document.getElementById('scenarioChart').getContext('2d');
             
-            const scenarios = [4000, 4200, 4400, 4600, 4770, 5000, 5200, 5500];
+            // Generate scenarios based on current price
+            const priceStep = currentETHPrice * 0.05; // 5% steps
+            const scenarios = [];
+            for (let i = -3; i <= 4; i++) {
+                scenarios.push(Math.round(currentETHPrice + (i * priceStep)));
+            }
             const scenarioPnL = scenarios.map(price => (price - entryPrice) * currentPosition.size);
             
             charts.scenario = new Chart(scenarioCtx, {
@@ -1083,6 +1097,10 @@
         }
 
         function initRiskCharts() {
+            if (!researchData || !researchData.positions || researchData.positions.length === 0) {
+                console.log('No position data available for risk charts');
+                return;
+            }
             // Risk Distribution Chart
             const riskCtx = document.getElementById('riskDistributionChart').getContext('2d');
             
@@ -1169,6 +1187,10 @@
         }
 
         function populateTradeHistory() {
+            if (!researchData || !researchData.positions || researchData.positions.length === 0) {
+                console.log('No position data available for trade history');
+                return;
+            }
             const tbody = document.getElementById('tradesTableBody');
             tbody.innerHTML = '';
             
@@ -1417,27 +1439,72 @@
             if (!researchData) return;
             
             // Update overview metrics with real data
-            const totalEquity = document.getElementById('totalEquity');
-            const winRate = document.getElementById('winRate');
-            const profitFactorEl = document.getElementById('profitFactor');
+            const updateElement = (id, value, format = 'currency', condition = null) => {
+                const element = document.getElementById(id);
+                if (!element) return;
+                
+                if (format === 'currency') {
+                    element.textContent = value !== 0 ? `$${Math.abs(value).toLocaleString()}` : '-';
+                } else if (format === 'percent') {
+                    element.textContent = value !== 0 ? `${value.toFixed(1)}%` : '-';
+                } else if (format === 'number') {
+                    element.textContent = value !== 0 ? value.toFixed(2) : '-';
+                } else if (format === 'eth') {
+                    element.textContent = value !== 0 ? `${value} ETH` : '-';
+                } else {
+                    element.textContent = value || '-';
+                }
+                
+                // Apply color classes based on condition
+                if (condition === 'positive' && value > 0) {
+                    element.className = 'metric-value positive';
+                } else if (condition === 'negative' && value < 0) {
+                    element.className = 'metric-value negative';
+                } else if (condition === 'warning' && value > 0) {
+                    element.className = 'metric-value warning';
+                } else {
+                    element.className = 'metric-value';
+                }
+            };
             
-            if (totalEquity) {
-                const equity = researchData.account_summary.equity || 0;
-                totalEquity.textContent = `$${equity.toLocaleString()}`;
-                totalEquity.className = equity > 0 ? 'metric-value positive' : 'metric-value';
+            const metrics = researchData.performance_metrics;
+            const summary = researchData.account_summary;
+            
+            // Overview metrics
+            updateElement('totalEquity', summary.equity, 'currency', 'positive');
+            updateElement('winRate', metrics.win_rate, 'percent', 'positive');
+            updateElement('profitFactor', metrics.profit_factor, 'number', 'positive');
+            updateElement('totalRealized', metrics.total_realized_pnl, 'currency', 'positive');
+            updateElement('openPositions', metrics.open_positions, 'raw', 'warning');
+            updateElement('totalVolume', 0, 'currency'); // Would need to calculate from positions
+            
+            // Performance metrics
+            updateElement('totalWins', metrics.average_win * (metrics.total_positions * metrics.win_rate / 100), 'currency', 'positive');
+            updateElement('totalLosses', metrics.average_loss * (metrics.total_positions * (100 - metrics.win_rate) / 100), 'currency', 'negative');
+            updateElement('avgWin', metrics.average_win, 'currency', 'positive');
+            updateElement('avgLoss', metrics.average_loss, 'currency', 'negative');
+            
+            // Find best and worst trades
+            const trades = researchData.positions.filter(p => p.status === 'CLOSED');
+            const bestTrade = trades.reduce((max, p) => p.realized_pnl > max ? p.realized_pnl : max, 0);
+            const worstTrade = trades.reduce((min, p) => p.realized_pnl < min ? p.realized_pnl : min, 0);
+            updateElement('bestTrade', bestTrade, 'currency', 'positive');
+            updateElement('worstTrade', worstTrade, 'currency', 'negative');
+            
+            // Current position metrics
+            const currentPos = researchData.positions.find(p => p.status === 'OPEN');
+            if (currentPos) {
+                updateElement('positionSize', Math.abs(currentPos.size), 'eth');
+                updateElement('currentPriceDisplay', currentETHPrice, 'currency');
+                updateElement('targetPrice', currentPos.entry_price * 1.1, 'currency', 'positive'); // 10% target
             }
             
-            if (winRate) {
-                const rate = researchData.performance_metrics.win_rate || 0;
-                winRate.textContent = `${rate.toFixed(1)}%`;
-                winRate.className = rate > 50 ? 'metric-value positive' : 'metric-value';
-            }
-            
-            if (profitFactorEl) {
-                const factor = researchData.performance_metrics.profit_factor || 0;
-                profitFactorEl.textContent = factor.toFixed(2);
-                profitFactorEl.className = factor > 1 ? 'metric-value positive' : 'metric-value';
-            }
+            // Risk metrics
+            updateElement('totalFunding', metrics.total_funding_paid, 'currency', 'negative');
+            updateElement('sharpeRatio', 0, 'number'); // Would need historical data to calculate
+            updateElement('calmarRatio', 0, 'number'); // Would need historical data to calculate
+            updateElement('dailyVar', 0, 'currency', 'negative'); // Would need historical data to calculate
+            updateElement('accountEquity2', summary.equity, 'currency', 'positive');
             
             // Update performance summary
             const perfSummary = document.getElementById('performanceSummary');
