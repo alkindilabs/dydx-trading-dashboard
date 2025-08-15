@@ -1756,7 +1756,7 @@
                 updateInsight('insightFocus', 'No trading history available');
             }
             
-            updateInsight('insightCollateral', `${(100 - collateralUsed).toFixed(1)}% free collateral available`);
+            updateInsight('insightCollateral', `${collateralPercent.toFixed(1)}% free collateral available`);
             
             // Update performance summary
             const perfSummary = document.getElementById('performanceSummary');
