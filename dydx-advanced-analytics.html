@@ -366,7 +366,7 @@
             <h1>Advanced Trading Analytics</h1>
             <div class="subtitle">dYdX Portfolio Performance & Risk Analysis</div>
             <div class="subtitle" style="font-size: 0.9em; color: #6a6a75;" id="accountDisplay">Enter address to load dashboard</div>
-            <div style="position: absolute; top: 10px; right: 10px; font-size: 0.8em; color: #6a6a75; opacity: 0.7;">v1.0.0</div>
+            <div style="position: absolute; top: 10px; right: 10px; font-size: 0.8em; color: #6a6a75; opacity: 0.7;">v1.0.1</div>
         </div>
         
         <div style="background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px; padding: 20px; margin-bottom: 30px; backdrop-filter: blur(10px);">
@@ -414,7 +414,7 @@
                 </div>
                 <div class="metric-card">
                     <div class="metric-label">Free Collateral</div>
-                    <div class="metric-value" id="totalVolume">-</div>
+                    <div class="metric-value" id="freeCollateral">-</div>
                     <div class="metric-change" id="collateralPercent">-</div>
                 </div>
             </div>
@@ -845,27 +845,30 @@
                 }
             });
             
-            // Market Exposure Chart
+            // Market Exposure Chart - Shows distribution of trading activity across markets
             const exposureCtx = document.getElementById('marketExposureChart').getContext('2d');
             
-            const ethStats = {
-                trades: currentPortfolioData.positions.filter(p => p.market === 'ETH-USD').length,
-                pnl: currentPortfolioData.positions.filter(p => p.market === 'ETH-USD' && p.status === 'CLOSED')
-                    .reduce((sum, p) => sum + p.realized_pnl, 0)
-            };
+            // Aggregate data by market
+            const marketStats = {};
+            currentPortfolioData.positions.forEach(p => {
+                if (!marketStats[p.market]) {
+                    marketStats[p.market] = { trades: 0, pnl: 0, volume: 0 };
+                }
+                marketStats[p.market].trades++;
+                marketStats[p.market].pnl += p.realized_pnl || 0;
+                marketStats[p.market].volume += Math.abs(p.size * (p.entry_price || 0));
+            });
             
-            const btcStats = {
-                trades: currentPortfolioData.positions.filter(p => p.market === 'BTC-USD').length,
-                pnl: currentPortfolioData.positions.filter(p => p.market === 'BTC-USD' && p.status === 'CLOSED')
-                    .reduce((sum, p) => sum + p.realized_pnl, 0)
-            };
+            const markets = Object.keys(marketStats);
+            const tradeData = markets.map(m => marketStats[m].trades);
+            const hasData = tradeData.some(d => d > 0);
             
             charts.marketExposure = new Chart(exposureCtx, {
                 type: 'doughnut',
                 data: {
-                    labels: ['ETH-USD', 'BTC-USD'],
+                    labels: hasData ? markets : ['No Trading Data'],
                     datasets: [{
-                        data: [ethStats.pnl, btcStats.pnl],
+                        data: hasData ? tradeData : [1],
                         backgroundColor: [
                             'rgba(79, 172, 254, 0.8)',
                             'rgba(255, 217, 61, 0.8)'
@@ -1535,7 +1538,7 @@
             updateElement('profitFactor', metrics.profit_factor, 'number', 'positive');
             updateElement('totalRealized', metrics.total_realized_pnl, 'currency', 'positive');
             updateElement('openPositions', metrics.open_positions, 'raw', 'warning');
-            updateElement('totalVolume', 0, 'currency'); // Would need to calculate from positions
+            updateElement('freeCollateral', summary.free_collateral, 'currency', 'positive');
             
             // Performance metrics
             updateElement('totalWins', metrics.average_win * (metrics.total_positions * metrics.win_rate / 100), 'currency', 'positive');
@@ -1583,6 +1586,42 @@
             
             const collateralUsed = summary.equity > 0 ? ((summary.equity - summary.free_collateral) / summary.equity * 100) : 0;
             updateDescription('collateralPercent', `${(100 - collateralUsed).toFixed(1)}% Available`);
+            
+            // Update Key Insights
+            const updateInsight = (id, text) => {
+                const element = document.getElementById(id);
+                if (element) element.textContent = text;
+            };
+            
+            if (currentPos) {
+                const pnlAmount = currentPos.unrealized_pnl || 0;
+                const pnlDirection = pnlAmount >= 0 ? 'up' : 'down';
+                updateInsight('insightPosition', `Current ${currentPos.market} position ${pnlDirection} $${Math.abs(pnlAmount).toLocaleString()}`);
+            } else {
+                updateInsight('insightPosition', 'No open positions');
+            }
+            
+            if (metrics.average_win > 0 && metrics.average_loss > 0) {
+                const ratio = (metrics.average_win / metrics.average_loss).toFixed(2);
+                updateInsight('insightRisk', `Risk management: average win ${ratio}x larger than average loss`);
+            } else {
+                updateInsight('insightRisk', 'Insufficient trade history for risk analysis');
+            }
+            
+            // Analyze market focus
+            const markets = {};
+            currentPortfolioData.positions.forEach(p => {
+                markets[p.market] = (markets[p.market] || 0) + 1;
+            });
+            const topMarkets = Object.entries(markets).sort((a, b) => b[1] - a[1]).slice(0, 2);
+            if (topMarkets.length > 0) {
+                const focusText = topMarkets.map(([market, count]) => `${market} (${count} trades)`).join(', ');
+                updateInsight('insightFocus', `Primary focus on ${focusText}`);
+            } else {
+                updateInsight('insightFocus', 'No trading history available');
+            }
+            
+            updateInsight('insightCollateral', `${(100 - collateralUsed).toFixed(1)}% free collateral available`);
             
             // Update performance summary
             const perfSummary = document.getElementById('performanceSummary');
