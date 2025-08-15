@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>dYdX Analytics - dydx1redacted</title>
+    <title>dYdX Analytics</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <style>
         * {
@@ -71,6 +71,35 @@
             align-items: center;
             gap: calc(var(--grid-unit) * 3);
         }
+
+        .address-controls {
+            display: flex;
+            align-items: center;
+            gap: calc(var(--grid-unit) * 1.5);
+        }
+
+        .address-input {
+            background: var(--bg-elevated);
+            color: var(--text-primary);
+            border: 1px solid var(--border);
+            padding: 6px 8px;
+            font-size: 12px;
+            width: 320px;
+            outline: none;
+        }
+
+        .address-input::placeholder { color: var(--text-tertiary); }
+
+        .address-btn {
+            background: var(--bg-elevated);
+            color: var(--text-secondary);
+            border: 1px solid var(--border);
+            padding: 6px 10px;
+            font-size: 12px;
+            cursor: pointer;
+        }
+
+        .address-btn:hover { color: var(--text-primary); border-color: var(--text-secondary); }
 
         .address {
             font-size: 12px;
@@ -395,27 +424,7 @@
             min-height: 2px;
         }
 
-        /* Command Palette Hint */
-        .cmd-hint {
-            position: fixed;
-            bottom: calc(var(--grid-unit) * 3);
-            right: calc(var(--grid-unit) * 3);
-            font-size: 11px;
-            color: var(--text-tertiary);
-            padding: calc(var(--grid-unit) * 1) calc(var(--grid-unit) * 2);
-            background: var(--bg-secondary);
-            border: 1px solid var(--border);
-        }
-
-        .key {
-            display: inline-block;
-            padding: 2px 4px;
-            background: var(--bg-elevated);
-            border: 1px solid var(--border);
-            margin: 0 2px;
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 10px;
-        }
+        /* Command Palette Hint removed */
 
         /* Status Badge */
         .status-badge {
@@ -469,10 +478,14 @@
     <div class="container">
         <!-- Header -->
         <div class="header">
-            <div class="breadcrumb">ANALYTICS / COMPREHENSIVE</div>
+            <div class="breadcrumb" id="breadcrumb">dYdX Account Analytics</div>
             <div class="header-right">
                 <span class="status-badge live">LIVE</span>
-                <div class="address mono">dydx1redacted</div>
+                <div class="address-controls">
+                    <input id="addressInput" class="address-input mono" placeholder="Enter dYdX address (e.g., dydx1...)" />
+                    <button id="addressLoadBtn" class="address-btn">Load</button>
+                </div>
+                <div class="address mono" id="addressDisplay">-</div>
             </div>
         </div>
 
@@ -504,19 +517,19 @@
                     <div class="metric-change mono" id="winRateDetail">-</div>
                 </div>
                 <div class="metric-card">
-                    <div class="metric-label">Profit Factor</div>
+                    <div class="metric-label" id="profitFactorLabel">Profit Factor</div>
                     <div class="metric-value mono" id="profitFactor">-</div>
                     <div class="metric-change mono" id="profitFactorDetail">-</div>
                 </div>
                 <div class="metric-card">
                     <div class="metric-label">Sharpe Ratio</div>
                     <div class="metric-value mono" id="sharpeRatio">-</div>
-                    <div class="metric-change mono">30-day rolling</div>
+                    <div class="metric-change mono" id="sharpeMeta" title="">All time ⓘ</div>
                 </div>
                 <div class="metric-card">
                     <div class="metric-label">Sortino Ratio</div>
                     <div class="metric-value mono" id="sortinoRatio">-</div>
-                    <div class="metric-change mono">Downside focus</div>
+                    <div class="metric-change mono" id="sortinoMeta" title="">All time ⓘ</div>
                 </div>
                 <div class="metric-card">
                     <div class="metric-label">Max Drawdown</div>
@@ -525,48 +538,14 @@
                 </div>
             </div>
 
-            <!-- Trading Activity Chart (Market Distribution) -->
-            <div class="chart-container" style="height: 400px;">
-                <div class="chart-header">
-                    <div class="chart-title">Trading Activity by Market</div>
-                </div>
-                <canvas id="marketDistributionChart" style="max-width: 400px; margin: 0 auto;"></canvas>
-            </div>
+            
 
             <!-- P&L Chart -->
             <div class="chart-container">
                 <div class="chart-header">
                     <div class="chart-title">Cumulative P&L with Drawdown Periods</div>
-                    <div class="time-selector">
-                        <div class="time-option">1D</div>
-                        <div class="time-option">7D</div>
-                        <div class="time-option active">30D</div>
-                        <div class="time-option">90D</div>
-                        <div class="time-option">1Y</div>
-                        <div class="time-option">ALL</div>
                     </div>
-                </div>
-                <svg class="chart-svg" viewBox="0 0 1200 320">
-                    <!-- Drawdown periods -->
-                    <rect x="200" y="0" width="80" height="320" fill="var(--loss)" opacity="0.05"/>
-                    <rect x="480" y="0" width="60" height="320" fill="var(--loss)" opacity="0.05"/>
-                    
-                    <!-- Grid lines -->
-                    <line x1="0" y1="80" x2="1200" y2="80" class="chart-grid-line"/>
-                    <line x1="0" y1="160" x2="1200" y2="160" class="chart-grid-line"/>
-                    <line x1="0" y1="240" x2="1200" y2="240" class="chart-grid-line"/>
-                    
-                    <!-- Chart area -->
-                    <path d="M 0,240 L 40,235 L 80,220 L 120,225 L 160,210 L 200,205 L 240,215 L 280,210 L 320,195 L 360,200 L 400,190 L 440,180 L 480,185 L 520,175 L 560,160 L 600,150 L 640,145 L 680,135 L 720,130 L 760,120 L 800,115 L 840,105 L 880,100 L 920,90 L 960,85 L 1000,75 L 1040,70 L 1080,60 L 1120,55 L 1160,50 L 1200,45 L 1200,320 L 0,320 Z" class="chart-area"/>
-                    
-                    <!-- Main line -->
-                    <path d="M 0,240 L 40,235 L 80,220 L 120,225 L 160,210 L 200,205 L 240,215 L 280,210 L 320,195 L 360,200 L 400,190 L 440,180 L 480,185 L 520,175 L 560,160 L 600,150 L 640,145 L 680,135 L 720,130 L 760,120 L 800,115 L 840,105 L 880,100 L 920,90 L 960,85 L 1000,75 L 1040,70 L 1080,60 L 1120,55 L 1160,50 L 1200,45" class="chart-line"/>
-                    
-                    <!-- Value labels -->
-                    <text x="1200" y="40" fill="var(--text-primary)" text-anchor="end" font-size="12" class="mono">$47,293</text>
-                    <text x="0" y="255" fill="var(--text-secondary)" font-size="10" class="mono">Mar 1</text>
-                    <text x="1200" y="255" fill="var(--text-secondary)" text-anchor="end" font-size="10" class="mono">Mar 31</text>
-                </svg>
+                <canvas id="pnlCumulativeChart" class="mini-chart" style="height: 260px"></canvas>
             </div>
 
             <!-- Quick Stats Grid -->
@@ -593,7 +572,7 @@
                             <td class="mono profit" id="expectancy">-</td>
                         </tr>
                         <tr>
-                            <td style="color: var(--text-secondary)">Recovery Factor</td>
+                            <td style="color: var(--text-secondary)" id="recoveryFactorLabel">Recovery Factor</td>
                             <td class="mono" id="recoveryFactor">-</td>
                         </tr>
                     </table>
@@ -635,40 +614,40 @@
             <div class="metrics-grid">
                 <div class="metric-card">
                     <div class="metric-label">Calmar Ratio</div>
-                    <div class="metric-value mono">3.47</div>
+                    <div class="metric-value mono" id="calmarRatio">-</div>
                     <div class="metric-change mono">Annual return / Max DD</div>
                 </div>
                 <div class="metric-card">
                     <div class="metric-label">Kelly Criterion</div>
-                    <div class="metric-value mono">18.7%</div>
+                    <div class="metric-value mono" id="kellyCriterion">-</div>
                     <div class="metric-change mono">Optimal size</div>
                 </div>
                 <div class="metric-card">
                     <div class="metric-label">Max Consec. Wins</div>
-                    <div class="metric-value mono">12</div>
-                    <div class="metric-change mono profit">+$5,847</div>
+                    <div class="metric-value mono" id="maxConsecWins">-</div>
+                    <div class="metric-change mono profit" id="maxConsecWinsDetail"></div>
                 </div>
                 <div class="metric-card">
                     <div class="metric-label">Max Consec. Losses</div>
-                    <div class="metric-value mono">7</div>
-                    <div class="metric-change mono loss">-$2,194</div>
+                    <div class="metric-value mono" id="maxConsecLosses">-</div>
+                    <div class="metric-change mono loss" id="maxConsecLossesDetail"></div>
                 </div>
                 <div class="metric-card">
                     <div class="metric-label">Average RRR</div>
-                    <div class="metric-value mono">2.31:1</div>
-                    <div class="metric-change mono">vs 2:1 target</div>
+                    <div class="metric-value mono" id="avgRRR">-</div>
+                    <div class="metric-change mono" id="avgRRRDetail">vs 2:1 target</div>
                 </div>
                 <div class="metric-card">
                     <div class="metric-label">Win Rate Trend</div>
-                    <div class="metric-value mono profit">↑ 71.2%</div>
-                    <div class="metric-change mono">Last 50 trades</div>
+                    <div class="metric-value mono" id="winRateTrend">-</div>
+                    <div class="metric-change mono" id="winRateTrendDetail">Last N trades</div>
                 </div>
             </div>
 
             <!-- Win/Loss Distribution -->
             <div class="table-container">
                 <div class="table-header">
-                    <div class="table-title">Win/Loss Distribution</div>
+                    <div class="table-title" id="winLossTitle">Win/Loss Distribution</div>
                 </div>
                 <div class="distribution-bars" id="winLossDistribution"></div>
             </div>
@@ -692,52 +671,7 @@
                             <th>SHARPE</th>
                         </tr>
                     </thead>
-                    <tbody>
-                        <tr>
-                            <td>March 2024</td>
-                            <td class="mono profit">+$12,847</td>
-                            <td class="mono">71.2%</td>
-                            <td class="mono">47</td>
-                            <td class="mono profit">+$487</td>
-                            <td class="mono loss">-$213</td>
-                            <td class="mono">2.48</td>
-                            <td class="mono loss">-8.4%</td>
-                            <td class="mono">2.31</td>
-                        </tr>
-                        <tr>
-                            <td>February 2024</td>
-                            <td class="mono profit">+$18,392</td>
-                            <td class="mono">68.4%</td>
-                            <td class="mono">62</td>
-                            <td class="mono profit">+$524</td>
-                            <td class="mono loss">-$198</td>
-                            <td class="mono">2.67</td>
-                            <td class="mono loss">-11.2%</td>
-                            <td class="mono">2.87</td>
-                        </tr>
-                        <tr>
-                            <td>January 2024</td>
-                            <td class="mono profit">+$9,184</td>
-                            <td class="mono">65.8%</td>
-                            <td class="mono">38</td>
-                            <td class="mono profit">+$412</td>
-                            <td class="mono loss">-$187</td>
-                            <td class="mono">2.19</td>
-                            <td class="mono loss">-6.7%</td>
-                            <td class="mono">1.94</td>
-                        </tr>
-                        <tr>
-                            <td>December 2023</td>
-                            <td class="mono profit">+$6,870</td>
-                            <td class="mono">64.3%</td>
-                            <td class="mono">42</td>
-                            <td class="mono profit">+$398</td>
-                            <td class="mono loss">-$201</td>
-                            <td class="mono">1.98</td>
-                            <td class="mono loss">-9.1%</td>
-                            <td class="mono">1.76</td>
-                        </tr>
-                    </tbody>
+                    <tbody id="monthlyPerformanceBody"></tbody>
                 </table>
             </div>
 
@@ -759,48 +693,7 @@
                             <th>SHARPE</th>
                         </tr>
                     </thead>
-                    <tbody>
-                        <tr>
-                            <td>BTC-USD</td>
-                            <td class="mono profit">+$21,847</td>
-                            <td class="mono">124</td>
-                            <td class="mono">72.4%</td>
-                            <td class="mono profit">+$176</td>
-                            <td class="mono profit">+$2,847</td>
-                            <td class="mono loss">-$1,293</td>
-                            <td class="mono">2.67</td>
-                        </tr>
-                        <tr>
-                            <td>ETH-USD</td>
-                            <td class="mono profit">+$14,293</td>
-                            <td class="mono">98</td>
-                            <td class="mono">68.9%</td>
-                            <td class="mono profit">+$146</td>
-                            <td class="mono profit">+$1,984</td>
-                            <td class="mono loss">-$847</td>
-                            <td class="mono">2.31</td>
-                        </tr>
-                        <tr>
-                            <td>SOL-USD</td>
-                            <td class="mono profit">+$8,472</td>
-                            <td class="mono">87</td>
-                            <td class="mono">65.5%</td>
-                            <td class="mono profit">+$97</td>
-                            <td class="mono profit">+$1,247</td>
-                            <td class="mono loss">-$623</td>
-                            <td class="mono">1.98</td>
-                        </tr>
-                        <tr>
-                            <td>AVAX-USD</td>
-                            <td class="mono profit">+$2,681</td>
-                            <td class="mono">92</td>
-                            <td class="mono">61.2%</td>
-                            <td class="mono profit">+$29</td>
-                            <td class="mono profit">+$847</td>
-                            <td class="mono loss">-$512</td>
-                            <td class="mono">1.42</td>
-                        </tr>
-                    </tbody>
+                    <tbody id="assetPerformanceBody"></tbody>
                 </table>
             </div>
         </div>
@@ -984,32 +877,32 @@
             <div class="metrics-grid">
                 <div class="metric-card">
                     <div class="metric-label">Active Positions</div>
-                    <div class="metric-value mono">4</div>
-                    <div class="metric-change mono">$127,420 notional</div>
+                    <div class="metric-value mono" id="positionsActiveCount">-</div>
+                    <div class="metric-change mono" id="positionsActiveNotional">-</div>
                 </div>
                 <div class="metric-card">
                     <div class="metric-label">Avg Entry Efficiency</div>
-                    <div class="metric-value mono">94.3%</div>
+                    <div class="metric-value mono" id="positionsEntryEfficiency">-</div>
                     <div class="metric-change mono">vs limit price</div>
                 </div>
                 <div class="metric-card">
                     <div class="metric-label">Avg Exit Efficiency</div>
-                    <div class="metric-value mono">91.8%</div>
+                    <div class="metric-value mono" id="positionsExitEfficiency">-</div>
                     <div class="metric-change mono">vs target</div>
                 </div>
                 <div class="metric-card">
                     <div class="metric-label">Slippage Cost</div>
-                    <div class="metric-value mono loss">-$1,847</div>
+                    <div class="metric-value mono" id="positionsSlippageCost">-</div>
                     <div class="metric-change mono">MTD total</div>
                 </div>
                 <div class="metric-card">
                     <div class="metric-label">Fill Rate</div>
-                    <div class="metric-value mono">87.2%</div>
+                    <div class="metric-value mono" id="positionsFillRate">-</div>
                     <div class="metric-change mono">Limit orders</div>
                 </div>
                 <div class="metric-card">
                     <div class="metric-label">VWAP Performance</div>
-                    <div class="metric-value mono profit">+2.3%</div>
+                    <div class="metric-value mono" id="positionsVwapPerf">-</div>
                     <div class="metric-change mono">vs market VWAP</div>
                 </div>
             </div>
@@ -1034,44 +927,7 @@
                             <th>FUNDING</th>
                         </tr>
                     </thead>
-                    <tbody>
-                        <tr>
-                            <td class="mono">2h ago</td>
-                            <td class="mono">BTC-USD</td>
-                            <td class="mono">LONG</td>
-                            <td class="mono">0.5</td>
-                            <td class="mono">68,920</td>
-                            <td class="mono">69,284</td>
-                            <td class="mono profit">+$182</td>
-                            <td class="mono profit">+0.53%</td>
-                            <td class="mono">1h 23m</td>
-                            <td class="mono loss">-$8.47</td>
-                        </tr>
-                        <tr>
-                            <td class="mono">5h ago</td>
-                            <td class="mono">ETH-USD</td>
-                            <td class="mono">SHORT</td>
-                            <td class="mono">8.0</td>
-                            <td class="mono">3,512</td>
-                            <td class="mono">3,487</td>
-                            <td class="mono profit">+$200</td>
-                            <td class="mono profit">+0.71%</td>
-                            <td class="mono">2h 47m</td>
-                            <td class="mono profit">+$12.30</td>
-                        </tr>
-                        <tr>
-                            <td class="mono">8h ago</td>
-                            <td class="mono">SOL-USD</td>
-                            <td class="mono">LONG</td>
-                            <td class="mono">150</td>
-                            <td class="mono">174.20</td>
-                            <td class="mono">173.85</td>
-                            <td class="mono loss">-$52.50</td>
-                            <td class="mono loss">-0.20%</td>
-                            <td class="mono">45m</td>
-                            <td class="mono loss">-$3.20</td>
-                        </tr>
-                    </tbody>
+                    <tbody id="positionsHistoryBody"></tbody>
                 </table>
             </div>
 
@@ -1193,18 +1049,18 @@
             <div class="metrics-grid">
                 <div class="metric-card">
                     <div class="metric-label">Funding Captured</div>
-                    <div class="metric-value mono profit">+$2,847</div>
-                    <div class="metric-change mono">30-day total</div>
+                    <div class="metric-value mono profit" id="fundingCaptured">-</div>
+                    <div class="metric-change mono">Last 30 days</div>
                 </div>
                 <div class="metric-card">
                     <div class="metric-label">Funding Paid</div>
-                    <div class="metric-value mono loss">-$1,293</div>
-                    <div class="metric-change mono">30-day total</div>
+                    <div class="metric-value mono loss" id="fundingPaid">-</div>
+                    <div class="metric-change mono">Last 30 days</div>
                 </div>
                 <div class="metric-card">
                     <div class="metric-label">Net Funding</div>
-                    <div class="metric-value mono profit">+$1,554</div>
-                    <div class="metric-change mono profit">+3.3% of P&L</div>
+                    <div class="metric-value mono" id="fundingNet">-</div>
+                    <div class="metric-change mono" id="fundingNetPct">-</div>
                 </div>
                 <div class="metric-card">
                     <div class="metric-label">Basis Arbitrage</div>
@@ -1238,41 +1094,10 @@
                             <th>RECEIVED</th>
                             <th>PAID</th>
                             <th>NET</th>
-                            <th>STRATEGY</th>
+                            <th>STATUS</th>
                         </tr>
                     </thead>
-                    <tbody>
-                        <tr>
-                            <td>BTC-USD</td>
-                            <td class="mono">0.012%</td>
-                            <td class="mono loss">-0.018%</td>
-                            <td class="mono">0.008%</td>
-                            <td class="mono profit">+$1,247</td>
-                            <td class="mono loss">-$423</td>
-                            <td class="mono profit">+$824</td>
-                            <td style="color: var(--profit)">LONG BIAS</td>
-                        </tr>
-                        <tr>
-                            <td>ETH-USD</td>
-                            <td class="mono">0.008%</td>
-                            <td class="mono profit">0.014%</td>
-                            <td class="mono">0.011%</td>
-                            <td class="mono profit">+$847</td>
-                            <td class="mono loss">-$512</td>
-                            <td class="mono profit">+$335</td>
-                            <td style="color: var(--warning)">NEUTRAL</td>
-                        </tr>
-                        <tr>
-                            <td>SOL-USD</td>
-                            <td class="mono">0.024%</td>
-                            <td class="mono profit">0.032%</td>
-                            <td class="mono">0.027%</td>
-                            <td class="mono profit">+$623</td>
-                            <td class="mono loss">-$287</td>
-                            <td class="mono profit">+$336</td>
-                            <td style="color: var(--loss)">SHORT BIAS</td>
-                        </tr>
-                    </tbody>
+                    <tbody id="fundingAnalysisBody"></tbody>
                 </table>
             </div>
 
@@ -1332,28 +1157,33 @@
             </div>
         </div>
 
-        <!-- Command Palette Hint -->
-        <div class="cmd-hint">
-            Press <span class="key">⌘</span><span class="key">K</span> for commands • <span class="key">Tab</span> to navigate
-        </div>
+        
     </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3"></script>
+    <script src="./risk-metrics.js"></script>
     <script>
-        // Tab Navigation
-        document.querySelectorAll('.nav-tab').forEach(tab => {
-            tab.addEventListener('click', function() {
-                // Remove active from all tabs and contents
+        // Tab Navigation with persisted active tab
+        function activateTab(tabId) {
                 document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
                 document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-                
-                // Add active to clicked tab and corresponding content
-                this.classList.add('active');
-                const tabId = this.dataset.tab;
-                document.getElementById(tabId).classList.add('active');
+            const tabEl = document.querySelector(`.nav-tab[data-tab="${tabId}"]`);
+            const contentEl = document.getElementById(tabId);
+            if (tabEl && contentEl) {
+                tabEl.classList.add('active');
+                contentEl.classList.add('active');
+                try { localStorage.setItem('activeTab', tabId); } catch(e) {}
+                const bc = document.getElementById('breadcrumb');
+                if (bc) bc.textContent = `dYdX Account Analytics / ${tabId.charAt(0).toUpperCase()}${tabId.slice(1)}`;
+            }
+        }
+        document.querySelectorAll('.nav-tab').forEach(tab => {
+            tab.addEventListener('click', function() {
+                activateTab(this.dataset.tab);
             });
         });
 
-        // Generate distribution bars
+        // Generate distribution bars (used for placeholders on non-Performance tabs only)
         function generateDistribution(containerId, count = 30) {
             const container = document.getElementById(containerId);
             if (!container) return;
@@ -1391,8 +1221,7 @@
             }
         }
 
-        // Initialize visualizations
-        generateDistribution('winLossDistribution');
+        // Initialize visualizations (Performance tab distribution is rendered from real data later)
         generateDistribution('holdTimeDistribution', 24);
         generateDistribution('sizeDistribution', 20);
         generateHeatmap('activityHeatmap');
@@ -1406,9 +1235,30 @@
             });
         });
 
-        // Copy address on click
+        // Address UI: load button and click-to-copy
+        const addressLoadBtn = document.getElementById('addressLoadBtn');
+        const addressInput = document.getElementById('addressInput');
+        if (addressLoadBtn && addressInput) {
+            addressLoadBtn.addEventListener('click', function() {
+                const addr = (addressInput.value || '').trim();
+                if (!addr) return;
+                try { localStorage.setItem('lastAddress', addr); } catch (e) {}
+                const url = new URL(window.location.href);
+                url.searchParams.set('address', addr);
+                window.location.href = url.toString();
+            });
+            addressInput.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter') addressLoadBtn.click();
+            });
+        }
+
+        // Click address: prompt to set if empty, otherwise copy
         document.querySelector('.address').addEventListener('click', function() {
-            const toCopy = currentAddress || 'dydx1redacted';
+            if (!currentAddress) {
+                if (addressInput) addressInput.focus();
+                return;
+            }
+            const toCopy = currentAddress;
             navigator.clipboard.writeText(toCopy);
             const original = this.textContent;
             this.textContent = 'Copied!';
@@ -1440,6 +1290,17 @@
         let currentAddress = null;
         let allData = {};
 
+        // High-contrast defaults for Chart.js on dark background
+        if (window.Chart) {
+            Chart.defaults.color = 'rgba(255,255,255,0.98)';
+            Chart.defaults.borderColor = 'rgba(255,255,255,0.12)';
+            Chart.defaults.font.family = "'Inter', -apple-system, BlinkMacSystemFont, sans-serif";
+            if (Chart.defaults.plugins && Chart.defaults.plugins.legend) {
+                Chart.defaults.plugins.legend.labels = Chart.defaults.plugins.legend.labels || {};
+                Chart.defaults.plugins.legend.labels.color = '#FFFFFF';
+            }
+        }
+
         // Fetch helpers with fallback across endpoint variants
         async function fetchJson(url) {
             const res = await fetch(url);
@@ -1454,7 +1315,12 @@
                     return await fetchJson(url);
                 } catch (e) {
                     lastError = e;
-                    console.warn('Fallback trying', url, e);
+                    const msg = String(e && e.message || '');
+                    if (msg.includes('HTTP 404')) {
+                        console.debug('Variant 404, trying fallback:', url);
+                    } else {
+                        console.debug('Fallback trying', url, e);
+                    }
                 }
             }
             throw lastError || new Error('All endpoint variants failed');
@@ -1480,18 +1346,86 @@
             return value.toFixed(1) + '%';
         }
 
+        function computeMaxDrawdownPctFromEquity(equityArray) {
+            if (!Array.isArray(equityArray) || equityArray.length === 0) return 0;
+            let peak = -Infinity;
+            let maxDrawdown = 0; // as negative fraction
+            for (let i = 0; i < equityArray.length; i++) {
+                const v = parseFloat(equityArray[i] || 0);
+                if (!isFinite(v)) continue;
+                if (v > peak) peak = v;
+                if (peak > 0) {
+                    const dd = (v - peak) / peak;
+                    if (dd < maxDrawdown) maxDrawdown = dd;
+                }
+            }
+            return Math.abs(maxDrawdown) * 100; // percentage as positive number
+        }
+
+        function computeMaxDrawdownFromEquity(equityArray) {
+            if (!Array.isArray(equityArray) || equityArray.length === 0) return { pct: 0, abs: 0 };
+            let peak = -Infinity;
+            let peakVal = 0;
+            let troughVal = 0;
+            let maxDrawdown = 0; // negative fraction
+            for (let i = 0; i < equityArray.length; i++) {
+                const v = parseFloat(equityArray[i] || 0);
+                if (!isFinite(v)) continue;
+                if (v > peak) { peak = v; peakVal = v; }
+                if (peak > 0) {
+                    const dd = (v - peak) / peak; // <= 0
+                    if (dd < maxDrawdown) { maxDrawdown = dd; troughVal = v; }
+                }
+            }
+            const abs = Math.max(0, peakVal - troughVal);
+            return { pct: Math.abs(maxDrawdown) * 100, abs };
+        }
+
+        // Build an equity curve adjusted to remove external cash flows (deposits/withdrawals)
+        // Using identity: equity_t = equity_0 + totalPnl_t + netTransfers_t
+        // Therefore, equity_no_transfers_t = equity_0 + totalPnl_t
+        function computeAdjustedEquitySeriesFromHist(historicalPnl) {
+            if (!Array.isArray(historicalPnl) || historicalPnl.length === 0) return [];
+            const series = historicalPnl.slice().sort((a,b)=> (a.createdAt||'').localeCompare(b.createdAt||''));
+            const eq0 = parseFloat(series[0].equity || 0) || 0;
+            const pnl0 = parseFloat(series[0].totalPnl || 0) || 0;
+            const eq0Adj = eq0 - pnl0;
+            return series.map(p => {
+                const pnl = parseFloat(p.totalPnl || 0) || 0;
+                return eq0Adj + pnl;
+            });
+        }
+
+        function computeAdjustedEquityPairsFromHist(historicalPnl) {
+            if (!Array.isArray(historicalPnl) || historicalPnl.length === 0) return [];
+            const series = historicalPnl.slice().sort((a,b)=> (a.createdAt||'').localeCompare(b.createdAt||''));
+            const eq0 = parseFloat(series[0].equity || 0) || 0;
+            const pnl0 = parseFloat(series[0].totalPnl || 0) || 0;
+            const eq0Adj = eq0 - pnl0;
+            return series.map(p => {
+                const pnl = parseFloat(p.totalPnl || 0) || 0;
+                return { t: p.createdAt, e: eq0Adj + pnl };
+            });
+        }
+
         // Load real dashboard data
         async function loadDashboard() {
-            // Get address from URL params
+            // Get address from URL params or stored input
             const urlParams = new URLSearchParams(window.location.search);
-            const address = urlParams.get('address') || 'dydx1redacted';
+            let address = urlParams.get('address') || '';
+            if (!address) {
+                try { address = localStorage.getItem('lastAddress') || ''; } catch (e) { address = ''; }
+            }
             
+            const inputEl = document.getElementById('addressInput');
+            const loadBtn = document.getElementById('addressLoadBtn');
+            if (inputEl) inputEl.value = address;
             if (!address) return;
 
             currentAddress = address;
 
             // Update address display with shortened form
-            const addressEl = document.querySelector('.address');
+            const addressEl = document.getElementById('addressDisplay');
             if (addressEl) {
                 const short = address.length > 12 ? `${address.slice(0, 8)}...${address.slice(-4)}` : address;
                 addressEl.textContent = short;
@@ -1499,33 +1433,19 @@
             }
 
             try {
-                // Fetch data using HTTP API with query-style and path-style fallbacks
-                const [subaccountData, openPositionsData, closedPositionsData, ordersData, fillsData] = await Promise.all([
-                    // Subaccount
-                    tryFetch([
-                        `${DYDX_API}/subaccount?address=${address}&subaccountNumber=0`,
-                        `${DYDX_API}/addresses/${address}/subaccountNumber/0`
-                    ]),
-                    // OPEN positions
-                    tryFetch([
-                        `${DYDX_API}/perpetualPositions?address=${address}&subaccountNumber=0&status=OPEN&limit=100`,
-                        `${DYDX_API}/addresses/${address}/subaccountNumber/0/perpetualPositions?status=OPEN&limit=100`
-                    ]),
-                    // CLOSED positions
-                    tryFetch([
-                        `${DYDX_API}/perpetualPositions?address=${address}&subaccountNumber=0&status=CLOSED&limit=100`,
-                        `${DYDX_API}/addresses/${address}/subaccountNumber/0/perpetualPositions?status=CLOSED&limit=100`
-                    ]),
-                    // Orders
-                    tryFetch([
-                        `${DYDX_API}/orders?address=${address}&subaccountNumber=0&limit=100`,
-                        `${DYDX_API}/addresses/${address}/subaccountNumber/0/orders?limit=100`
-                    ]),
-                    // Fills
-                    tryFetch([
-                        `${DYDX_API}/fills?address=${address}&subaccountNumber=0&limit=100`,
-                        `${DYDX_API}/addresses/${address}/subaccountNumber/0/fills?limit=100`
-                    ])
+                // Fetch data using only the variants confirmed to work against the live indexer
+                const [subaccountData, openPositionsData, closedPositionsData, ordersData, fillsData, fundingPaymentsData, marketsData] = await Promise.all([
+                    // Subaccount (path-style)
+                    fetchJson(`${DYDX_API}/addresses/${address}/subaccountNumber/0`),
+                    // Positions (query-style)
+                    fetchJson(`${DYDX_API}/perpetualPositions?address=${address}&subaccountNumber=0&status=OPEN&limit=100`),
+                    fetchJson(`${DYDX_API}/perpetualPositions?address=${address}&subaccountNumber=0&status=CLOSED&limit=100`),
+                    // Orders/Fills/FundingPayments (query-style)
+                    fetchJson(`${DYDX_API}/orders?address=${address}&subaccountNumber=0&limit=1000`),
+                    fetchJson(`${DYDX_API}/fills?address=${address}&subaccountNumber=0&limit=1000`),
+                    fetchJson(`${DYDX_API}/fundingPayments?address=${address}&subaccountNumber=0&limit=1000`),
+                    // Markets
+                    fetchJson(`${DYDX_API}/perpetualMarkets`)
                 ]);
 
                 allData = {
@@ -1533,11 +1453,14 @@
                     openPositions: openPositionsData,
                     closedPositions: closedPositionsData,
                     orders: ordersData,
-                    fills: fillsData
+                    fills: fillsData,
+                    fundingPayments: fundingPaymentsData,
+                    markets: marketsData
                 };
 
                 // Process and display data
                 processData();
+                try { localStorage.setItem('lastAddress', address); } catch (e) {}
 
             } catch (error) {
                 console.error('Error loading dashboard:', error);
@@ -1620,22 +1543,24 @@
             console.log('Wins:', wins, 'Losses:', losses);
             console.log('Total win amount:', totalWinAmount, 'Total loss amount:', totalLossAmount);
             
-            // Track market distribution for Trading Activity chart
+            // Trading Activity by Market: CLOSED positions drive slice sizes; track OPEN counts for context
             const marketDistribution = {};
-            allPositions.forEach(pos => {
+            const closedOnly = allPositions.filter(p => p.status === 'CLOSED');
+            closedOnly.forEach(pos => {
                 const market = pos.market || 'Unknown';
                 if (!marketDistribution[market]) {
-                    marketDistribution[market] = {
-                        tradeCount: 0,
-                        totalPnL: 0,
-                        openCount: 0
-                    };
+                    marketDistribution[market] = { tradeCount: 0, totalPnL: 0, openCount: 0 };
                 }
-                marketDistribution[market].tradeCount++;
-                marketDistribution[market].totalPnL += parseFloat(pos.realizedPnl || 0) + parseFloat(pos.unrealizedPnl || 0);
-                if (pos.status === 'OPEN') {
-                    marketDistribution[market].openCount++;
+                marketDistribution[market].tradeCount += 1;
+                marketDistribution[market].totalPnL += parseFloat(pos.realizedPnl || 0);
+            });
+            const openOnly = allPositions.filter(p => p.status === 'OPEN');
+            openOnly.forEach(pos => {
+                const market = pos.market || 'Unknown';
+                if (!marketDistribution[market]) {
+                    marketDistribution[market] = { tradeCount: 0, totalPnL: 0, openCount: 0 };
                 }
+                marketDistribution[market].openCount += 1;
             });
             
             console.log('Market distribution:', marketDistribution);
@@ -1671,30 +1596,200 @@
                 document.getElementById('profitFactor').textContent = profitFactor.toFixed(2);
                 document.getElementById('profitFactorDetail').textContent = 
                     `${formatCurrency(totalWinAmount)} / ${formatCurrency(totalLossAmount)}`;
+                const pfl = document.getElementById('profitFactorLabel');
+                if (pfl) {
+                    pfl.title = `Gross profit / gross loss\nGross profit: ${formatCurrency(totalWinAmount)}\nGross loss: ${formatCurrency(totalLossAmount)}`;
+                }
             } else {
                 document.getElementById('profitFactor').textContent = 'N/A';
                 document.getElementById('profitFactorDetail').textContent = 'No losses recorded';
+                const pfl = document.getElementById('profitFactorLabel');
+                if (pfl) {
+                    pfl.title = `Gross profit / gross loss\nNot defined when no losses are recorded`;
+                }
             }
+
+            // Max consecutive wins/losses from CLOSED positions sequence by time
+            const closedSorted = allPositions
+                .filter(p => p.status === 'CLOSED')
+                .sort((a,b)=> new Date(a.closedAt) - new Date(b.closedAt));
+            let maxW = 0, curW = 0, maxL = 0, curL = 0;
+            let bestStreakPnL = 0, curStreakPnL = 0, worstStreakPnL = 0, curLossStreakPnL = 0;
+            closedSorted.forEach(p => {
+                const pnl = parseFloat(p.realizedPnl || 0);
+                if (pnl > 0) {
+                    curW += 1; maxW = Math.max(maxW, curW); curStreakPnL += pnl;
+                    worstStreakPnL = Math.min(worstStreakPnL, curLossStreakPnL);
+                    curL = 0; curLossStreakPnL = 0;
+                } else if (pnl < 0) {
+                    curL += 1; maxL = Math.max(maxL, curL); curLossStreakPnL += pnl; // pnl negative
+                    bestStreakPnL = Math.max(bestStreakPnL, curStreakPnL);
+                    curW = 0; curStreakPnL = 0;
+                }
+            });
+            bestStreakPnL = Math.max(bestStreakPnL, curStreakPnL);
+            worstStreakPnL = Math.min(worstStreakPnL, curLossStreakPnL);
+            updateElement('maxConsecWins', String(maxW || 0));
+            updateElement('maxConsecWinsDetail', bestStreakPnL ? `${formatCurrency(bestStreakPnL)}` : '');
+            updateElement('maxConsecLosses', String(maxL || 0));
+            updateElement('maxConsecLossesDetail', worstStreakPnL ? `${formatCurrency(worstStreakPnL)}` : '');
             
-            // These would need historical data to calculate properly
+            // Compute all-time risk ratios from historical PnL endpoint using RiskMetrics helper
+            (async () => {
+                try {
+                    const hist = await fetchJson(`${DYDX_API}/historical-pnl?address=${currentAddress}&subaccountNumber=0&limit=1000`);
+                    // MAR from realized funding yield (Option C):
+                    // per-period MAR = sum(payment) / sum(abs(size) * oraclePrice)
+                    let marPerPeriod = 0;
+                    const fp = (allData.fundingPayments && (allData.fundingPayments.fundingPayments || [])) || [];
+                    if (fp.length > 0) {
+                        let totalPayment = 0;
+                        let totalNotional = 0;
+                        fp.forEach(p => {
+                            const pay = parseFloat(p.payment || 0);
+                            const size = Math.abs(parseFloat(p.size || 0));
+                            const price = parseFloat(p.oraclePrice || 0);
+                            const notional = (isNaN(size) || isNaN(price)) ? 0 : size * price;
+                            if (!isNaN(pay)) totalPayment += pay;
+                            if (notional > 0) totalNotional += notional;
+                        });
+                        if (totalNotional > 0) marPerPeriod = totalPayment / totalNotional;
+                    }
+                    const res = window.RiskMetrics.computeAnnualizedFromHistoricalPnl(hist.historicalPnl, { mar: marPerPeriod, denominator: 'negative' });
+                    if (res.returns.length > 2) {
+                        document.getElementById('sharpeRatio').textContent = (res.sharpeAnnualized || 0).toFixed(2);
+                        document.getElementById('sortinoRatio').textContent = (res.sortinoAnnualized === Infinity ? '∞' : (res.sortinoAnnualized || 0).toFixed(2));
+                        // Tooltip/meta: show MAR, periods/year, and denominator
+                        const ppy = res.ppy || 0;
+                        const sharpeMeta = document.getElementById('sharpeMeta');
+                        const sortinoMeta = document.getElementById('sortinoMeta');
+                        const marPct = (marPerPeriod * (ppy || 1) * 100).toFixed(3);
+                        const perText = ppy > 8000 ? 'hourly' : ppy > 300 ? 'daily' : 'periodic';
+                        const tipSharpe = `MAR (${perText}, annualized): ${marPct}%\nPPY (periods/year): ${ppy.toFixed(0)}\nDenominator: standard deviation (σ)`;
+                        const tipSortino = `MAR (${perText}, annualized): ${marPct}%\nPPY (periods/year): ${ppy.toFixed(0)}\nDenominator: downside deviation (negative-only LPSD)`;
+                        if (sharpeMeta) sharpeMeta.title = tipSharpe;
+                        if (sortinoMeta) sortinoMeta.title = tipSortino;
+
+                        // Calmar ratio (annual return / max drawdown) using equity adjusted to exclude cash flows
+                        const eq = computeAdjustedEquitySeriesFromHist(hist.historicalPnl || []);
+                        if (eq.length > 1) {
+                            const timestamps = (hist.historicalPnl || []).map(p => p.createdAt).filter(Boolean);
+                            const rets = window.RiskMetrics.computeReturnsFromEquitySeries(eq);
+                            const ann = window.RiskMetrics.computeAnnualizedFromReturns(rets, timestamps, { mar: 0, denominator: 'negative' });
+                            // approximate annual return as mean per-period return * PPY
+                            const mu = rets.length ? (rets.reduce((a,b)=>a+b,0) / rets.length) : 0;
+                            const annualReturn = mu * (ann.ppy || 0);
+                            const mddPct = computeMaxDrawdownPctFromEquity(eq) / 100; // fraction
+                            const calmar = mddPct > 0 ? (annualReturn / mddPct) : null;
+                            updateElement('calmarRatio', calmar === null ? 'N/A' : calmar.toFixed(2));
+                        } else {
+                            updateElement('calmarRatio','N/A');
+                        }
+
+                        // Fill Monthly/Asset tables metrics with historical equity context
+                        updatePerformanceTables(allPositions, hist.historicalPnl || []);
+                    } else {
             document.getElementById('sharpeRatio').textContent = 'N/A';
             document.getElementById('sortinoRatio').textContent = 'N/A';
-            document.getElementById('maxDrawdown').textContent = formatPercent(Math.abs(totalPnL / parseFloat(subaccount?.equity || 1)) * 100);
-            document.getElementById('maxDrawdownDetail').textContent = 'From equity';
+                        updateElement('calmarRatio','N/A');
+                        updatePerformanceTables(allPositions, []);
+                    }
+                } catch (e) {
+                    // If endpoint not available, leave as N/A
+                    document.getElementById('sharpeRatio').textContent = 'N/A';
+                    document.getElementById('sortinoRatio').textContent = 'N/A';
+                    updateElement('calmarRatio','N/A');
+                    updatePerformanceTables(allPositions, []);
+                }
+            })();
+            // Max DD from historical equity excluding cash flows
+            (async () => {
+                try {
+                    const hist = await fetchJson(`${DYDX_API}/historical-pnl?address=${currentAddress}&subaccountNumber=0&limit=1000`);
+                    const eqAdj = computeAdjustedEquitySeriesFromHist(hist.historicalPnl || []);
+                    if (eqAdj.length > 1) {
+                        const mdd = computeMaxDrawdownFromEquity(eqAdj);
+                        updateElement('maxDrawdown', mdd.pct.toFixed(1) + '%');
+                        updateElement('maxDrawdownDetail', `Peak-to-trough: ${formatCurrency(-mdd.abs)}`);
+                    } else {
+                        updateElement('maxDrawdown','N/A');
+                        updateElement('maxDrawdownDetail','-');
+                    }
+                } catch (e) {
+                    updateElement('maxDrawdown','N/A');
+                    updateElement('maxDrawdownDetail','-');
+                }
+            })();
 
             // Update Trading Statistics section
             updateElement('avgWin', wins > 0 ? formatCurrency(avgWin) : 'N/A');
             updateElement('avgLoss', losses > 0 ? formatCurrency(avgLoss) : 'N/A');
             updateElement('riskReward', avgLoss > 0 ? `1:${(avgWin/avgLoss).toFixed(2)}` : 'N/A');
             updateElement('expectancy', totalTrades > 0 ? formatCurrency(totalPnL/totalTrades) : 'N/A');
+            // Recovery Factor = Net Profit / Max Drawdown (absolute). Use adjusted equity curve for MDD.
+            (async () => {
+                try {
+                    const hist = await fetchJson(`${DYDX_API}/historical-pnl?address=${currentAddress}&subaccountNumber=0&limit=1000`);
+                    const eqAdj = computeAdjustedEquitySeriesFromHist(hist.historicalPnl || []);
+                    if (eqAdj.length > 1) {
+                        const mdd = computeMaxDrawdownFromEquity(eqAdj);
+                        const netProfit = totalRealizedPnL + totalUnrealizedPnL; // same as totalPnL
+                        const rf = mdd.abs > 0 ? (netProfit / mdd.abs) : null;
+                        updateElement('recoveryFactor', rf===null ? 'N/A' : rf.toFixed(2));
+                    } else {
             updateElement('recoveryFactor', 'N/A');
+                    }
+                } catch (e) {
+                    updateElement('recoveryFactor', 'N/A');
+                }
+            })();
             
-            // Show actual account equity
-            if (subaccount) {
-                console.log('Account equity:', subaccount.equity);
-                console.log('Free collateral:', subaccount.freeCollateral);
-                console.log('Open positions:', openPositionCount);
+            // Update Positions tab from real data
+            const fillsArr = (allData.fills && (allData.fills.fills || allData.fills.data || allData.fills)) || [];
+            updatePositionsTabFromData(allPositions, fillsArr, subaccount);
+            updatePerformanceMetrics(allPositions);
+            // Performance tables will be filled after historical PnL fetch above
+
+            // Kelly criterion from closed positions
+            (function(){
+                const closed = allPositions.filter(p=>p.status==='CLOSED');
+                const N = closed.length;
+                if(!N){ updateElement('kellyCriterion','N/A'); return; }
+                const wins = closed.filter(p=>parseFloat(p.realizedPnl||0)>0);
+                const losses = closed.filter(p=>parseFloat(p.realizedPnl||0)<0);
+                const pWin = N? (wins.length/N) : 0;
+                const avgWin = wins.length? wins.reduce((s,p)=>s+parseFloat(p.realizedPnl||0),0)/wins.length:0;
+                const avgLossAbs = losses.length? Math.abs(losses.reduce((s,p)=>s+parseFloat(p.realizedPnl||0),0))/losses.length:0;
+                const b = avgLossAbs>0? (avgWin/avgLossAbs) : 0; // win:loss payoff ratio
+                const k = (b>0)? (pWin - (1-pWin)/b) : 0;
+                updateElement('kellyCriterion', isFinite(k)? (k*100).toFixed(1)+'%' : 'N/A');
+            })();
+
+            // Funding metrics (Market Structure tab)
+            const payments = (allData.fundingPayments && (allData.fundingPayments.fundingPayments || [])) || [];
+            const cutoff = Date.now() - (30 * 24 * 3600 * 1000);
+            let received = 0;
+            let paid = 0;
+            payments.forEach(p => {
+                const ts = new Date(p.createdAt).getTime();
+                if (isNaN(ts) || ts < cutoff) return;
+                const amt = parseFloat(p.payment || 0);
+                if (amt > 0) received += amt; else paid += Math.abs(amt);
+            });
+            const net = received - paid;
+            updateElement('fundingCaptured', formatCurrency(received));
+            updateElement('fundingPaid', formatCurrency(-paid));
+            updateElement('fundingNet', formatCurrency(net));
+            if (subaccount && subaccount.equity) {
+                const pct = (net / parseFloat(subaccount.equity)) * 100;
+                updateElement('fundingNetPct', `${pct.toFixed(2)}% of equity`);
+            } else {
+                updateElement('fundingNetPct', '-');
             }
+
+            // Markets map and Funding analysis table
+            const marketsMap = (allData.markets && (allData.markets.perpetualMarkets || allData.markets)) || {};
+            updateFundingAnalysis(marketsMap, payments);
         }
 
         function updateMetric(id, value, isPositive = true) {
@@ -1708,6 +1803,202 @@
         function updateElement(id, value) {
             const el = document.getElementById(id);
             if (el) el.textContent = value;
+        }
+
+        // Populate Positions tab from real data
+        function updatePositionsTabFromData(positions, fills, subaccount) {
+            const openPositions = positions.filter(p => p.status === 'OPEN');
+            const activeCount = openPositions.length;
+            const activeNotional = openPositions.reduce((sum, p) => {
+                const size = parseFloat(p.size || 0);
+                const entry = parseFloat(p.entryPrice || 0);
+                return sum + (size * entry);
+            }, 0);
+            updateElement('positionsActiveCount', String(activeCount));
+            updateElement('positionsActiveNotional', activeCount > 0 ? `$${activeNotional.toFixed(2)}` : '-');
+
+            // Basic fill-based metrics (placeholders derived from fills; no fake constants)
+            const totalFills = Array.isArray(fills) ? fills.length : 0;
+            if (totalFills > 0) {
+                // Approximate fill rate as ratio of MARKET orders to total when liquidity is TAKER (demo metric from real data)
+                const takerFills = fills.filter(f => f.liquidity === 'TAKER').length;
+                updateElement('positionsFillRate', ((takerFills / totalFills) * 100).toFixed(1) + '%');
+            } else {
+                updateElement('positionsFillRate', '-');
+            }
+
+            // Clear history body and rebuild from CLOSED positions
+            const body = document.getElementById('positionsHistoryBody');
+            if (!body) return;
+            body.innerHTML = '';
+
+            const closedPositions = positions
+                .filter(p => p.status === 'CLOSED')
+                .sort((a, b) => new Date(b.closedAt) - new Date(a.closedAt))
+                .slice(0, 20);
+
+            closedPositions.forEach(p => {
+                const tr = document.createElement('tr');
+                const created = new Date(p.createdAt);
+                const closed = new Date(p.closedAt);
+                const durationMs = closed - created;
+                const hours = Math.floor(durationMs / 3600000);
+                const minutes = Math.floor((durationMs % 3600000) / 60000);
+                const durationText = (hours > 0 ? `${hours}h ` : '') + `${minutes}m`;
+                const realized = parseFloat(p.realizedPnl || 0);
+                const pct = (parseFloat(p.exitPrice || 0) && parseFloat(p.entryPrice || 0))
+                    ? ((parseFloat(p.exitPrice) - parseFloat(p.entryPrice)) / parseFloat(p.entryPrice)) * (p.side === 'LONG' ? 100 : -100)
+                    : 0;
+                const funding = parseFloat(p.netFunding || 0);
+
+                tr.innerHTML = `
+                    <td class="mono">${closed.toLocaleString()}</td>
+                    <td class="mono">${p.market || '-'}</td>
+                    <td class="mono">${(p.side || '').toUpperCase()}</td>
+                    <td class="mono">${(p.sumOpen || p.size || 0)}</td>
+                    <td class="mono">${(p.entryPrice || '-')}</td>
+                    <td class="mono">${(p.exitPrice || '-')}</td>
+                    <td class="mono ${realized >= 0 ? 'profit' : 'loss'}">${formatCurrency(realized)}</td>
+                    <td class="mono ${pct >= 0 ? 'profit' : 'loss'}">${pct.toFixed(2)}%</td>
+                    <td class="mono">${durationText}</td>
+                    <td class="mono ${funding >= 0 ? 'profit' : 'loss'}">${formatCurrency(funding)}</td>
+                `;
+                body.appendChild(tr);
+            });
+        }
+
+        // Compute and update Performance tab metrics
+        function updatePerformanceMetrics(positions) {
+            const closed = positions.filter(p => p.status === 'CLOSED').sort((a,b)=> new Date(a.closedAt)-new Date(b.closedAt));
+            // Max consecutive
+            let maxW=0,curW=0,maxL=0,curL=0; let bestPnL=0,curBest=0,worstPnL=0,curWorst=0;
+            closed.forEach(p=>{
+                const pnl=parseFloat(p.realizedPnl||0);
+                if(pnl>0){curW++;maxW=Math.max(maxW,curW);curBest+=pnl;worstPnL=Math.min(worstPnL,curWorst);curL=0;curWorst=0;}
+                else if(pnl<0){curL++;maxL=Math.max(maxL,curL);curWorst+=pnl;bestPnL=Math.max(bestPnL,curBest);curW=0;curBest=0;}
+            });
+            bestPnL=Math.max(bestPnL,curBest); worstPnL=Math.min(worstPnL,curWorst);
+            updateElement('maxConsecWins', String(maxW||0));
+            updateElement('maxConsecWinsDetail', bestPnL? `${formatCurrency(bestPnL)}`:'');
+            updateElement('maxConsecLosses', String(maxL||0));
+            updateElement('maxConsecLossesDetail', worstPnL? `${formatCurrency(worstPnL)}`:'');
+
+            // Average RRR from per-trade avg win/loss
+            const wins=closed.filter(p=>parseFloat(p.realizedPnl||0)>0);
+            const losses=closed.filter(p=>parseFloat(p.realizedPnl||0)<0);
+            const avgWin = wins.length? wins.reduce((s,p)=>s+parseFloat(p.realizedPnl||0),0)/wins.length:0;
+            const avgLoss = losses.length? Math.abs(losses.reduce((s,p)=>s+parseFloat(p.realizedPnl||0),0))/losses.length:0;
+            const rrr = avgLoss>0? avgWin/avgLoss : null;
+            if(rrr!=null){ updateElement('avgRRR', rrr.toFixed(2)+':1'); updateElement('avgRRRDetail','vs 2:1 target'); } else { updateElement('avgRRR','N/A'); }
+
+            // Win rate trend (last N)
+            const N= Math.min(50, closed.length);
+            const last = closed.slice(-N);
+            const wrt = last.length? (last.filter(p=>parseFloat(p.realizedPnl||0)>0).length/last.length)*100:0;
+            const el = document.getElementById('winRateTrend'); if(el){ el.textContent = (wrt? ('↑ '+wrt.toFixed(1)+'%'):'-'); el.className = 'metric-value mono '+(wrt>=50?'profit':'loss'); }
+            updateElement('winRateTrendDetail', last.length? `Last ${last.length} trades`:'');
+
+            // Win/Loss Distribution bars from real trade returns
+            const container = document.getElementById('winLossDistribution');
+            if (container) {
+                container.innerHTML = '';
+                const returns = closed.map(p => {
+                    const entry = parseFloat(p.entryPrice||0);
+                    const exit = parseFloat(p.exitPrice||0);
+                    const side = (p.side||'').toUpperCase();
+                    if (!entry || !exit) return 0;
+                    const r = (exit - entry) / entry * (side==='LONG'?1:-1);
+                    return r; // fractional
+                }).filter(v => isFinite(v));
+                if (returns.length > 0) {
+                    // Histogram into 21 bins from -20% to +20%
+                    const bins = 21;
+                    const minP = -0.2, maxP = 0.2;
+                    const counts = new Array(bins).fill(0);
+                    returns.forEach(r => {
+                        const clamped = Math.max(minP, Math.min(maxP, r));
+                        const idx = Math.min(bins-1, Math.max(0, Math.floor((clamped - minP) / (maxP - minP) * bins)));
+                        counts[idx] += 1;
+                    });
+                    const maxC = Math.max(...counts);
+                    counts.forEach((c, i) => {
+                        const bar = document.createElement('div');
+                        bar.className = 'distribution-bar';
+                        const h = maxC>0 ? (c / maxC) * 100 : 0;
+                        bar.style.height = `${Math.max(2, h)}%`;
+                        // color left half loss, right half profit
+                        const isLoss = (i < Math.floor(bins/2));
+                        bar.style.background = isLoss ? 'var(--loss)' : 'var(--profit)';
+                        bar.style.opacity = '0.4';
+                        bar.title = `${((minP + (i+0.5)*(maxP-minP)/bins)*100).toFixed(1)}% bin: ${c}`;
+                        container.appendChild(bar);
+                    });
+                    const title = document.getElementById('winLossTitle');
+                    if (title) title.textContent = `Win/Loss Distribution (${returns.length} trades)`;
+                } else {
+                    const title = document.getElementById('winLossTitle');
+                    if (title) title.textContent = 'Win/Loss Distribution (no data)';
+                }
+            }
+        }
+
+        // Build the Funding Analysis table from markets + funding payments
+        function updateFundingAnalysis(marketsMap, fundingPayments) {
+            const body = document.getElementById('fundingAnalysisBody');
+            if (!body) return;
+            body.innerHTML = '';
+
+            // Aggregate received/paid by market
+            const byMarket = {};
+            const cutoff = Date.now() - (30 * 24 * 3600 * 1000);
+            (fundingPayments || []).forEach(p => {
+                const ts = new Date(p.createdAt).getTime();
+                if (isNaN(ts) || ts < cutoff) return;
+                const market = p.ticker || p.market || 'Unknown';
+                const amt = parseFloat(p.payment || 0);
+                if (!byMarket[market]) byMarket[market] = { received: 0, paid: 0, net: 0, count: 0 };
+                if (amt > 0) byMarket[market].received += amt; else byMarket[market].paid += Math.abs(amt);
+                byMarket[market].net += amt;
+                byMarket[market].count += 1;
+            });
+
+            // Build rows for markets where there is any funding activity or a known market entry
+            const entries = Object.keys(marketsMap || {}).map(ticker => {
+                const m = marketsMap[ticker];
+                const agg = byMarket[ticker] || { received: 0, paid: 0, net: 0, count: 0 };
+                return {
+                    ticker,
+                    avgRate: null, // Could be computed from payments over notionals if needed
+                    current: m?.nextFundingRate || '0',
+                    predicted: m?.defaultFundingRate1H || '0',
+                    received: agg.received,
+                    paid: agg.paid,
+                    net: agg.net,
+                };
+            });
+
+            // Show only rows with activity or top few majors
+            const filtered = entries
+                .filter(e => Math.abs(e.net) > 0 || ['BTC-USD', 'ETH-USD', 'SOL-USD'].includes(e.ticker))
+                .slice(0, 15);
+
+            filtered.forEach(e => {
+                const tr = document.createElement('tr');
+                const status = e.net > 0 ? 'profit' : e.net < 0 ? 'loss' : '';
+                const currPct = (parseFloat(e.current) || 0) * 100;
+                const predPct = (parseFloat(e.predicted) || 0) * 100;
+                tr.innerHTML = `
+                    <td>${e.ticker}</td>
+                    <td class="mono">${e.avgRate === null ? '-' : (e.avgRate * 100).toFixed(3) + '%'}</td>
+                    <td class="mono ${currPct < 0 ? 'loss' : 'profit'}">${currPct.toFixed(3)}%</td>
+                    <td class="mono">${predPct.toFixed(3)}%</td>
+                    <td class="mono profit">${formatCurrency(e.received)}</td>
+                    <td class="mono loss">${formatCurrency(-e.paid)}</td>
+                    <td class="mono ${status}">${formatCurrency(e.net)}</td>
+                    <td class="mono">${status ? status.toUpperCase() : '-'}</td>
+                `;
+                body.appendChild(tr);
+            });
         }
 
         let marketChart = null;
@@ -1730,16 +2021,17 @@
                 return;
             }
             
-            const labels = sortedMarkets.map(([market, data]) => 
-                `${market} (${data.tradeCount})`
-            );
+            const labels = sortedMarkets.map(([market, data]) => {
+                const openSuffix = data.openCount ? ` + ${data.openCount} open` : '';
+                return `${market} (${data.tradeCount} closed${openSuffix})`;
+            });
             const data = sortedMarkets.map(([_, data]) => data.tradeCount);
             const backgroundColors = [
-                '#10B981', // Green
-                '#3B82F6', // Blue  
-                '#F59E0B', // Yellow
-                '#EF4444', // Red
-                '#8B5CF6'  // Purple
+                'rgba(16,185,129,0.9)',
+                'rgba(59,130,246,0.9)',
+                'rgba(245,158,11,0.9)',
+                'rgba(239,68,68,0.9)',
+                'rgba(139,92,246,0.9)'
             ];
             
             marketChart = new Chart(ctx, {
@@ -1749,8 +2041,8 @@
                     datasets: [{
                         data: data,
                         backgroundColor: backgroundColors,
-                        borderColor: 'var(--bg-primary)',
-                        borderWidth: 2
+                        borderColor: 'rgba(0,0,0,0.6)',
+                        borderWidth: 1
                     }]
                 },
                 options: {
@@ -1760,11 +2052,14 @@
                         legend: {
                             position: 'right',
                             labels: {
-                                color: 'var(--text-secondary)',
-                                padding: 15,
+                                color: 'rgba(255,255,255,0.98)',
+                                padding: 16,
                                 font: {
-                                    size: 11
+                                    size: 13,
+                                    weight: '600'
                                 },
+                                boxWidth: 14,
+                                boxHeight: 10,
                                 generateLabels: function(chart) {
                                     const data = chart.data;
                                     const total = data.datasets[0].data.reduce((a, b) => a + b, 0);
@@ -1772,7 +2067,7 @@
                                         const value = data.datasets[0].data[i];
                                         const percentage = ((value / total) * 100).toFixed(1);
                                         return {
-                                            text: `${label} - ${percentage}%`,
+                                            text: `${label} — ${percentage}%`,
                                             fillStyle: data.datasets[0].backgroundColor[i],
                                             index: i
                                         };
@@ -1781,20 +2076,21 @@
                             }
                         },
                         tooltip: {
-                            backgroundColor: 'var(--bg-elevated)',
-                            titleColor: 'var(--text-primary)',
-                            bodyColor: 'var(--text-secondary)',
-                            borderColor: 'var(--border)',
+                            backgroundColor: 'rgba(15,15,15,0.98)',
+                            titleColor: 'rgba(255,255,255,0.98)',
+                            bodyColor: 'rgba(255,255,255,0.96)',
+                            borderColor: 'rgba(255,255,255,0.12)',
                             borderWidth: 1,
                             padding: 12,
                             callbacks: {
                                 label: function(context) {
                                     const market = sortedMarkets[context.dataIndex];
+                                    const md = market[1];
                                     const lines = [
-                                        `Trades: ${market[1].tradeCount}`,
-                                        `Total P&L: ${formatCurrency(market[1].totalPnL)}`,
-                                        `Open Positions: ${market[1].openCount}`
+                                        `Closed Positions: ${md.tradeCount}`
                                     ];
+                                    if (md.openCount) lines.push(`Open Positions: ${md.openCount}`);
+                                    lines.push(`Total P&L: ${formatCurrency(md.totalPnL)}`);
                                     return lines;
                                 }
                             }
@@ -1804,7 +2100,201 @@
             });
         }
 
-        // Auto-load real data on page load
-        window.addEventListener('load', loadDashboard);
+        // Build adjusted equity series (excluding cash flows) and draw with Chart.js, shading drawdown periods
+        async function renderCumulativePnlChart(address) {
+            const el = document.getElementById('pnlCumulativeChart');
+            if (!el) return;
+            try {
+                const hist = await fetchJson(`${DYDX_API}/historical-pnl?address=${address}&subaccountNumber=0&limit=1000`);
+                const pairs = computeAdjustedEquityPairsFromHist(hist.historicalPnl || []);
+                if (pairs.length === 0) return;
+                const labels = pairs.map(p => new Date(p.t));
+                const equityAdj = pairs.map(p => p.e);
+                // Drawdown computation (relative to running peak of adjusted equity)
+                let peak = -Infinity;
+                const drawdowns = equityAdj.map(v => {
+                    peak = Math.max(peak, v);
+                    return peak > 0 ? (v - peak) / peak : 0;
+                });
+                // Chart
+                if (window.pnlChart) { window.pnlChart.destroy(); }
+                window.pnlChart = new Chart(el.getContext('2d'), {
+                    type: 'line',
+                    data: {
+                        labels,
+                        datasets: [{
+                            label: 'Equity (no cash flows)',
+                            data: equityAdj,
+                            borderColor: '#ffffff',
+                            backgroundColor: 'rgba(255,255,255,0.05)',
+                            fill: true,
+                            pointRadius: 0,
+                            tension: 0.2
+                        },{
+                            label: 'Drawdown (%)',
+                            data: drawdowns.map(d => d * 100),
+                            yAxisID: 'y1',
+                            borderColor: 'rgba(239,68,68,0.7)',
+                            backgroundColor: 'rgba(239,68,68,0.1)',
+                            fill: true,
+                            pointRadius: 0,
+                            tension: 0.2
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        interaction: { mode: 'index', intersect: false },
+                        scales: {
+                            x: { type: 'time', time: { unit: 'day' }, ticks: { color: 'rgba(255,255,255,0.6)' }, grid: { color: 'rgba(255,255,255,0.1)' } },
+                            y: { ticks: { color: 'rgba(255,255,255,0.8)' }, grid: { color: 'rgba(255,255,255,0.1)' } },
+                            y1: { position: 'right', ticks: { color: 'rgba(239,68,68,0.9)' }, grid: { drawOnChartArea: false } }
+                        },
+                        plugins: { legend: { display: false } }
+                    }
+                });
+            } catch (e) {
+                console.warn('Failed to render PnL chart', e);
+            }
+        }
+
+        // Populate Performance tables dynamically from positions; optionally use historical equity for Sharpe/MDD context
+        function updatePerformanceTables(positions, historicalPnl = []) {
+            // Monthly breakdown from CLOSED positions
+            const monthly = {};
+            positions.filter(p => p.status === 'CLOSED').forEach(p => {
+                const d = new Date(p.closedAt || p.createdAt);
+                if (isNaN(d)) return;
+                const key = d.toLocaleString('en-US', { month: 'long', year: 'numeric' });
+                if (!monthly[key]) monthly[key] = { pnl: 0, trades: 0, wins: 0, losses: 0, winSum: 0, lossSum: 0 };
+                const pnl = parseFloat(p.realizedPnl || 0);
+                monthly[key].pnl += pnl;
+                monthly[key].trades += 1;
+                if (pnl > 0) { monthly[key].wins += 1; monthly[key].winSum += pnl; }
+                else if (pnl < 0) { monthly[key].losses += 1; monthly[key].lossSum += Math.abs(pnl); }
+            });
+
+            // For Sharpe/MDD per-month, build equity segments if historicalPnl is available
+            const hist = Array.isArray(historicalPnl) ? historicalPnl.slice() : [];
+            const byMonthEquity = {};
+            if (hist.length > 2) {
+                const pairs = computeAdjustedEquityPairsFromHist(hist);
+                pairs.forEach(pt => {
+                    const d = new Date(pt.t);
+                    if (isNaN(d)) return;
+                    const key = d.toLocaleString('en-US', { month: 'long', year: 'numeric' });
+                    if (!byMonthEquity[key]) byMonthEquity[key] = [];
+                    byMonthEquity[key].push({ t: pt.t, e: pt.e });
+                });
+            }
+            const bodyM = document.getElementById('monthlyPerformanceBody');
+            if (bodyM) {
+                bodyM.innerHTML = '';
+                Object.entries(monthly)
+                    .sort((a,b)=> new Date(b[0]) - new Date(a[0]))
+                    .forEach(([label, m]) => {
+                        const tr = document.createElement('tr');
+                        const winRate = m.trades ? (m.wins / m.trades) * 100 : 0;
+                        const avgWin = m.wins ? m.winSum / m.wins : 0;
+                        const avgLoss = m.losses ? m.lossSum / m.losses : 0;
+                        const pf = m.lossSum > 0 ? (m.winSum / m.lossSum) : null;
+                        // Sharpe/MDD per-month from equity segment
+                        let sharpeTxt = '-';
+                        let mddTxt = '-';
+                        if (byMonthEquity[label] && byMonthEquity[label].length > 2) {
+                            // Use adjusted equity without cash flows
+                            const seg = byMonthEquity[label];
+                            const eqSeg = seg.map(x => x.e);
+                            const tsSeg = seg.map(x => x.t);
+                            const rets = window.RiskMetrics.computeReturnsFromEquitySeries(eqSeg);
+                            const ann = window.RiskMetrics.computeAnnualizedFromReturns(rets, tsSeg, { mar: 0, denominator: 'negative' });
+                            const mddPct = computeMaxDrawdownPctFromEquity(eqSeg);
+                            sharpeTxt = (ann.sharpeAnnualized || 0).toFixed(2);
+                            mddTxt = mddPct.toFixed(1) + '%';
+                        }
+                        tr.innerHTML = `
+                            <td>${label}</td>
+                            <td class="mono ${m.pnl>=0?'profit':'loss'}">${formatCurrency(m.pnl)}</td>
+                            <td class="mono">${winRate.toFixed(1)}%</td>
+                            <td class="mono">${m.trades}</td>
+                            <td class="mono ${avgWin>=0?'profit':'loss'}">${formatCurrency(avgWin)}</td>
+                            <td class="mono ${avgLoss>=0?'profit':'loss'}">${formatCurrency(-avgLoss)}</td>
+                            <td class="mono">${pf===null?'N/A':pf.toFixed(2)}</td>
+                            <td class="mono">${mddTxt}</td>
+                            <td class="mono">${sharpeTxt}</td>
+                        `;
+                        bodyM.appendChild(tr);
+                    });
+            }
+
+            // Asset performance from ALL positions
+            const byAsset = {};
+            positions.forEach(p => {
+                const m = p.market || 'Unknown';
+                if (!byAsset[m]) byAsset[m] = { pnl: 0, trades: 0, wins: 0, losses: 0, winSum: 0, lossSum: 0 };
+                const pnl = parseFloat(p.realizedPnl || 0) + parseFloat(p.unrealizedPnl || 0);
+                byAsset[m].pnl += pnl;
+                if (p.status === 'CLOSED') {
+                    byAsset[m].trades += 1;
+                    if (p.realizedPnl > 0) { byAsset[m].wins += 1; byAsset[m].winSum += parseFloat(p.realizedPnl); }
+                    else if (p.realizedPnl < 0) { byAsset[m].losses += 1; byAsset[m].lossSum += Math.abs(parseFloat(p.realizedPnl)); }
+                }
+            });
+            const bodyA = document.getElementById('assetPerformanceBody');
+            if (bodyA) {
+                bodyA.innerHTML = '';
+                Object.entries(byAsset)
+                    .filter(([ticker]) => byAsset[ticker].trades > 0)
+                    .sort((a,b)=> Math.abs(b[1].pnl) - Math.abs(a[1].pnl))
+                    .forEach(([ticker, a]) => {
+                        const winRate = a.trades ? (a.wins / a.trades) * 100 : 0;
+                        const avgPnL = a.trades ? (a.winSum - a.lossSum) / a.trades : 0;
+                        const best = a.winSum > 0 ? a.winSum / Math.max(1,a.wins) : 0;
+                        const worst = a.lossSum > 0 ? -a.lossSum / Math.max(1,a.losses) : 0;
+                        // Asset Sharpe from equity filtered to periods with any exposure to this asset is non-trivial.
+                        // As an approximation, compute per-trade Sharpe using closed trades returns for this asset.
+                        let assetSharpeTxt = '-';
+                        const assetClosed = positions.filter(p => p.status==='CLOSED' && (p.market||'Unknown')===ticker);
+                        if (assetClosed.length > 2) {
+                            const tradeReturns = assetClosed.map(p => {
+                                const entry = parseFloat(p.entryPrice||0);
+                                const exit = parseFloat(p.exitPrice||0);
+                                const side = (p.side||'').toUpperCase();
+                                if (!entry || !exit) return 0;
+                                return ((exit - entry) / entry) * (side==='LONG'?1:-1);
+                            }).filter(v=>isFinite(v));
+                            const s = window.RiskMetrics.computeSharpe(tradeReturns, 0);
+                            // not annualized across trades; display as raw
+                            assetSharpeTxt = s.toFixed(2);
+                        }
+                        const tr = document.createElement('tr');
+                        tr.innerHTML = `
+                            <td>${ticker}</td>
+                            <td class="mono ${a.pnl>=0?'profit':'loss'}">${formatCurrency(a.pnl)}</td>
+                            <td class="mono">${a.trades}</td>
+                            <td class="mono">${winRate.toFixed(1)}%</td>
+                            <td class="mono ${avgPnL>=0?'profit':'loss'}">${formatCurrency(avgPnL)}</td>
+                            <td class="mono ${best>=0?'profit':'loss'}">${formatCurrency(best)}</td>
+                            <td class="mono ${worst>=0?'profit':'loss'}">${formatCurrency(worst)}</td>
+                            <td class="mono">${assetSharpeTxt}</td>
+                        `;
+                        bodyA.appendChild(tr);
+                    });
+            }
+        }
+        // Auto-load real data on page load and restore last active tab
+        window.addEventListener('load', async () => {
+            try {
+                const savedTab = localStorage.getItem('activeTab') || 'overview';
+                activateTab(savedTab);
+            } catch (e) {
+                activateTab('overview');
+            }
+            await loadDashboard();
+            // After dashboard loads, render the cumulative PnL chart from historical endpoint
+            if (currentAddress) {
+                renderCumulativePnlChart(currentAddress);
+            }
+        });
     </script>
 </body>
