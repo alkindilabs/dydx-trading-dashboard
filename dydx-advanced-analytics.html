@@ -376,15 +376,15 @@
         </div>
         
         <div class="nav-tabs">
-            <div class="nav-tab active" onclick="switchTab('overview')">Overview</div>
+            <div class="nav-tab" onclick="switchTab('overview')">Overview</div>
             <div class="nav-tab" onclick="switchTab('performance')">Performance</div>
             <div class="nav-tab" onclick="switchTab('positions')">Positions</div>
             <div class="nav-tab" onclick="switchTab('history')">Trade History</div>
             <div class="nav-tab" onclick="switchTab('risk')">Risk Analysis</div>
         </div>
         
-        <!-- Overview Tab -->
-        <div id="overview" class="tab-content active" style="display: none;">
+        <!-- Overview Tab (hidden by default until data loads) -->
+        <div id="overview" class="tab-content" style="display: none;">
             <div class="metrics-grid">
                 <div class="metric-card highlight">
                     <div class="metric-label">Total Equity</div>
@@ -715,7 +715,11 @@
                     noDataMsg.id = 'noDataMessage';
                     noDataMsg.style.cssText = 'text-align: center; padding: 100px 20px; color: #a8a8b3;';
                     noDataMsg.innerHTML = '<h2>No Portfolio Data Loaded</h2><p>Enter a dYdX address above and click "Load Dashboard" to view portfolio analytics.</p>';
-                    document.querySelector('.dashboard-container').appendChild(noDataMsg);
+                    // Insert after the nav tabs
+                    const navTabs = document.querySelector('.nav-tabs');
+                    if (navTabs && navTabs.parentNode) {
+                        navTabs.parentNode.insertBefore(noDataMsg, navTabs.nextSibling);
+                    }
                 }
             }
         });
@@ -1305,8 +1309,12 @@
                     noDataMsg.style.display = 'none';
                 }
                 
-                // Show the overview tab
+                // Show and activate the overview tab
                 document.getElementById('overview').style.display = 'block';
+                document.getElementById('overview').classList.add('active');
+                // Make overview nav tab active
+                document.querySelectorAll('.nav-tab').forEach(tab => tab.classList.remove('active'));
+                document.querySelector('.nav-tab').classList.add('active'); // First tab is overview
                 
                 // Update metrics display with real data
                 updateMetricsDisplay();
@@ -1598,16 +1606,15 @@
         
         // Initialize on load
         window.addEventListener('load', () => {
-            // Check for address in URL
+            // Check for address in URL but don't auto-load
             const urlAddress = getAddressFromURL();
             
             if (urlAddress) {
+                // Only pre-fill the input, don't auto-load data
                 document.getElementById('addressInput').value = urlAddress;
-                loadDashboard(urlAddress);
-            } else {
-                // Pre-fill with example address
-                // No default address - user must provide one
+                // User must click Load Dashboard button to actually load data
             }
+            // No default address - user must provide one
         });
     </script>
 </body>
