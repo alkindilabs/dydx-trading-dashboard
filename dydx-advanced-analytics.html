@@ -388,7 +388,7 @@
             <div class="metrics-grid">
                 <div class="metric-card highlight">
                     <div class="metric-label">Total Equity</div>
-                    <div class="metric-value positive">$507,589</div>
+                    <div class="metric-value" id="totalEquity">-</div>
                     <div class="metric-change positive">+65.1% All-Time</div>
                 </div>
                 <div class="metric-card">
@@ -398,12 +398,12 @@
                 </div>
                 <div class="metric-card">
                     <div class="metric-label">Win Rate</div>
-                    <div class="metric-value positive">85.7%</div>
+                    <div class="metric-value" id="winRate">-</div>
                     <div class="metric-change">6 Wins / 1 Loss</div>
                 </div>
                 <div class="metric-card">
                     <div class="metric-label">Profit Factor</div>
-                    <div class="metric-value positive">31.58</div>
+                    <div class="metric-value" id="profitFactor">-</div>
                     <div class="metric-change">Excellent Risk/Reward</div>
                 </div>
                 <div class="metric-card">
@@ -424,7 +424,7 @@
                 </div>
                 <div class="insight-content">
                     <ul style="margin-left: 20px; line-height: 1.8;">
-                        <li>Outstanding performance with 85.7% win rate and 31.58 profit factor</li>
+                        <li id="performanceSummary">Loading performance data...</li>
                         <li>Current ETH position down $107k but strong historical recovery pattern</li>
                         <li>Excellent risk management with average win 5.26x larger than average loss</li>
                         <li>Primary focus on ETH (5 trades) and BTC (3 trades) with consistent profits</li>
@@ -676,7 +676,7 @@
                     <strong>Current Risk Profile:</strong><br>
                     • <span style="color: #00f2fe;">Low Liquidation Risk:</span> 91.9% free collateral provides substantial buffer<br>
                     • <span style="color: #ffd93d;">Concentration Risk:</span> Single large position (450 ETH) creates exposure concentration<br>
-                    • <span style="color: #00f2fe;">Strong Track Record:</span> 85.7% win rate with excellent profit factor of 31.58<br>
+                    • <span style="color: #00f2fe;">Track Record:</span> <span id="trackRecordSummary">Loading...</span><br>
                     • <span style="color: #ffd93d;">Current Drawdown:</span> -21.1% from equity high requires 26.7% gain to recover<br>
                     • <span style="color: #00f2fe;">Risk Management:</span> Historical data shows disciplined position sizing and exit strategy
                 </div>
@@ -689,7 +689,7 @@
         let researchData = null;
         let currentAddress = '';
         let charts = {};
-        let currentETHPrice = 4640;
+        let currentETHPrice = 0;
         const DYDX_API = 'https://indexer.dydx.trade/v4';
         
         // Get address from URL parameters
@@ -990,14 +990,9 @@
             const currentPosition = researchData.positions.find(p => p.status === 'OPEN');
             const entryPrice = currentPosition.entry_price;
             
-            // Simulate price movement
-            const pricePoints = [];
-            const labels = [];
-            for (let i = 0; i <= 10; i++) {
-                labels.push(`Day ${i}`);
-                pricePoints.push(entryPrice - (i * 13)); // Simulating decline
-            }
-            pricePoints[10] = currentETHPrice; // Current price
+            // Show only actual current price - no fake historical data
+            const pricePoints = [entryPrice, currentETHPrice];
+            const labels = ['Entry', 'Current'];
             
             charts.positionTimeline = new Chart(timelineCtx, {
                 type: 'line',
@@ -1097,7 +1092,7 @@
                     labels: ['Win Rate', 'Profit Factor', 'Risk/Reward', 'Free Collateral', 'Position Diversity'],
                     datasets: [{
                         label: 'Risk Profile',
-                        data: [85.7, 80, 75, 91.9, 40], // Normalized to 0-100
+                        data: [0, 0, 0, 0, 0], // Will be updated with real data
                         borderColor: 'rgba(79, 172, 254, 1)',
                         backgroundColor: 'rgba(79, 172, 254, 0.2)',
                         borderWidth: 2
@@ -1249,7 +1244,7 @@
                 if (priceData.candles && priceData.candles.length > 0) {
                     currentETHPrice = parseFloat(priceData.candles[0].close);
                 } else {
-                    currentETHPrice = 4640; // Fallback price
+                    currentETHPrice = 0; // No fallback - real data only
                     console.warn('No candle data available, using fallback price');
                 }
                 
@@ -1268,6 +1263,9 @@
                 
                 // Process data into research format
                 researchData = processPortfolioData(accountData, positionsData);
+                
+                // Update metrics display with real data
+                updateMetricsDisplay();
                 
                 // Initialize charts and UI
                 initOverviewCharts();
@@ -1418,9 +1416,66 @@
         function updateMetricsDisplay() {
             if (!researchData) return;
             
-            // Update all metric displays with latest data
-            // This function updates the DOM elements with new values
-            // Implementation depends on your specific UI structure
+            // Update overview metrics with real data
+            const totalEquity = document.getElementById('totalEquity');
+            const winRate = document.getElementById('winRate');
+            const profitFactorEl = document.getElementById('profitFactor');
+            
+            if (totalEquity) {
+                const equity = researchData.account_summary.equity || 0;
+                totalEquity.textContent = `$${equity.toLocaleString()}`;
+                totalEquity.className = equity > 0 ? 'metric-value positive' : 'metric-value';
+            }
+            
+            if (winRate) {
+                const rate = researchData.performance_metrics.win_rate || 0;
+                winRate.textContent = `${rate.toFixed(1)}%`;
+                winRate.className = rate > 50 ? 'metric-value positive' : 'metric-value';
+            }
+            
+            if (profitFactorEl) {
+                const factor = researchData.performance_metrics.profit_factor || 0;
+                profitFactorEl.textContent = factor.toFixed(2);
+                profitFactorEl.className = factor > 1 ? 'metric-value positive' : 'metric-value';
+            }
+            
+            // Update performance summary
+            const perfSummary = document.getElementById('performanceSummary');
+            if (perfSummary) {
+                const rate = researchData.performance_metrics.win_rate || 0;
+                const factor = researchData.performance_metrics.profit_factor || 0;
+                if (rate > 0 || factor > 0) {
+                    perfSummary.textContent = `Performance: ${rate.toFixed(1)}% win rate with ${factor.toFixed(2)} profit factor`;
+                } else {
+                    perfSummary.textContent = 'No trading history available';
+                }
+            }
+            
+            // Update track record summary
+            const trackRecord = document.getElementById('trackRecordSummary');
+            if (trackRecord) {
+                const rate = researchData.performance_metrics.win_rate || 0;
+                const factor = researchData.performance_metrics.profit_factor || 0;
+                if (rate > 0 || factor > 0) {
+                    trackRecord.textContent = `${rate.toFixed(1)}% win rate, ${factor.toFixed(2)} profit factor`;
+                } else {
+                    trackRecord.textContent = 'No trading history';
+                }
+            }
+            
+            // Update radar chart with real metrics
+            if (charts.performanceRadar) {
+                const metrics = researchData.performance_metrics;
+                const normalizedData = [
+                    Math.min(metrics.win_rate || 0, 100),
+                    Math.min((metrics.profit_factor || 0) * 20, 100), // Scale profit factor
+                    Math.min((metrics.total_positions || 0) / 10 * 100, 100), // Scale position count
+                    metrics.open_positions > 0 ? 50 : 0, // Risk management
+                    50 // Default sharpe ratio placeholder
+                ];
+                charts.performanceRadar.data.datasets[0].data = normalizedData;
+                charts.performanceRadar.update();
+            }
         }
         
         function loadDashboardFromInput() {
@@ -1443,7 +1498,7 @@
                 loadDashboard(urlAddress);
             } else {
                 // Pre-fill with example address
-                document.getElementById('addressInput').value = 'dydx1redacted';
+                // No default address - user must provide one
             }
         });
     </script>
