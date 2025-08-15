@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Not Found</title>
+  <script>
+    (function(){
+      // Client-side redirect for SPA-style routes
+      var target = '/index-v7-final.html' + window.location.search + window.location.hash;
+      try { window.location.replace(target); } catch(e) { window.location.href = target; }
+    })();
+  </script>
+</head>
+<body>
+  <p>Routing…</p>
+</body>
+</html>
+
