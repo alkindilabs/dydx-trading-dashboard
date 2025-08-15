@@ -1093,10 +1093,7 @@
                     tab.classList.remove('active');
                 });
                 
-                // Remove active from all nav tabs
-                document.querySelectorAll('.nav-tab').forEach(tab => {
-                    tab.classList.remove('active');
-                });
+                // Nav tabs removed in ultra-thin UI
                 
                 // Create and show no data message
                 let noDataMsg = document.getElementById('noDataMessage');
@@ -1111,10 +1108,10 @@
                     desc.textContent = 'Enter a dYdX address above and click "Load Dashboard" to view portfolio analytics.';
                     noDataMsg.appendChild(title);
                     noDataMsg.appendChild(desc);
-                    // Insert after the nav tabs
-                    const navTabs = document.querySelector('.nav-tabs');
-                    if (navTabs && navTabs.parentNode) {
-                        navTabs.parentNode.insertBefore(noDataMsg, navTabs.nextSibling);
+                    // Insert after the breadcrumb
+                    const breadcrumb = document.querySelector('.breadcrumb');
+                    if (breadcrumb && breadcrumb.parentNode) {
+                        breadcrumb.parentNode.insertBefore(noDataMsg, breadcrumb.nextSibling);
                     }
                 }
             }
@@ -1172,12 +1169,17 @@
         
         function toggleCommandPalette() {
             const palette = document.getElementById('commandPalette');
+            if (!palette) return; // Guard against missing element
+            
             commandPaletteOpen = !commandPaletteOpen;
             
             if (commandPaletteOpen) {
                 palette.classList.add('active');
-                document.getElementById('commandInput').value = '';
-                document.getElementById('commandInput').focus();
+                const commandInput = document.getElementById('commandInput');
+                if (commandInput) {
+                    commandInput.value = '';
+                    commandInput.focus();
+                }
                 showAllCommands();
             } else {
                 palette.classList.remove('active');
@@ -1186,13 +1188,18 @@
         
         function closeCommandPalette() {
             commandPaletteOpen = false;
-            document.getElementById('commandPalette').classList.remove('active');
+            const palette = document.getElementById('commandPalette');
+            if (palette) {
+                palette.classList.remove('active');
+            }
         }
         
         function showAllCommands() {
             commandResults = commands;
             selectedCommandIndex = 0;
             const resultsDiv = document.getElementById('commandResults');
+            if (!resultsDiv) return; // Guard against missing element
+            
             resultsDiv.innerHTML = commands.map((cmd, i) => 
                 `<div class="command-result ${i === 0 ? 'selected' : ''}" data-index="${i}">
                     <span>${cmd.name}</span>
@@ -1293,23 +1300,7 @@
                 breadcrumb.textContent = viewNames[tabName] || 'Overview';
             }
             
-            // Update tab buttons
-            document.querySelectorAll('.nav-tab').forEach(tab => {
-                tab.classList.remove('active');
-            });
-            
-            // Find the clicked tab or use the element parameter
-            if (clickedElement) {
-                clickedElement.classList.add('active');
-            } else {
-                // Find tab by name if no element provided
-                const tabs = document.querySelectorAll('.nav-tab');
-                const tabNames = ['overview', 'performance', 'positions', 'history', 'risk'];
-                const tabIndex = tabNames.indexOf(tabName);
-                if (tabIndex >= 0 && tabs[tabIndex]) {
-                    tabs[tabIndex].classList.add('active');
-                }
-            }
+            // Tab buttons removed in ultra-thin UI - navigation is keyboard-based
             
             // Update content - remove active from all, then add to selected
             document.querySelectorAll('.tab-content').forEach(content => {
@@ -2007,11 +1998,8 @@
                     noDataMsg.style.display = 'none';
                 }
                 
-                // Activate the overview tab and its nav button
+                // Activate the overview tab
                 document.getElementById('overview').classList.add('active');
-                // Make overview nav tab active (first tab)
-                document.querySelectorAll('.nav-tab').forEach(tab => tab.classList.remove('active'));
-                document.querySelector('.nav-tab').classList.add('active');
                 
                 // Update metrics display with real data
                 updateMetricsDisplay();
