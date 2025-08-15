@@ -1,7 +1,9 @@
 # Data files
+!package.json
 *.json
-*.md
+!README.md
 !CLAUDE.md
+*.md
 
 # OS files
 .DS_Store
