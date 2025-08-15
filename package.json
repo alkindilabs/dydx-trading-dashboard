@@ -1,0 +1,27 @@
+{
+  "name": "dydx-analytics-dashboard",
+  "version": "3.0.0",
+  "description": "Professional trading analytics dashboard for dYdX v4 with modular architecture",
+  "main": "js/app.js",
+  "type": "module",
+  "scripts": {
+    "start": "python3 -m http.server 8000",
+    "dev": "python3 -m http.server 8000"
+  },
+  "keywords": [
+    "dydx",
+    "trading",
+    "analytics",
+    "dashboard",
+    "defi",
+    "crypto"
+  ],
+  "author": "dYdX Analytics Team",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/0xferit/dydx-trading-dashboard"
+  },
+  "dependencies": {},
+  "devDependencies": {}
+}
