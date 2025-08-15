@@ -366,6 +366,7 @@
             <h1>Advanced Trading Analytics</h1>
             <div class="subtitle">dYdX Portfolio Performance & Risk Analysis</div>
             <div class="subtitle" style="font-size: 0.9em; color: #6a6a75;" id="accountDisplay">Enter address to load dashboard</div>
+            <div style="position: absolute; top: 10px; right: 10px; font-size: 0.8em; color: #6a6a75; opacity: 0.7;">v1.0.0</div>
         </div>
         
         <div style="background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px; padding: 20px; margin-bottom: 30px; backdrop-filter: blur(10px);">
@@ -1634,13 +1635,20 @@
         
         // Initialize on load
         window.addEventListener('load', () => {
-            // Check for address in URL but don't auto-load
+            // Check for address in URL and auto-load if present
             const urlAddress = getAddressFromURL();
             
             if (urlAddress) {
-                // Only pre-fill the input, don't auto-load data
+                // Pre-fill the input
                 document.getElementById('addressInput').value = urlAddress;
-                // User must click Load Dashboard button to actually load data
+                // Show loading message immediately
+                const noDataMsg = document.getElementById('noDataMessage');
+                if (noDataMsg) {
+                    noDataMsg.innerHTML = '<h2>Loading Portfolio...</h2><p>Fetching data for ' + urlAddress + '</p>';
+                }
+                // Automatically load the dashboard for this address
+                console.log('Loading dashboard for address from URL:', urlAddress);
+                setTimeout(() => loadDashboard(urlAddress), 100); // Small delay to ensure DOM is ready
             }
             // No default address - user must provide one
         });
