@@ -2,6 +2,15 @@
 
 ## Version History
 
+### v1.0.6-beta (2024-08-15)
+- **CRITICAL SECURITY FIXES:**
+  - Fixed DOM-based XSS vulnerabilities by replacing innerHTML with safe DOM methods
+  - Added input validation and sanitization for URL parameters
+  - Added SRI (Subresource Integrity) hashes for all external CDN dependencies
+  - Implemented dYdX address format validation
+  - Replaced all unsafe innerHTML usages with textContent and createElement
+  - Added protection against script injection in user inputs
+
 ### v1.0.5-beta (2024-08-15)
 - Fixed Risk Analysis tab with proper data display
 - Replaced placeholder IDs with correct ones (totalFundingRisk, maxDrawdown, leverageUsed, liquidationPrice)

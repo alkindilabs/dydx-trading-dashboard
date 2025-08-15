@@ -4,9 +4,15 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>dYdX Advanced Trading Analytics</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/date-fns@2.29.3/index.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js" 
+            integrity="sha512-ElRFoEQdI5Ht6kZvyzXhYG9NqjtkmlkfYk0wr6wHxU9JEHakS7UJZNeml5ALk+8IKlU6jDgMabC3vkumRokgJA=="
+            crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios@1.6.2/dist/axios.min.js"
+            integrity="sha512-sI/MvQ2Du4gZIvC2YSgtNnCiOJJm7Gd1Z2zcEe8LlFAKzYk3wZWNWWqe5mYU2TO89SkCGxGZvQKT9DfyAB3KDqA=="
+            crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/date-fns@2.29.3/index.min.js"
+            integrity="sha512-dDde0kzMj7wq7BaKFn5TwKJV4jwoan6IypjJUS0RCJbMUv6hZ7ApFCftu8cXOXhVww1kEd0SRLDiZiOoKU6xqA=="
+            crossorigin="anonymous"></script>
     <style>
         * {
             margin: 0;
@@ -366,7 +372,7 @@
             <h1>Advanced Trading Analytics</h1>
             <div class="subtitle">dYdX Portfolio Performance & Risk Analysis</div>
             <div class="subtitle" style="font-size: 0.9em; color: #6a6a75;" id="accountDisplay">Enter address to load dashboard</div>
-            <div style="position: absolute; top: 10px; right: 10px; font-size: 0.8em; color: #6a6a75; opacity: 0.7;">v1.0.5-beta</div>
+            <div style="position: absolute; top: 10px; right: 10px; font-size: 0.8em; color: #6a6a75; opacity: 0.7;">v1.0.6-beta</div>
         </div>
         
         <div style="background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px; padding: 20px; margin-bottom: 30px; backdrop-filter: blur(10px);">
@@ -702,9 +708,30 @@
         const DYDX_API = 'https://indexer.dydx.trade/v4';
         
         // Get address from URL parameters
+        function sanitizeInput(input) {
+            if (!input) return '';
+            // Remove any HTML tags and script content
+            return input.replace(/<[^>]*>/g, '').replace(/[<>"'&]/g, '');
+        }
+        
+        function validateDydxAddress(address) {
+            // dYdX addresses start with 'dydx' and are alphanumeric
+            const dydxPattern = /^dydx[a-z0-9]{39,}$/;
+            return dydxPattern.test(address);
+        }
+        
         function getAddressFromURL() {
             const urlParams = new URLSearchParams(window.location.search);
-            return urlParams.get('address');
+            const address = urlParams.get('address');
+            if (address) {
+                const sanitized = sanitizeInput(address);
+                if (validateDydxAddress(sanitized)) {
+                    return sanitized;
+                }
+                console.warn('Invalid dYdX address format in URL');
+                return null;
+            }
+            return null;
         }
         
         // currentPortfolioData should only be populated from actual API responses, never initialized with empty data
@@ -739,7 +766,13 @@
                     noDataMsg = document.createElement('div');
                     noDataMsg.id = 'noDataMessage';
                     noDataMsg.style.cssText = 'text-align: center; padding: 100px 20px; color: #a8a8b3;';
-                    noDataMsg.innerHTML = '<h2>No Portfolio Data Loaded</h2><p>Enter a dYdX address above and click "Load Dashboard" to view portfolio analytics.</p>';
+                    noDataMsg.textContent = '';
+                    const title = document.createElement('h2');
+                    title.textContent = 'No Portfolio Data Loaded';
+                    const desc = document.createElement('p');
+                    desc.textContent = 'Enter a dYdX address above and click "Load Dashboard" to view portfolio analytics.';
+                    noDataMsg.appendChild(title);
+                    noDataMsg.appendChild(desc);
                     // Insert after the nav tabs
                     const navTabs = document.querySelector('.nav-tabs');
                     if (navTabs && navTabs.parentNode) {
@@ -1320,7 +1353,9 @@
                 return;
             }
             const tbody = document.getElementById('tradesTableBody');
-            tbody.innerHTML = '';
+            while (tbody.firstChild) {
+                tbody.removeChild(tbody.firstChild);
+            }
             
             currentPortfolioData.positions.forEach(pos => {
                 const row = document.createElement('tr');
@@ -1330,20 +1365,45 @@
                 
                 const roi = pos.entry_price ? ((pos.realized_pnl / (pos.size * pos.entry_price)) * 100).toFixed(2) : '0';
                 
-                row.innerHTML = `
-                    <td>${new Date(pos.created_at).toLocaleDateString()}</td>
-                    <td>${pos.market}</td>
-                    <td><span class="side-badge ${pos.side.toLowerCase()}">${pos.side}</span></td>
-                    <td>${pos.size}</td>
-                    <td>$${pos.entry_price?.toFixed(2) || '-'}</td>
-                    <td>$${pos.exit_price?.toFixed(2) || '-'}</td>
-                    <td class="${pos.realized_pnl >= 0 ? 'positive' : 'negative'}">
-                        $${pos.realized_pnl.toLocaleString()}
-                    </td>
-                    <td class="${roi >= 0 ? 'positive' : 'negative'}">${roi}%</td>
-                    <td><span class="status-badge ${pos.status.toLowerCase()}">${pos.status}</span></td>
-                    <td>${duration}</td>
-                `;
+                // Create cells safely using DOM methods
+                const cells = [
+                    new Date(pos.created_at).toLocaleDateString(),
+                    pos.market,
+                    { type: 'side', side: pos.side },
+                    pos.size,
+                    '$' + (pos.entry_price?.toFixed(2) || '-'),
+                    '$' + (pos.exit_price?.toFixed(2) || '-'),
+                    { type: 'pnl', value: pos.realized_pnl },
+                    { type: 'roi', value: roi },
+                    { type: 'status', status: pos.status },
+                    duration
+                ];
+                
+                cells.forEach(cell => {
+                    const td = document.createElement('td');
+                    if (typeof cell === 'object' && cell !== null) {
+                        if (cell.type === 'side') {
+                            const span = document.createElement('span');
+                            span.className = 'side-badge ' + cell.side.toLowerCase();
+                            span.textContent = cell.side;
+                            td.appendChild(span);
+                        } else if (cell.type === 'pnl') {
+                            td.className = cell.value >= 0 ? 'positive' : 'negative';
+                            td.textContent = '$' + cell.value.toLocaleString();
+                        } else if (cell.type === 'roi') {
+                            td.className = cell.value >= 0 ? 'positive' : 'negative';
+                            td.textContent = cell.value + '%';
+                        } else if (cell.type === 'status') {
+                            const span = document.createElement('span');
+                            span.className = 'status-badge ' + cell.status.toLowerCase();
+                            span.textContent = cell.status;
+                            td.appendChild(span);
+                        }
+                    } else {
+                        td.textContent = cell;
+                    }
+                    row.appendChild(td);
+                });
                 tbody.appendChild(row);
             });
         }
@@ -1837,9 +1897,15 @@
         }
         
         function loadDashboardFromInput() {
-            const address = document.getElementById('addressInput').value.trim();
-            if (address) {
-                loadDashboard(address);
+            const rawAddress = document.getElementById('addressInput').value.trim();
+            if (rawAddress) {
+                const sanitizedAddress = sanitizeInput(rawAddress);
+                if (validateDydxAddress(sanitizedAddress)) {
+                    loadDashboard(sanitizedAddress);
+                } else {
+                    showMessage('Invalid dYdX address format. Address should start with "dydx" followed by alphanumeric characters.', 'error');
+                    setTimeout(hideMessage, 3000);
+                }
             } else {
                 showMessage('Please enter a dYdX address', 'error');
                 setTimeout(hideMessage, 3000);
@@ -1857,7 +1923,13 @@
                 // Show loading message immediately
                 const noDataMsg = document.getElementById('noDataMessage');
                 if (noDataMsg) {
-                    noDataMsg.innerHTML = '<h2>Loading Portfolio...</h2><p>Fetching data for ' + urlAddress + '</p>';
+                    noDataMsg.textContent = '';
+                    const loadingTitle = document.createElement('h2');
+                    loadingTitle.textContent = 'Loading Portfolio...';
+                    const loadingDesc = document.createElement('p');
+                    loadingDesc.textContent = 'Fetching data for ' + urlAddress;
+                    noDataMsg.appendChild(loadingTitle);
+                    noDataMsg.appendChild(loadingDesc);
                 }
                 // Automatically load the dashboard for this address
                 console.log('Loading dashboard for address from URL:', urlAddress);
