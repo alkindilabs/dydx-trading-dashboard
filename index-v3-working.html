@@ -35,14 +35,21 @@
             </div>
         </div>
 
+        <!-- Data Warning (shown when data is incomplete) -->
+        <div id="dataWarning" style="background: rgba(245, 158, 11, 0.1); border: 1px solid var(--warning); 
+                                     padding: 12px; margin-bottom: 20px; border-radius: 4px; display: none;">
+            <div style="font-weight: 600; color: var(--warning); margin-bottom: 4px;">⚠ Incomplete Data</div>
+            <div id="warningText" style="font-size: 13px; color: var(--text-secondary);"></div>
+        </div>
+
         <!-- Navigation -->
         <div class="nav-tabs">
             <div class="nav-tab active" data-tab="overview">OVERVIEW</div>
+            <div class="nav-tab" data-tab="performance">PERFORMANCE</div>
+            <div class="nav-tab" data-tab="risk">RISK ANALYSIS</div>
             <div class="nav-tab" data-tab="positions">POSITIONS</div>
-            <div class="nav-tab" data-tab="orders">ORDERS</div>
-            <div class="nav-tab" data-tab="fills">FILLS</div>
-            <div class="nav-tab" data-tab="transfers">TRANSFERS</div>
-            <div class="nav-tab" data-tab="pnl">HISTORICAL P&L</div>
+            <div class="nav-tab" data-tab="behavior">BEHAVIOR</div>
+            <div class="nav-tab" data-tab="market">MARKET STRUCTURE</div>
         </div>
 
         <!-- Loading State -->
@@ -205,76 +212,126 @@
             </div>
         </div>
 
-        <!-- Fills Tab -->
-        <div class="tab-content" id="fills">
+        <!-- Performance Tab -->
+        <div class="tab-content" id="performance">
             <div class="table-container">
                 <div class="table-header">
-                    <div class="table-title">Fills (Executed Trades)</div>
+                    <div class="table-title">Performance Metrics</div>
                 </div>
                 <table>
-                    <thead>
-                        <tr>
-                            <th>TIME</th>
-                            <th>MARKET</th>
-                            <th>SIDE</th>
-                            <th>TYPE</th>
-                            <th>SIZE</th>
-                            <th>PRICE</th>
-                            <th>FEE</th>
-                            <th>LIQUIDITY</th>
-                            <th>ORDER ID</th>
-                        </tr>
-                    </thead>
-                    <tbody id="fillsTableBody">
-                        <tr><td colspan="9" style="text-align: center;">No data loaded</td></tr>
-                    </tbody>
+                    <tr>
+                        <td style="color: var(--text-secondary)">Total Return</td>
+                        <td class="mono" id="totalReturn">-</td>
+                    </tr>
+                    <tr>
+                        <td style="color: var(--text-secondary)">Daily Return</td>
+                        <td class="mono" id="dailyReturn">-</td>
+                    </tr>
+                    <tr>
+                        <td style="color: var(--text-secondary)">Monthly Return</td>
+                        <td class="mono" id="monthlyReturn">-</td>
+                    </tr>
+                    <tr>
+                        <td style="color: var(--text-secondary)">Sharpe Ratio</td>
+                        <td class="mono" id="sharpeRatio">-</td>
+                    </tr>
+                    <tr>
+                        <td style="color: var(--text-secondary)">Sortino Ratio</td>
+                        <td class="mono" id="sortinoRatio">-</td>
+                    </tr>
                 </table>
             </div>
         </div>
 
-        <!-- Transfers Tab -->
-        <div class="tab-content" id="transfers">
+        <!-- Risk Analysis Tab -->
+        <div class="tab-content" id="risk">
             <div class="table-container">
                 <div class="table-header">
-                    <div class="table-title">Transfers</div>
+                    <div class="table-title">Risk Metrics</div>
                 </div>
                 <table>
-                    <thead>
-                        <tr>
-                            <th>TIME</th>
-                            <th>TYPE</th>
-                            <th>AMOUNT</th>
-                            <th>FROM</th>
-                            <th>TO</th>
-                            <th>TX HASH</th>
-                        </tr>
-                    </thead>
-                    <tbody id="transfersTableBody">
-                        <tr><td colspan="6" style="text-align: center;">No data loaded</td></tr>
-                    </tbody>
+                    <tr>
+                        <td style="color: var(--text-secondary)">Value at Risk (95%)</td>
+                        <td class="mono" id="var95">-</td>
+                    </tr>
+                    <tr>
+                        <td style="color: var(--text-secondary)">Conditional VaR</td>
+                        <td class="mono" id="cvar">-</td>
+                    </tr>
+                    <tr>
+                        <td style="color: var(--text-secondary)">Max Drawdown</td>
+                        <td class="mono" id="maxDrawdown">-</td>
+                    </tr>
+                    <tr>
+                        <td style="color: var(--text-secondary)">Current Drawdown</td>
+                        <td class="mono" id="currentDrawdown">-</td>
+                    </tr>
+                    <tr>
+                        <td style="color: var(--text-secondary)">Kelly Criterion</td>
+                        <td class="mono" id="kellyCriterion">-</td>
+                    </tr>
                 </table>
             </div>
         </div>
 
-        <!-- Historical P&L Tab -->
-        <div class="tab-content" id="pnl">
+        <!-- Behavior Tab -->
+        <div class="tab-content" id="behavior">
             <div class="table-container">
                 <div class="table-header">
-                    <div class="table-title">Historical P&L</div>
+                    <div class="table-title">Trading Behavior</div>
                 </div>
                 <table>
-                    <thead>
-                        <tr>
-                            <th>DATE</th>
-                            <th>EQUITY</th>
-                            <th>TOTAL P&L</th>
-                            <th>NET TRANSFERS</th>
-                            <th>CREATED AT</th>
-                        </tr>
-                    </thead>
-                    <tbody id="pnlTableBody">
-                        <tr><td colspan="5" style="text-align: center;">No data loaded</td></tr>
-                    </tbody>
+                    <tr>
+                        <td style="color: var(--text-secondary)">Avg Hold Time</td>
+                        <td class="mono" id="avgHoldTime">-</td>
+                    </tr>
+                    <tr>
+                        <td style="color: var(--text-secondary)">Trade Frequency</td>
+                        <td class="mono" id="tradeFrequency">-</td>
+                    </tr>
+                    <tr>
+                        <td style="color: var(--text-secondary)">Most Traded Market</td>
+                        <td class="mono" id="mostTradedMarket">-</td>
+                    </tr>
+                    <tr>
+                        <td style="color: var(--text-secondary)">Avg Position Size</td>
+                        <td class="mono" id="avgPositionSize">-</td>
+                    </tr>
+                    <tr>
+                        <td style="color: var(--text-secondary)">Risk/Reward Ratio</td>
+                        <td class="mono" id="riskRewardRatio">-</td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+
+        <!-- Market Structure Tab -->
+        <div class="tab-content" id="market">
+            <div class="table-container">
+                <div class="table-header">
+                    <div class="table-title">Market Analysis</div>
+                </div>
+                <table>
+                    <tr>
+                        <td style="color: var(--text-secondary)">Market Exposure</td>
+                        <td class="mono" id="marketExposure">-</td>
+                    </tr>
+                    <tr>
+                        <td style="color: var(--text-secondary)">Correlation to BTC</td>
+                        <td class="mono" id="btcCorrelation">-</td>
+                    </tr>
+                    <tr>
+                        <td style="color: var(--text-secondary)">Beta</td>
+                        <td class="mono" id="beta">-</td>
+                    </tr>
+                    <tr>
+                        <td style="color: var(--text-secondary)">Market Regime</td>
+                        <td class="mono" id="marketRegime">-</td>
+                    </tr>
+                    <tr>
+                        <td style="color: var(--text-secondary)">Volatility</td>
+                        <td class="mono" id="volatility">-</td>
+                    </tr>
                 </table>
             </div>
         </div>
@@ -285,6 +342,7 @@
         const DYDX_API = 'https://indexer.dydx.trade/v4';
         let currentAddress = null;
         let allData = {};
+        let dataErrors = [];
 
         // Tab navigation
         document.querySelectorAll('.nav-tab').forEach(tab => {
@@ -355,19 +413,18 @@
             currentAddress = address;
             showLoading(true);
             hideError();
+            dataErrors = [];
 
             try {
                 // Update address display
                 document.getElementById('addressDisplay').textContent = 
                     address.slice(0, 8) + '...' + address.slice(-4);
 
-                // Fetch all data using correct endpoints
+                // Fetch all data using correct endpoints (removed fills and transfers)
                 const [
                     subaccountRes,
                     positionsRes,
                     ordersRes,
-                    fillsRes,
-                    transfersRes,
                     historicalPnlRes
                 ] = await Promise.all([
                     // Get subaccount details
@@ -376,33 +433,59 @@
                     fetch(`${DYDX_API}/perpetualPositions?address=${address}&subaccountNumber=0&limit=100`),
                     // Get orders - using query params
                     fetch(`${DYDX_API}/orders?address=${address}&subaccountNumber=0&limit=100`),
-                    // Get fills - using query params
-                    fetch(`${DYDX_API}/fills?address=${address}&subaccountNumber=0&limit=100`),
-                    // Get transfers - using query params
-                    fetch(`${DYDX_API}/transfers?address=${address}&subaccountNumber=0&limit=100`),
                     // Get historical P&L - using query params (correct endpoint name)
                     fetch(`${DYDX_API}/historical-pnl?address=${address}&subaccountNumber=0&limit=90`)
                 ]);
 
-                // Parse responses
-                const subaccountData = await subaccountRes.json();
-                const positionsData = await positionsRes.json();
-                const ordersData = await ordersRes.json();
-                const fillsData = await fillsRes.json();
-                const transfersData = await transfersRes.json();
-                const historicalPnlData = await historicalPnlRes.json();
+                // Parse responses and track errors
+                let subaccountData = null;
+                let positionsData = null;
+                let ordersData = null;
+                let historicalPnlData = null;
+
+                if (subaccountRes.ok) {
+                    subaccountData = await subaccountRes.json();
+                } else {
+                    dataErrors.push('Account data');
+                }
+
+                if (positionsRes.ok) {
+                    positionsData = await positionsRes.json();
+                } else {
+                    dataErrors.push('Positions');
+                }
+
+                if (ordersRes.ok) {
+                    ordersData = await ordersRes.json();
+                } else {
+                    dataErrors.push('Orders');
+                }
+
+                if (historicalPnlRes.ok) {
+                    historicalPnlData = await historicalPnlRes.json();
+                } else {
+                    dataErrors.push('Historical P&L');
+                }
 
                 // Store all data
                 allData = {
                     subaccount: subaccountData,
                     positions: positionsData,
                     orders: ordersData,
-                    fills: fillsData,
-                    transfers: transfersData,
                     historicalPnl: historicalPnlData
                 };
 
                 console.log('All data loaded:', allData);
+
+                // Show warning if some data failed to load
+                if (dataErrors.length > 0) {
+                    const warningDiv = document.getElementById('dataWarning');
+                    const warningText = document.getElementById('warningText');
+                    warningText.textContent = `Failed to load: ${dataErrors.join(', ')}. Some metrics may be unavailable.`;
+                    warningDiv.style.display = 'block';
+                } else {
+                    document.getElementById('dataWarning').style.display = 'none';
+                }
 
                 // Process and display data
                 processAllData();
@@ -539,57 +622,14 @@
                 document.getElementById('ordersTableBody').innerHTML = ordersHtml || '<tr><td colspan="9">No orders</td></tr>';
             }
 
-            // Process fills
-            if (allData.fills?.fills) {
-                const fills = allData.fills.fills;
-                const fillsHtml = fills.slice(0, 50).map(fill => `
-                    <tr>
-                        <td>${formatDateTime(fill.createdAt)}</td>
-                        <td>${fill.market}</td>
-                        <td class="${fill.side === 'BUY' ? 'profit' : 'loss'}">${fill.side}</td>
-                        <td>${fill.type}</td>
-                        <td class="mono">${formatNumber(parseFloat(fill.size || 0), 4)}</td>
-                        <td class="mono">$${formatNumber(parseFloat(fill.price || 0))}</td>
-                        <td class="mono">${formatCurrency(parseFloat(fill.fee || 0))}</td>
-                        <td>${fill.liquidity}</td>
-                        <td style="font-size: 10px;">${fill.orderId?.slice(0, 8)}...</td>
-                    </tr>
-                `).join('');
-                
-                document.getElementById('fillsTableBody').innerHTML = fillsHtml || '<tr><td colspan="9">No fills</td></tr>';
-            }
-
-            // Process transfers
-            if (allData.transfers?.transfers) {
-                const transfers = allData.transfers.transfers;
-                const transfersHtml = transfers.slice(0, 50).map(transfer => `
-                    <tr>
-                        <td>${formatDateTime(transfer.createdAt)}</td>
-                        <td>${transfer.type}</td>
-                        <td class="mono ${parseFloat(transfer.size || 0) > 0 ? 'profit' : 'loss'}">${formatCurrency(parseFloat(transfer.size || 0))}</td>
-                        <td style="font-size: 10px;">${transfer.sender?.address?.slice(0, 8) || '-'}...</td>
-                        <td style="font-size: 10px;">${transfer.recipient?.address?.slice(0, 8) || '-'}...</td>
-                        <td style="font-size: 10px;">${transfer.transactionHash?.slice(0, 8) || '-'}...</td>
-                    </tr>
-                `).join('');
-                
-                document.getElementById('transfersTableBody').innerHTML = transfersHtml || '<tr><td colspan="6">No transfers</td></tr>';
-            }
-
-            // Process historical P&L
+            // Process historical P&L for behavior metrics
             if (allData.historicalPnl?.historicalPnl) {
                 const pnlData = allData.historicalPnl.historicalPnl;
-                const pnlHtml = pnlData.slice(0, 30).map(day => `
-                    <tr>
-                        <td>${formatDate(day.createdAt)}</td>
-                        <td class="mono">${formatCurrency(parseFloat(day.equity || 0))}</td>
-                        <td class="mono ${parseFloat(day.totalPnl || 0) > 0 ? 'profit' : 'loss'}">${formatCurrency(parseFloat(day.totalPnl || 0))}</td>
-                        <td class="mono">${formatCurrency(parseFloat(day.netTransfers || 0))}</td>
-                        <td>${formatDateTime(day.createdAt)}</td>
-                    </tr>
-                `).join('');
-                
-                document.getElementById('pnlTableBody').innerHTML = pnlHtml || '<tr><td colspan="5">No historical data</td></tr>';
+                // Can calculate behavior metrics from historical data
+                if (pnlData.length > 0) {
+                    // Simple calculations for now - can be enhanced
+                    document.getElementById('tradeFrequency').textContent = `${pnlData.length} days active`;
+                }
             }
         }
 
