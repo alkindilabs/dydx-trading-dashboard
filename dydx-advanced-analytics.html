@@ -366,7 +366,7 @@
             <h1>Advanced Trading Analytics</h1>
             <div class="subtitle">dYdX Portfolio Performance & Risk Analysis</div>
             <div class="subtitle" style="font-size: 0.9em; color: #6a6a75;" id="accountDisplay">Enter address to load dashboard</div>
-            <div style="position: absolute; top: 10px; right: 10px; font-size: 0.8em; color: #6a6a75; opacity: 0.7;">v1.0.1</div>
+            <div style="position: absolute; top: 10px; right: 10px; font-size: 0.8em; color: #6a6a75; opacity: 0.7;">v1.0.2</div>
         </div>
         
         <div style="background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px; padding: 20px; margin-bottom: 30px; backdrop-filter: blur(10px);">
@@ -701,6 +701,17 @@
         
         // currentPortfolioData should only be populated from actual API responses, never initialized with empty data
         
+        // Function to destroy all existing charts
+        function destroyAllCharts() {
+            Object.keys(charts).forEach(key => {
+                if (charts[key] && typeof charts[key].destroy === 'function') {
+                    charts[key].destroy();
+                    charts[key] = null;
+                }
+            });
+            charts = {}; // Reset charts object
+        }
+        
         // Show initial message when page loads
         window.addEventListener('DOMContentLoaded', () => {
             if (!currentPortfolioData) {
@@ -768,17 +779,17 @@
                 selectedTab.classList.add('active');
             }
             
-            // Initialize charts for the tab if not already done
-            if (tabName === 'overview' && !charts.cumulativePnl) {
-                initOverviewCharts();
-            } else if (tabName === 'performance' && !charts.tradeDistribution) {
-                initPerformanceCharts();
-            } else if (tabName === 'positions' && !charts.positionTimeline) {
-                initPositionCharts();
+            // Initialize charts for the tab if needed
+            if (tabName === 'overview') {
+                if (!charts.cumulativePnl) initOverviewCharts();
+            } else if (tabName === 'performance') {
+                if (!charts.tradeDistribution) initPerformanceCharts();
+            } else if (tabName === 'positions') {
+                if (!charts.positionTimeline) initPositionCharts();
             } else if (tabName === 'history') {
                 populateTradeHistory();
-            } else if (tabName === 'risk' && !charts.riskDistribution) {
-                initRiskCharts();
+            } else if (tabName === 'risk') {
+                if (!charts.riskDistribution) initRiskCharts();
             }
         }
 
@@ -1298,6 +1309,9 @@
                 showMessage('Please enter a valid dYdX address (starting with dydx)');
                 return;
             }
+            
+            // Destroy existing charts before loading new data
+            destroyAllCharts();
             
             currentAddress = address;
             document.getElementById('accountDisplay').textContent = `Account: ${address}`;

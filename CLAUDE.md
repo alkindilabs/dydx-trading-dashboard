@@ -2,6 +2,12 @@
 
 ## Version History
 
+### v1.0.2 (2024-08-15)
+- Fixed chart reuse error when loading different users
+- Added destroyAllCharts() function to properly cleanup before reinitializing
+- Charts are now properly destroyed before creating new ones
+- Prevents "Canvas is already in use" error
+
 ### v1.0.1 (2024-08-15)
 - Fixed Free Collateral display (was using wrong ID 'totalVolume')
 - Fixed empty Key Insights bullet points with dynamic content
