@@ -1461,18 +1461,24 @@
             currentAddress = address;
 
             try {
-                // Fetch data
-                const [subaccountRes, positionsRes] = await Promise.all([
+                // Fetch data - add orders to get trade history
+                const [subaccountRes, positionsRes, ordersRes, fillsRes] = await Promise.all([
                     fetch(`${DYDX_API}/addresses/${address}/subaccountNumber/0`),
-                    fetch(`${DYDX_API}/perpetualPositions?address=${address}&subaccountNumber=0&limit=100`)
+                    fetch(`${DYDX_API}/perpetualPositions?address=${address}&subaccountNumber=0&limit=100`),
+                    fetch(`${DYDX_API}/orders?address=${address}&subaccountNumber=0&limit=100`),
+                    fetch(`${DYDX_API}/fills?address=${address}&subaccountNumber=0&limit=100`)
                 ]);
 
                 const subaccountData = await subaccountRes.json();
                 const positionsData = await positionsRes.json();
+                const ordersData = await ordersRes.json();
+                const fillsData = await fillsRes.json();
 
                 allData = {
                     subaccount: subaccountData,
-                    positions: positionsData
+                    positions: positionsData,
+                    orders: ordersData,
+                    fills: fillsData
                 };
 
                 // Process and display data
@@ -1485,45 +1491,98 @@
 
         // Process real data
         function processData() {
+            console.log('Processing data:', allData);
+            
             // Get subaccount data
             const subaccount = allData.subaccount?.subaccount;
             
-            // Get positions from subaccount or separate endpoint
-            let positions = [];
+            // Get ALL positions (including closed ones)
+            let allPositions = [];
+            
+            // First get open positions from subaccount
             if (subaccount?.openPerpetualPositions) {
-                positions = Object.values(subaccount.openPerpetualPositions);
-            } else if (allData.positions?.positions) {
-                positions = allData.positions.positions;
+                const openPos = Object.values(subaccount.openPerpetualPositions);
+                allPositions = allPositions.concat(openPos.map(p => ({...p, status: 'OPEN'})));
             }
-
-            // Calculate metrics
-            let totalPnL = 0;
+            
+            // Then add positions from positions endpoint (may include closed)
+            if (allData.positions?.positions) {
+                allPositions = allPositions.concat(allData.positions.positions);
+            }
+            
+            // Calculate P&L from positions and fills
+            let totalUnrealizedPnL = 0;
+            let totalRealizedPnL = 0;
+            let openPositionCount = 0;
+            
+            // Calculate from positions
+            allPositions.forEach(pos => {
+                if (pos.status === 'OPEN') {
+                    totalUnrealizedPnL += parseFloat(pos.unrealizedPnl || 0);
+                    openPositionCount++;
+                }
+                totalRealizedPnL += parseFloat(pos.realizedPnl || 0);
+            });
+            
+            // Process fills to calculate win/loss statistics
             let wins = 0;
             let losses = 0;
             let totalWinAmount = 0;
             let totalLossAmount = 0;
-            let openPositions = 0;
-
-            positions.forEach(pos => {
-                const unrealizedPnl = parseFloat(pos.unrealizedPnl || 0);
-                const realizedPnl = parseFloat(pos.realizedPnl || 0);
-                totalPnL += unrealizedPnl + realizedPnl;
-                
-                if (pos.status === 'OPEN') {
-                    openPositions++;
+            
+            // Group fills by order to calculate P&L per trade
+            const fills = allData.fills?.fills || [];
+            const orderPnL = {};
+            
+            fills.forEach(fill => {
+                const orderId = fill.orderId;
+                if (!orderPnL[orderId]) {
+                    orderPnL[orderId] = {
+                        size: 0,
+                        cost: 0,
+                        side: fill.side,
+                        market: fill.market
+                    };
                 }
                 
-                if (pos.status === 'CLOSED' && realizedPnl !== 0) {
-                    if (realizedPnl > 0) {
+                const size = parseFloat(fill.size || 0);
+                const price = parseFloat(fill.price || 0);
+                const fee = parseFloat(fill.fee || 0);
+                
+                if (fill.side === 'BUY') {
+                    orderPnL[orderId].size += size;
+                    orderPnL[orderId].cost += (size * price) + fee;
+                } else {
+                    orderPnL[orderId].size -= size;
+                    orderPnL[orderId].cost -= (size * price) - fee;
+                }
+            });
+            
+            // Count completed trades
+            Object.values(orderPnL).forEach(order => {
+                if (Math.abs(order.size) < 0.0001) { // Closed position
+                    if (order.cost > 0) {
                         wins++;
-                        totalWinAmount += realizedPnl;
-                    } else {
+                        totalWinAmount += order.cost;
+                    } else if (order.cost < 0) {
                         losses++;
-                        totalLossAmount += Math.abs(realizedPnl);
+                        totalLossAmount += Math.abs(order.cost);
                     }
                 }
             });
-
+            
+            // If no trades from fills, check orders
+            if (wins === 0 && losses === 0) {
+                const orders = allData.orders?.orders || [];
+                const filledOrders = orders.filter(o => o.status === 'FILLED');
+                // For now, just count filled orders
+                const totalFilledOrders = filledOrders.length;
+                document.getElementById('winRateDetail').textContent = `${totalFilledOrders} orders executed`;
+            }
+            
+            // Calculate total P&L
+            const totalPnL = totalUnrealizedPnL + totalRealizedPnL;
+            
             // Calculate derived metrics
             const totalTrades = wins + losses;
             const winRate = totalTrades > 0 ? (wins / totalTrades) * 100 : 0;
@@ -1535,25 +1594,44 @@
             updateMetric('totalPnL', formatCurrency(totalPnL), totalPnL >= 0);
             document.getElementById('totalPnLChange').textContent = 'All Time';
             
-            document.getElementById('winRate').textContent = formatPercent(winRate);
-            document.getElementById('winRateDetail').textContent = `${wins} / ${totalTrades} trades`;
+            // Show win rate or N/A if no trades
+            if (totalTrades > 0) {
+                document.getElementById('winRate').textContent = formatPercent(winRate);
+                document.getElementById('winRateDetail').textContent = `${wins} / ${totalTrades} trades`;
+            } else {
+                document.getElementById('winRate').textContent = 'N/A';
+                document.getElementById('winRateDetail').textContent = 'No closed trades';
+            }
             
-            document.getElementById('profitFactor').textContent = profitFactor.toFixed(2);
-            document.getElementById('profitFactorDetail').textContent = wins > 0 || losses > 0 ? 
-                `${formatCurrency(totalWinAmount)} / ${formatCurrency(totalLossAmount)}` : '-';
+            // Profit factor
+            if (totalLossAmount > 0) {
+                document.getElementById('profitFactor').textContent = profitFactor.toFixed(2);
+                document.getElementById('profitFactorDetail').textContent = 
+                    `${formatCurrency(totalWinAmount)} / ${formatCurrency(totalLossAmount)}`;
+            } else {
+                document.getElementById('profitFactor').textContent = 'N/A';
+                document.getElementById('profitFactorDetail').textContent = 'No losses recorded';
+            }
             
             // These would need historical data to calculate properly
-            document.getElementById('sharpeRatio').textContent = '2.18'; // Placeholder
-            document.getElementById('sortinoRatio').textContent = '3.42'; // Placeholder
-            document.getElementById('maxDrawdown').textContent = '-18.7%'; // Placeholder
-            document.getElementById('maxDrawdownDetail').textContent = 'Calculating...';
+            document.getElementById('sharpeRatio').textContent = 'N/A';
+            document.getElementById('sortinoRatio').textContent = 'N/A';
+            document.getElementById('maxDrawdown').textContent = formatPercent(Math.abs(totalPnL / parseFloat(subaccount?.equity || 1)) * 100);
+            document.getElementById('maxDrawdownDetail').textContent = 'From equity';
 
             // Update Trading Statistics section
-            updateElement('avgWin', formatCurrency(avgWin));
-            updateElement('avgLoss', formatCurrency(avgLoss));
-            updateElement('riskReward', avgLoss > 0 ? `1:${(avgWin/avgLoss).toFixed(2)}` : '-');
-            updateElement('expectancy', formatCurrency(totalTrades > 0 ? totalPnL/totalTrades : 0));
-            updateElement('recoveryFactor', totalLossAmount > 0 ? (totalPnL/totalLossAmount).toFixed(2) : '-');
+            updateElement('avgWin', wins > 0 ? formatCurrency(avgWin) : 'N/A');
+            updateElement('avgLoss', losses > 0 ? formatCurrency(avgLoss) : 'N/A');
+            updateElement('riskReward', avgLoss > 0 ? `1:${(avgWin/avgLoss).toFixed(2)}` : 'N/A');
+            updateElement('expectancy', totalTrades > 0 ? formatCurrency(totalPnL/totalTrades) : 'N/A');
+            updateElement('recoveryFactor', 'N/A');
+            
+            // Show actual account equity
+            if (subaccount) {
+                console.log('Account equity:', subaccount.equity);
+                console.log('Free collateral:', subaccount.freeCollateral);
+                console.log('Open positions:', openPositionCount);
+            }
         }
 
         function updateMetric(id, value, isPositive = true) {
