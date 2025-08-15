@@ -1408,7 +1408,8 @@
 
         // Copy address on click
         document.querySelector('.address').addEventListener('click', function() {
-            navigator.clipboard.writeText('dydx1redacted');
+            const toCopy = currentAddress || 'dydx1redacted';
+            navigator.clipboard.writeText(toCopy);
             const original = this.textContent;
             this.textContent = 'Copied!';
             setTimeout(() => {
@@ -1438,6 +1439,26 @@
         const DYDX_API = 'https://indexer.dydx.trade/v4';
         let currentAddress = null;
         let allData = {};
+
+        // Fetch helpers with fallback across endpoint variants
+        async function fetchJson(url) {
+            const res = await fetch(url);
+            if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText} for ${url}`);
+            return res.json();
+        }
+
+        async function tryFetch(urls) {
+            let lastError = null;
+            for (const url of urls) {
+                try {
+                    return await fetchJson(url);
+                } catch (e) {
+                    lastError = e;
+                    console.warn('Fallback trying', url, e);
+                }
+            }
+            throw lastError || new Error('All endpoint variants failed');
+        }
 
         // Format functions
         function formatCurrency(value) {
@@ -1469,31 +1490,43 @@
 
             currentAddress = address;
 
-            try {
-                // Fetch data using CORRECT endpoint structure from docs
-                const [
-                    subaccountRes, 
-                    openPositionsRes, 
-                    closedPositionsRes, 
-                    ordersRes, 
-                    fillsRes
-                ] = await Promise.all([
-                    fetch(`${DYDX_API}/addresses/${address}/subaccountNumber/0`),
-                    // Get OPEN positions
-                    fetch(`${DYDX_API}/addresses/${address}/subaccountNumber/0/perpetualPositions?status=OPEN&limit=100`),
-                    // Get CLOSED positions - this is what we were missing!
-                    fetch(`${DYDX_API}/addresses/${address}/subaccountNumber/0/perpetualPositions?status=CLOSED&limit=100`),
-                    // Get orders
-                    fetch(`${DYDX_API}/addresses/${address}/subaccountNumber/0/orders?limit=100`),
-                    // Get fills
-                    fetch(`${DYDX_API}/addresses/${address}/subaccountNumber/0/fills?limit=100`)
-                ]);
+            // Update address display with shortened form
+            const addressEl = document.querySelector('.address');
+            if (addressEl) {
+                const short = address.length > 12 ? `${address.slice(0, 8)}...${address.slice(-4)}` : address;
+                addressEl.textContent = short;
+                addressEl.title = address;
+            }
 
-                const subaccountData = await subaccountRes.json();
-                const openPositionsData = await openPositionsRes.json();
-                const closedPositionsData = await closedPositionsRes.json();
-                const ordersData = await ordersRes.json();
-                const fillsData = await fillsRes.json();
+            try {
+                // Fetch data using HTTP API with query-style and path-style fallbacks
+                const [subaccountData, openPositionsData, closedPositionsData, ordersData, fillsData] = await Promise.all([
+                    // Subaccount
+                    tryFetch([
+                        `${DYDX_API}/subaccount?address=${address}&subaccountNumber=0`,
+                        `${DYDX_API}/addresses/${address}/subaccountNumber/0`
+                    ]),
+                    // OPEN positions
+                    tryFetch([
+                        `${DYDX_API}/perpetualPositions?address=${address}&subaccountNumber=0&status=OPEN&limit=100`,
+                        `${DYDX_API}/addresses/${address}/subaccountNumber/0/perpetualPositions?status=OPEN&limit=100`
+                    ]),
+                    // CLOSED positions
+                    tryFetch([
+                        `${DYDX_API}/perpetualPositions?address=${address}&subaccountNumber=0&status=CLOSED&limit=100`,
+                        `${DYDX_API}/addresses/${address}/subaccountNumber/0/perpetualPositions?status=CLOSED&limit=100`
+                    ]),
+                    // Orders
+                    tryFetch([
+                        `${DYDX_API}/orders?address=${address}&subaccountNumber=0&limit=100`,
+                        `${DYDX_API}/addresses/${address}/subaccountNumber/0/orders?limit=100`
+                    ]),
+                    // Fills
+                    tryFetch([
+                        `${DYDX_API}/fills?address=${address}&subaccountNumber=0&limit=100`,
+                        `${DYDX_API}/addresses/${address}/subaccountNumber/0/fills?limit=100`
+                    ])
+                ]);
 
                 allData = {
                     subaccount: subaccountData,
@@ -1511,25 +1544,41 @@
             }
         }
 
+        // Helpers to normalize API shapes
+        function extractPositions(container) {
+            if (!container) return [];
+            if (Array.isArray(container)) return container;
+            if (Array.isArray(container.positions)) return container.positions;
+            if (Array.isArray(container.perpetualPositions)) return container.perpetualPositions;
+            if (Array.isArray(container.data)) return container.data;
+            if (container.result && Array.isArray(container.result)) return container.result;
+            return [];
+        }
+
+        function extractSubaccount(container) {
+            if (!container) return null;
+            if (container.subaccount) return container.subaccount;
+            if (container.data && container.data.subaccount) return container.data.subaccount;
+            // Some endpoints may return the subaccount fields at root
+            if (container.equity !== undefined) return container;
+            return null;
+        }
+
         // Process real data
         function processData() {
             console.log('Processing data:', allData);
             
             // Get subaccount data
-            const subaccount = allData.subaccount?.subaccount;
+            const subaccount = extractSubaccount(allData.subaccount);
             
             // Get ALL positions (both open and closed)
             let allPositions = [];
             
             // Add open positions
-            if (allData.openPositions?.positions) {
-                allPositions = allPositions.concat(allData.openPositions.positions);
-            }
-            
-            // Add closed positions - THIS IS THE KEY FIX!
-            if (allData.closedPositions?.positions) {
-                allPositions = allPositions.concat(allData.closedPositions.positions);
-            }
+            allPositions = allPositions.concat(extractPositions(allData.openPositions));
+
+            // Add closed positions
+            allPositions = allPositions.concat(extractPositions(allData.closedPositions));
             
             console.log('Open positions:', allData.openPositions?.positions?.length || 0);
             console.log('Closed positions:', allData.closedPositions?.positions?.length || 0);
