@@ -380,8 +380,8 @@
                     fetch(`${DYDX_API}/fills?address=${address}&subaccountNumber=0&limit=100`),
                     // Get transfers - using query params
                     fetch(`${DYDX_API}/transfers?address=${address}&subaccountNumber=0&limit=100`),
-                    // Get historical P&L - using query params
-                    fetch(`${DYDX_API}/historicalPNL?address=${address}&subaccountNumber=0&limit=90`)
+                    // Get historical P&L - using query params (correct endpoint name)
+                    fetch(`${DYDX_API}/historical-pnl?address=${address}&subaccountNumber=0&limit=90`)
                 ]);
 
                 // Parse responses
