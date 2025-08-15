@@ -367,9 +367,6 @@
             <div class="subtitle">dYdX Portfolio Performance & Risk Analysis</div>
             <div class="subtitle" style="font-size: 0.9em; color: #6a6a75;" id="accountDisplay">Enter address to load dashboard</div>
             <div style="position: absolute; top: 10px; right: 10px; font-size: 0.8em; color: #6a6a75; opacity: 0.7;">v1.0.5-beta</div>
-            <div style="position: absolute; top: 10px; left: 10px; font-size: 0.75em; color: #ffd93d; opacity: 0.8;">
-                ⚠️ Beta Version: Data calculations are experimental and may not reflect exact values
-            </div>
         </div>
         
         <div style="background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px; padding: 20px; margin-bottom: 30px; backdrop-filter: blur(10px);">
@@ -685,6 +682,13 @@
                     • <span style="color: #ffd93d;">Drawdown Status:</span> <span id="riskDrawdownStatus">Loading...</span><br>
                     • <span style="color: #00f2fe;">Risk Score:</span> <span id="riskScoreStatus">Loading...</span>
                 </div>
+            </div>
+        </div>
+        
+        <!-- Footer with beta disclaimer -->
+        <div style="margin-top: 40px; padding: 15px; text-align: center; border-top: 1px solid rgba(255, 255, 255, 0.1);">
+            <div style="font-size: 0.75em; color: #ffd93d; opacity: 0.8;">
+                ⚠️ Beta Version: Data calculations are experimental and may not reflect exact values
             </div>
         </div>
     </div>
@@ -1683,6 +1687,9 @@
             updateElement('leverageUsed', leverage, 'number');
             updateDescription('leverageText', leverage > 0 ? `${leverage.toFixed(2)}x leverage` : 'No leverage');
             
+            // Calculate collateral percentage for use in multiple places
+            const collateralPercent = summary.equity > 0 ? (summary.free_collateral / summary.equity * 100) : 0;
+            
             // Estimate liquidation price (simplified calculation)
             if (currentPos && currentPos.side === 'LONG') {
                 const maintenanceMargin = 0.03; // 3% maintenance margin for ETH
@@ -1713,8 +1720,7 @@
                 updateDescription('positionSummary', `${Math.abs(currentPos.size)} ETH ${currentPos.side}`);
             }
             
-            const collateralUsed = summary.equity > 0 ? ((summary.equity - summary.free_collateral) / summary.equity * 100) : 0;
-            updateDescription('collateralPercent', `${(100 - collateralUsed).toFixed(1)}% Available`);
+            updateDescription('collateralPercent', `${collateralPercent.toFixed(1)}% Available`);
             
             // Update Key Insights
             const updateInsight = (id, text) => {
@@ -1777,7 +1783,6 @@
             }
             
             // Update risk assessment details
-            const collateralPercent = summary.equity > 0 ? (summary.free_collateral / summary.equity * 100) : 0;
             const collateralStatus = document.getElementById('riskCollateralStatus');
             if (collateralStatus) {
                 collateralStatus.textContent = `${collateralPercent.toFixed(1)}% free collateral ${collateralPercent > 80 ? '(Low Risk)' : collateralPercent > 50 ? '(Medium Risk)' : '(High Risk)'}`;
