@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>dYdX Advanced Trading Analytics</title>
+    <title>dYdX Personal Trader Analytics - Ultra-Thin UI</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js" 
             integrity="sha512-ElRFoEQdI5Ht6kZvyzXhYG9NqjtkmlkfYk0wr6wHxU9JEHakS7UJZNeml5ALk+8IKlU6jDgMabC3vkumRokgJA=="
             crossorigin="anonymous" referrerpolicy="no-referrer"></script>
@@ -13,6 +13,9 @@
     <script src="https://cdn.jsdelivr.net/npm/date-fns@2.29.3/index.min.js"
             integrity="sha512-dDde0kzMj7wq7BaKFn5TwKJV4jwoan6IypjJUS0RCJbMUv6hZ7ApFCftu8cXOXhVww1kEd0SRLDiZiOoKU6xqA=="
             crossorigin="anonymous"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
     <style>
         * {
             margin: 0;
@@ -20,82 +23,82 @@
             box-sizing: border-box;
         }
         
+        :root {
+            --bg-primary: #0A0A0A;
+            --bg-surface: #121212;
+            --bg-elevated: #1E1E1E;
+            --text-primary: rgba(255, 255, 255, 0.85);
+            --text-secondary: rgba(255, 255, 255, 0.5);
+            --text-dim: rgba(255, 255, 255, 0.3);
+            --border: rgba(255, 255, 255, 0.1);
+            --profit: #10B981;
+            --loss: #EF4444;
+            --warning: #F59E0B;
+            --grid-unit: 8px;
+        }
+        
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-            background: linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%);
-            color: #fff;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
             margin: 0;
-            padding: 20px;
+            padding: 0;
             min-height: 100vh;
             display: flex;
             flex-direction: column;
+            line-height: 1.6;
         }
         
         .dashboard {
-            max-width: 1800px;
+            max-width: 1920px;
             margin: 0 auto;
             width: 100%;
+            padding: calc(var(--grid-unit) * 3);
         }
         
         .footer {
             margin-top: auto;
-            padding: 15px;
+            padding: calc(var(--grid-unit) * 2);
             text-align: center;
-            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            border-top: 1px solid var(--border);
+            font-size: 11px;
+            color: var(--text-dim);
         }
         
         .header {
-            text-align: center;
-            margin-bottom: 30px;
+            margin-bottom: calc(var(--grid-unit) * 4);
             position: relative;
         }
         
         .header h1 {
-            font-size: 2.8em;
-            margin-bottom: 10px;
-            background: linear-gradient(90deg, #00f2fe, #4facfe, #00f2fe);
-            background-size: 200% auto;
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            animation: shimmer 3s linear infinite;
+            font-family: 'Inter', sans-serif;
+            font-size: 48px;
+            font-weight: 700;
+            margin-bottom: var(--grid-unit);
+            color: var(--text-primary);
+            letter-spacing: -0.02em;
         }
         
         .subtitle {
-            color: #a8a8b3;
-            font-size: 1.1em;
-            margin-bottom: 5px;
+            color: var(--text-secondary);
+            font-size: 14px;
+            margin-bottom: calc(var(--grid-unit) / 2);
+            font-weight: 400;
         }
         
-        @keyframes shimmer {
-            to { background-position: 200% center; }
+        .breadcrumb {
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-bottom: calc(var(--grid-unit) * 3);
+            font-family: 'JetBrains Mono', monospace;
+        }
+        
+        .breadcrumb span {
+            color: var(--text-dim);
         }
         
         .nav-tabs {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 30px;
-            border-bottom: 2px solid rgba(255, 255, 255, 0.1);
-            padding-bottom: 10px;
-        }
-        
-        .nav-tab {
-            padding: 10px 20px;
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 8px 8px 0 0;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            color: #a8a8b3;
-        }
-        
-        .nav-tab:hover {
-            background: rgba(255, 255, 255, 0.1);
-        }
-        
-        .nav-tab.active {
-            background: linear-gradient(135deg, rgba(79, 172, 254, 0.2), rgba(0, 242, 254, 0.2));
-            border-color: #4facfe;
-            color: #fff;
+            display: none; /* Will be replaced by keyboard navigation */
         }
         
         .tab-content {
@@ -114,76 +117,71 @@
         
         .metrics-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 20px;
-            margin-bottom: 30px;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 1px;
+            margin-bottom: calc(var(--grid-unit) * 4);
+            background: var(--border);
         }
         
         .metric-card {
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 12px;
-            padding: 20px;
-            backdrop-filter: blur(10px);
-            transition: all 0.3s ease;
+            background: var(--bg-surface);
+            padding: calc(var(--grid-unit) * 3);
             position: relative;
             overflow: hidden;
         }
         
         .metric-card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 10px 30px rgba(79, 172, 254, 0.3);
-        }
-        
-        .metric-card.highlight {
-            background: linear-gradient(135deg, rgba(79, 172, 254, 0.1), rgba(0, 242, 254, 0.1));
+            background: var(--bg-elevated);
         }
         
         .metric-label {
-            font-size: 0.85em;
-            color: #a8a8b3;
-            margin-bottom: 8px;
+            font-size: 11px;
+            color: var(--text-secondary);
+            margin-bottom: var(--grid-unit);
             text-transform: uppercase;
-            letter-spacing: 1px;
+            letter-spacing: 0.05em;
+            font-weight: 500;
         }
         
         .metric-value {
-            font-size: 1.8em;
-            font-weight: bold;
-            color: #fff;
-            margin-bottom: 5px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 48px;
+            font-weight: 500;
+            color: var(--text-primary);
+            margin-bottom: calc(var(--grid-unit) / 2);
+            line-height: 1;
         }
         
         .metric-change {
-            font-size: 0.9em;
-            display: flex;
-            align-items: center;
-            gap: 5px;
+            font-size: 12px;
+            color: var(--text-dim);
+            font-family: 'JetBrains Mono', monospace;
         }
         
-        .metric-value.positive { color: #00f2fe; }
-        .metric-value.negative { color: #ff6b6b; }
-        .metric-value.warning { color: #ffd93d; }
+        .metric-value.positive { color: var(--profit); }
+        .metric-value.negative { color: var(--loss); }
+        .metric-value.warning { color: var(--warning); }
         
         .chart-container {
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 12px;
-            padding: 25px;
-            backdrop-filter: blur(10px);
-            margin-bottom: 30px;
+            background: var(--bg-surface);
+            border: 1px solid var(--border);
+            padding: calc(var(--grid-unit) * 3);
+            margin-bottom: calc(var(--grid-unit) * 4);
         }
         
         .chart-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 20px;
+            margin-bottom: calc(var(--grid-unit) * 2);
         }
         
         .chart-title {
-            font-size: 1.3em;
-            color: #4facfe;
+            font-size: 14px;
+            color: var(--text-primary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            font-weight: 500;
         }
         
         .chart-controls {
@@ -192,31 +190,31 @@
         }
         
         .btn {
-            padding: 8px 16px;
-            background: rgba(79, 172, 254, 0.2);
-            border: 1px solid #4facfe;
-            color: #fff;
-            border-radius: 6px;
+            padding: calc(var(--grid-unit) * 1.5) calc(var(--grid-unit) * 2);
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--text-primary);
             cursor: pointer;
-            transition: all 0.3s ease;
-            font-size: 0.9em;
+            font-size: 12px;
+            font-family: 'JetBrains Mono', monospace;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
         }
         
         .btn:hover {
-            background: rgba(79, 172, 254, 0.4);
-            transform: translateY(-2px);
+            background: var(--bg-elevated);
+            border-color: var(--text-primary);
         }
         
         .btn.active {
-            background: linear-gradient(90deg, #4facfe, #00f2fe);
+            background: var(--text-primary);
+            color: var(--bg-primary);
         }
         
         .trade-history {
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 12px;
-            padding: 25px;
-            backdrop-filter: blur(10px);
+            background: var(--bg-surface);
+            border: 1px solid var(--border);
+            padding: calc(var(--grid-unit) * 3);
         }
         
         .table-container {
@@ -230,139 +228,300 @@
         }
         
         th {
-            background: rgba(79, 172, 254, 0.1);
-            padding: 12px;
+            padding: calc(var(--grid-unit) * 1.5);
+            text-align: right;
+            font-weight: 500;
+            color: var(--text-secondary);
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        th:first-child {
             text-align: left;
-            font-weight: 600;
-            color: #4facfe;
-            border-bottom: 2px solid rgba(79, 172, 254, 0.3);
         }
         
         td {
-            padding: 10px 12px;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            padding: calc(var(--grid-unit) * 1.5);
+            text-align: right;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 13px;
+            color: var(--text-primary);
+        }
+        
+        td:first-child {
+            text-align: left;
+        }
+        
+        tr:nth-child(even) {
+            background: #0F0F0F;
         }
         
         tr:hover {
-            background: rgba(255, 255, 255, 0.03);
+            background: var(--bg-elevated);
         }
         
-        .status-badge {
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-size: 0.85em;
-            font-weight: 600;
+        .status-badge,
+        .side-badge {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            font-weight: 500;
         }
         
         .status-badge.open {
-            background: rgba(255, 217, 61, 0.2);
-            color: #ffd93d;
-            border: 1px solid #ffd93d;
+            color: var(--warning);
         }
         
         .status-badge.closed {
-            background: rgba(0, 255, 136, 0.2);
-            color: #00ff88;
-            border: 1px solid #00ff88;
-        }
-        
-        .side-badge {
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-size: 0.85em;
-            font-weight: 600;
+            color: var(--text-secondary);
         }
         
         .side-badge.long {
-            background: rgba(0, 242, 254, 0.2);
-            color: #00f2fe;
-            border: 1px solid #00f2fe;
+            color: var(--profit);
         }
         
         .side-badge.short {
-            background: rgba(255, 107, 107, 0.2);
-            color: #ff6b6b;
-            border: 1px solid #ff6b6b;
+            color: var(--loss);
         }
         
         .filter-section {
             display: flex;
-            gap: 15px;
-            margin-bottom: 20px;
+            gap: calc(var(--grid-unit) * 2);
+            margin-bottom: calc(var(--grid-unit) * 2);
             flex-wrap: wrap;
         }
         
         .filter-group {
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: var(--grid-unit);
         }
         
         .filter-group label {
-            font-size: 0.9em;
-            color: #a8a8b3;
+            font-size: 12px;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
         }
         
-        select {
-            padding: 6px 12px;
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            color: #fff;
-            border-radius: 6px;
-            font-size: 0.9em;
+        select,
+        input[type="text"] {
+            background: transparent;
+            border: none;
+            border-bottom: 1px solid var(--border);
+            color: var(--text-primary);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 13px;
+            padding: var(--grid-unit) 0;
+            outline: none;
+        }
+        
+        select:focus,
+        input[type="text"]:focus {
+            border-bottom-color: var(--text-primary);
+        }
+        
+        input[type="text"]::placeholder {
+            color: var(--text-dim);
         }
         
         .performance-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
-            gap: 30px;
-            margin-bottom: 30px;
+            grid-template-columns: 2fr 1fr;
+            gap: 1px;
+            margin-bottom: calc(var(--grid-unit) * 4);
+            background: var(--border);
+        }
+        
+        .performance-grid > * {
+            background: var(--bg-primary);
         }
         
         .insight-box {
-            background: linear-gradient(135deg, rgba(79, 172, 254, 0.05), rgba(0, 242, 254, 0.05));
-            border: 1px solid rgba(79, 172, 254, 0.3);
-            border-radius: 12px;
-            padding: 20px;
-            margin-bottom: 20px;
+            background: var(--bg-surface);
+            border-left: 2px solid var(--text-dim);
+            padding: calc(var(--grid-unit) * 2);
+            margin-bottom: calc(var(--grid-unit) * 3);
         }
         
         .insight-title {
-            color: #4facfe;
-            font-size: 1.1em;
-            margin-bottom: 10px;
-            display: flex;
-            align-items: center;
-            gap: 10px;
+            color: var(--text-secondary);
+            font-size: 11px;
+            margin-bottom: var(--grid-unit);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            font-weight: 500;
         }
         
         .insight-content {
-            color: #e0e0e0;
-            line-height: 1.6;
+            color: var(--text-primary);
+            line-height: 1.8;
+            font-size: 13px;
+        }
+        
+        .insight-content ul {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        
+        .insight-content li {
+            padding: calc(var(--grid-unit) / 2) 0;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        .insight-content li:last-child {
+            border-bottom: none;
         }
         
         .loading {
             text-align: center;
-            padding: 40px;
-            color: #a8a8b3;
+            padding: calc(var(--grid-unit) * 5);
+            color: var(--text-secondary);
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
         }
         
-        .spinner {
-            border: 3px solid rgba(255, 255, 255, 0.1);
-            border-top: 3px solid #4facfe;
-            border-radius: 50%;
+        /* Command palette */
+        .command-palette {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 600px;
+            max-width: 90vw;
+            background: var(--bg-elevated);
+            border: 1px solid var(--border);
+            z-index: 9999;
+        }
+        
+        .command-palette.active {
+            display: block;
+        }
+        
+        .command-input {
+            width: 100%;
+            padding: calc(var(--grid-unit) * 2);
+            background: transparent;
+            border: none;
+            border-bottom: 1px solid var(--border);
+            color: var(--text-primary);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 14px;
+            outline: none;
+        }
+        
+        .command-results {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        
+        .command-result {
+            padding: calc(var(--grid-unit) * 1.5) calc(var(--grid-unit) * 2);
+            cursor: pointer;
+            font-size: 13px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .command-result:hover,
+        .command-result.selected {
+            background: var(--bg-surface);
+        }
+        
+        .command-shortcut {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            color: var(--text-dim);
+        }
+        
+        /* Sparkline container */
+        .sparkline {
+            display: inline-block;
             width: 40px;
-            height: 40px;
-            animation: spin 1s linear infinite;
-            margin: 0 auto 20px;
+            height: 16px;
+            margin-left: var(--grid-unit);
         }
         
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+        /* Address input section */
+        .address-input-container {
+            display: flex;
+            gap: 1px;
+            margin-bottom: calc(var(--grid-unit) * 4);
+            background: var(--border);
         }
         
-        @media (max-width: 768px) {
+        .address-input-wrapper {
+            flex: 1;
+            background: var(--bg-surface);
+            padding: calc(var(--grid-unit) * 2);
+        }
+        
+        .address-input-wrapper input {
+            width: 100%;
+            background: transparent;
+            border: none;
+            color: var(--text-primary);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 14px;
+            outline: none;
+        }
+        
+        .address-input-wrapper label {
+            display: block;
+            font-size: 11px;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: var(--grid-unit);
+        }
+        
+        .load-button {
+            background: var(--bg-surface);
+            border: none;
+            padding: calc(var(--grid-unit) * 2) calc(var(--grid-unit) * 3);
+            color: var(--text-primary);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            cursor: pointer;
+        }
+        
+        .load-button:hover {
+            background: var(--bg-elevated);
+        }
+        
+        /* Key hints */
+        .key-hint {
+            position: fixed;
+            bottom: calc(var(--grid-unit) * 2);
+            right: calc(var(--grid-unit) * 2);
+            font-size: 11px;
+            color: var(--text-dim);
+            font-family: 'JetBrains Mono', monospace;
+        }
+        
+        /* Cumulative P&L chart styling */
+        .hero-chart {
+            height: 400px;
+            margin-bottom: calc(var(--grid-unit) * 4);
+            position: relative;
+        }
+        
+        .chart-value-label {
+            position: absolute;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            color: var(--text-secondary);
+        }
+        
+        @media (max-width: 1400px) {
             .performance-grid {
                 grid-template-columns: 1fr;
             }
@@ -370,9 +529,21 @@
             .metrics-grid {
                 grid-template-columns: repeat(2, 1fr);
             }
-            
-            .filter-section {
-                flex-direction: column;
+        }
+        
+        @media (max-width: 900px) {
+            body::before {
+                content: "This analytics dashboard is optimized for desktop viewing. Mobile trading available at trade.dydx.exchange.";
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                background: var(--warning);
+                color: var(--bg-primary);
+                padding: var(--grid-unit);
+                text-align: center;
+                font-size: 12px;
+                z-index: 10000;
             }
         }
     </style>
@@ -380,26 +551,32 @@
 <body>
     <div class="dashboard">
         <div class="header">
-            <h1>Advanced Trading Analytics</h1>
-            <div class="subtitle">dYdX Portfolio Performance & Risk Analysis</div>
+            <h1>dYdX Personal Trader Analytics</h1>
+            <div class="subtitle">Mathematical precision for perpetual futures performance</div>
             <div class="subtitle" style="font-size: 0.9em; color: #6a6a75;" id="accountDisplay">Enter address to load dashboard</div>
-            <div style="position: absolute; top: 10px; right: 10px; font-size: 0.8em; color: #6a6a75; opacity: 0.7;">v1.0.7-beta</div>
+            <div style="position: absolute; top: 0; right: 0; font-size: 10px; color: var(--text-dim); font-family: 'JetBrains Mono', monospace;">v2.0.0-ultra</div>
         </div>
         
-        <div style="background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px; padding: 20px; margin-bottom: 30px; backdrop-filter: blur(10px);">
-            <div style="display: flex; gap: 15px; align-items: center; justify-content: center;">
-                <input type="text" id="addressInput" placeholder="Enter dYdX address (e.g., dydx1...)" style="flex: 1; max-width: 600px; padding: 12px; border: 1px solid rgba(255, 255, 255, 0.2); background: rgba(255, 255, 255, 0.05); color: #fff; border-radius: 8px; font-size: 1em; font-family: monospace;" />
-                <button onclick="loadDashboardFromInput()" style="padding: 12px 24px; background: linear-gradient(90deg, #4facfe, #00f2fe); color: #fff; border: none; border-radius: 8px; font-size: 1em; font-weight: bold; cursor: pointer;">Load Dashboard</button>
+        <div class="breadcrumb">
+            Analytics <span>/</span> <span id="currentView">Overview</span>
+        </div>
+        
+        <div class="address-input-container">
+            <div class="address-input-wrapper">
+                <label>dYdX Address</label>
+                <input type="text" id="addressInput" placeholder="dydx1..." />
             </div>
+            <button class="load-button" onclick="loadDashboardFromInput()">Load → </button>
         </div>
         
-        <div class="nav-tabs">
-            <div class="nav-tab" onclick="switchTab('overview', this)">Overview</div>
-            <div class="nav-tab" onclick="switchTab('performance', this)">Performance</div>
-            <div class="nav-tab" onclick="switchTab('positions', this)">Positions</div>
-            <div class="nav-tab" onclick="switchTab('history', this)">Trade History</div>
-            <div class="nav-tab" onclick="switchTab('risk', this)">Risk Analysis</div>
+        <!-- Command Palette -->
+        <div id="commandPalette" class="command-palette">
+            <input type="text" class="command-input" id="commandInput" placeholder="Type a command or search..." />
+            <div class="command-results" id="commandResults"></div>
         </div>
+        
+        <!-- Key hint -->
+        <div class="key-hint">Press ⌘K for commands</div>
         
         <!-- Overview Tab (hidden by default until data loads) -->
         <div id="overview" class="tab-content">
@@ -437,11 +614,9 @@
             </div>
             
             <div class="insight-box">
-                <div class="insight-title">
-                    <span>💡</span> Key Insights
-                </div>
+                <div class="insight-title">Key Insights</div>
                 <div class="insight-content">
-                    <ul style="margin-left: 20px; line-height: 1.8;">
+                    <ul>
                         <li id="performanceSummary">Loading performance data...</li>
                         <li id="insightPosition">-</li>
                         <li id="insightRisk">-</li>
@@ -451,17 +626,20 @@
                 </div>
             </div>
             
+            <div class="hero-chart">
+                <canvas id="cumulativePnlChart"></canvas>
+            </div>
+            
             <div class="performance-grid">
                 <div class="chart-container">
                     <div class="chart-header">
-                        <div class="chart-title">Cumulative P&L</div>
+                        <div class="chart-title">Trading Activity Heatmap</div>
                     </div>
-                    <canvas id="cumulativePnlChart"></canvas>
+                    <canvas id="activityHeatmap"></canvas>
                 </div>
                 <div class="chart-container">
                     <div class="chart-header">
-                        <div class="chart-title">Trading Activity by Market</div>
-                        <div style="font-size: 0.85em; color: #a8a8b3; margin-top: 5px;">Distribution of trades across different markets</div>
+                        <div class="chart-title">Market Distribution</div>
                     </div>
                     <canvas id="marketExposureChart"></canvas>
                 </div>
@@ -529,9 +707,7 @@
         <!-- Positions Tab -->
         <div id="positions" class="tab-content">
             <div class="insight-box">
-                <div class="insight-title">
-                    <span>📊</span> Current Position Analysis
-                </div>
+                <div class="insight-title">Current Position Analysis</div>
                 <div class="insight-content">
                     <strong>ETH-USD Long Position:</strong><br>
                     • Size: 450 ETH ($2.1M notional at entry)<br>
@@ -688,9 +864,7 @@
             </div>
             
             <div class="insight-box">
-                <div class="insight-title">
-                    <span>⚠️</span> Risk Assessment
-                </div>
+                <div class="insight-title">Risk Assessment</div>
                 <div class="insight-content" id="riskAssessmentContent">
                     <strong>Current Risk Profile:</strong><br>
                     • <span style="color: #00f2fe;">Collateral Status:</span> <span id="riskCollateralStatus">Loading...</span><br>
@@ -703,11 +877,9 @@
         </div>
     </div> <!-- End dashboard -->
     
-    <!-- Footer with beta disclaimer -->
+    <!-- Footer -->
     <div class="footer">
-        <div style="font-size: 0.75em; color: #ffd93d; opacity: 0.8;">
-            ⚠️ Beta Version: Data calculations are experimental and may not reflect exact values
-        </div>
+        <div>Ultra-Thin UI v2.0.0 | Data calculations are experimental</div>
     </div>
 
     <script>
@@ -721,22 +893,22 @@
         // Theme configuration
         const THEME = {
             colors: {
-                primary: 'rgba(79, 172, 254, 0.8)',
-                secondary: '#00f2fe',
-                positive: '#00f2fe',
-                negative: '#ff3737',
-                warning: '#ffd93d',
-                text: '#a8a8b3',
-                textLight: '#6a6a75',
-                background: 'rgba(255, 255, 255, 0.05)',
-                backgroundDark: 'rgba(255, 255, 255, 0.02)',
+                primary: 'rgba(255, 255, 255, 0.85)',
+                secondary: 'rgba(255, 255, 255, 0.5)',
+                positive: '#10B981',
+                negative: '#EF4444',
+                warning: '#F59E0B',
+                text: 'rgba(255, 255, 255, 0.85)',
+                textLight: 'rgba(255, 255, 255, 0.3)',
+                background: '#121212',
+                backgroundDark: '#0A0A0A',
                 gridLine: 'rgba(255, 255, 255, 0.05)',
                 border: 'rgba(255, 255, 255, 0.1)'
             },
             chart: {
-                fontFamily: '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-                fontSize: 12,
-                fontColor: '#a8a8b3',
+                fontFamily: '"JetBrains Mono", monospace',
+                fontSize: 11,
+                fontColor: 'rgba(255, 255, 255, 0.5)',
                 gridColor: 'rgba(255, 255, 255, 0.05)'
             }
         };
@@ -949,13 +1121,176 @@
         });
 
 
+        // Keyboard navigation and command palette
+        let commandPaletteOpen = false;
+        let commandResults = [];
+        let selectedCommandIndex = 0;
+        
+        const commands = [
+            { name: 'Overview', action: () => switchTab('overview'), shortcut: '1' },
+            { name: 'Performance', action: () => switchTab('performance'), shortcut: '2' },
+            { name: 'Positions', action: () => switchTab('positions'), shortcut: '3' },
+            { name: 'Trade History', action: () => switchTab('history'), shortcut: '4' },
+            { name: 'Risk Analysis', action: () => switchTab('risk'), shortcut: '5' },
+            { name: 'Export Data', action: () => exportData(), shortcut: 'E' },
+            { name: 'Refresh', action: () => location.reload(), shortcut: 'R' }
+        ];
+        
+        document.addEventListener('keydown', (e) => {
+            // Command palette toggle (Cmd+K or Ctrl+K)
+            if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+                e.preventDefault();
+                toggleCommandPalette();
+            }
+            
+            // Direct number shortcuts for tabs
+            if (!commandPaletteOpen && e.key >= '1' && e.key <= '5') {
+                const tabIndex = parseInt(e.key) - 1;
+                const tabs = ['overview', 'performance', 'positions', 'history', 'risk'];
+                if (tabs[tabIndex] && currentPortfolioData) switchTab(tabs[tabIndex]);
+            }
+            
+            // Command palette navigation
+            if (commandPaletteOpen) {
+                if (e.key === 'Escape') {
+                    closeCommandPalette();
+                } else if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    selectedCommandIndex = Math.min(selectedCommandIndex + 1, commandResults.length - 1);
+                    updateCommandSelection();
+                } else if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    selectedCommandIndex = Math.max(selectedCommandIndex - 1, 0);
+                    updateCommandSelection();
+                } else if (e.key === 'Enter' && commandResults.length > 0) {
+                    e.preventDefault();
+                    commandResults[selectedCommandIndex].action();
+                    closeCommandPalette();
+                }
+            }
+        });
+        
+        function toggleCommandPalette() {
+            const palette = document.getElementById('commandPalette');
+            commandPaletteOpen = !commandPaletteOpen;
+            
+            if (commandPaletteOpen) {
+                palette.classList.add('active');
+                document.getElementById('commandInput').value = '';
+                document.getElementById('commandInput').focus();
+                showAllCommands();
+            } else {
+                palette.classList.remove('active');
+            }
+        }
+        
+        function closeCommandPalette() {
+            commandPaletteOpen = false;
+            document.getElementById('commandPalette').classList.remove('active');
+        }
+        
+        function showAllCommands() {
+            commandResults = commands;
+            selectedCommandIndex = 0;
+            const resultsDiv = document.getElementById('commandResults');
+            resultsDiv.innerHTML = commands.map((cmd, i) => 
+                `<div class="command-result ${i === 0 ? 'selected' : ''}" data-index="${i}">
+                    <span>${cmd.name}</span>
+                    <span class="command-shortcut">${cmd.shortcut}</span>
+                </div>`
+            ).join('');
+            
+            // Add click handlers
+            resultsDiv.querySelectorAll('.command-result').forEach(el => {
+                el.addEventListener('click', () => {
+                    const index = parseInt(el.dataset.index);
+                    commandResults[index].action();
+                    closeCommandPalette();
+                });
+            });
+        }
+        
+        function updateCommandSelection() {
+            const results = document.querySelectorAll('.command-result');
+            results.forEach((el, i) => {
+                el.classList.toggle('selected', i === selectedCommandIndex);
+            });
+        }
+        
+        // Search functionality for command palette
+        window.addEventListener('load', () => {
+            const commandInput = document.getElementById('commandInput');
+            if (commandInput) {
+                commandInput.addEventListener('input', (e) => {
+                    const query = e.target.value.toLowerCase();
+                    if (query === '') {
+                        showAllCommands();
+                    } else {
+                        commandResults = commands.filter(cmd => 
+                            cmd.name.toLowerCase().includes(query)
+                        );
+                        selectedCommandIndex = 0;
+                        
+                        const resultsDiv = document.getElementById('commandResults');
+                        if (commandResults.length > 0) {
+                            resultsDiv.innerHTML = commandResults.map((cmd, i) => 
+                                `<div class="command-result ${i === 0 ? 'selected' : ''}" data-index="${i}">
+                                    <span>${cmd.name}</span>
+                                    <span class="command-shortcut">${cmd.shortcut}</span>
+                                </div>`
+                            ).join('');
+                            
+                            // Re-add click handlers
+                            resultsDiv.querySelectorAll('.command-result').forEach((el, idx) => {
+                                el.addEventListener('click', () => {
+                                    commandResults[idx].action();
+                                    closeCommandPalette();
+                                });
+                            });
+                        } else {
+                            resultsDiv.innerHTML = '<div class="command-result">No commands found</div>';
+                        }
+                    }
+                });
+            }
+        });
+        
+        function exportData() {
+            if (!currentPortfolioData) {
+                showMessage('No data to export', 'error');
+                return;
+            }
+            // Export as JSON
+            const dataStr = JSON.stringify(currentPortfolioData, null, 2);
+            const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
+            const exportFileDefaultName = `dydx-data-${currentAddress}-${new Date().toISOString().split('T')[0]}.json`;
+            
+            const linkElement = document.createElement('a');
+            linkElement.setAttribute('href', dataUri);
+            linkElement.setAttribute('download', exportFileDefaultName);
+            linkElement.click();
+        }
+        
         function switchTab(tabName, clickedElement) {
             // Don't switch tabs if no data is loaded
             if (!currentPortfolioData) {
                 console.log('No data loaded, cannot switch tabs');
-                showMessage('Please load data first by entering an address and clicking "Load Dashboard"', 'error');
+                showMessage('Load data: Enter address and press Enter', 'error');
                 setTimeout(hideMessage, 3000);
                 return;
+            }
+            
+            // Update breadcrumb
+            const breadcrumb = document.getElementById('currentView');
+            if (breadcrumb) {
+                const viewNames = {
+                    'overview': 'Overview',
+                    'performance': 'Performance',
+                    'positions': 'Positions',
+                    'history': 'Trade History',
+                    'risk': 'Risk Analysis'
+                };
+                breadcrumb.textContent = viewNames[tabName] || 'Overview';
             }
             
             // Update tab buttons
@@ -1033,37 +1368,60 @@
                     datasets: [{
                         label: 'Cumulative P&L',
                         data: cumulative,
-                        borderColor: 'rgba(79, 172, 254, 1)',
-                        backgroundColor: 'rgba(79, 172, 254, 0.1)',
-                        borderWidth: 3,
-                        tension: 0.4,
-                        fill: true
+                        borderColor: 'rgba(255, 255, 255, 0.85)',
+                        backgroundColor: 'transparent',
+                        borderWidth: 2,
+                        tension: 0,
+                        fill: false,
+                        pointRadius: 0,
+                        pointHoverRadius: 3
                     }]
                 },
                 options: {
                     responsive: true,
+                    maintainAspectRatio: false,
                     plugins: {
-                        legend: { display: false }
+                        legend: { display: false },
+                        tooltip: {
+                            backgroundColor: '#0A0A0A',
+                            borderColor: 'rgba(255, 255, 255, 0.1)',
+                            borderWidth: 1,
+                            titleFont: { size: 11, family: 'JetBrains Mono' },
+                            bodyFont: { size: 11, family: 'JetBrains Mono' },
+                            cornerRadius: 0,
+                            padding: 8,
+                            callbacks: {
+                                label: function(context) {
+                                    return '$' + context.parsed.y.toLocaleString();
+                                }
+                            }
+                        }
                     },
                     scales: {
                         y: {
-                            grid: { color: 'rgba(255, 255, 255, 0.05)' },
-                            ticks: {
-                                color: '#a8a8b3',
-                                callback: function(value) {
-                                    return '$' + (value / 1000).toFixed(0) + 'k';
-                                }
-                            }
+                            display: false
                         },
                         x: {
-                            grid: { display: false },
-                            ticks: { color: '#a8a8b3' }
+                            display: false
                         }
+                    },
+                    interaction: {
+                        intersect: false,
+                        mode: 'index'
                     }
                 }
             });
             
-            // Trading Activity Chart - Shows distribution of trading across markets
+            // Create activity heatmap placeholder
+            const heatmapCtx = document.getElementById('activityHeatmap');
+            if (heatmapCtx) {
+                // Will implement trading activity heatmap
+                const ctx = heatmapCtx.getContext('2d');
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.05)';
+                ctx.fillRect(0, 0, heatmapCtx.width, heatmapCtx.height);
+            }
+            
+            // Market Distribution Chart - Minimal doughnut
             const exposureCtx = document.getElementById('marketExposureChart').getContext('2d');
             
             // Aggregate data by market
@@ -1104,13 +1462,13 @@
             const data = hasData ? 
                 sortedMarkets.map(([market, stats]) => stats.trades) : [1];
             
-            // Generate colors for each market
+            // Monochrome color palette for markets
             const colors = [
-                'rgba(79, 172, 254, 0.8)',   // Blue
-                'rgba(255, 217, 61, 0.8)',    // Yellow
-                'rgba(0, 242, 254, 0.8)',     // Cyan
-                'rgba(255, 107, 107, 0.8)',   // Red
-                'rgba(0, 255, 136, 0.8)'      // Green
+                'rgba(255, 255, 255, 0.8)',
+                'rgba(255, 255, 255, 0.6)',
+                'rgba(255, 255, 255, 0.4)',
+                'rgba(255, 255, 255, 0.3)',
+                'rgba(255, 255, 255, 0.2)'
             ];
             
             charts.marketExposure = new Chart(exposureCtx, {
@@ -1120,8 +1478,8 @@
                     datasets: [{
                         data: data,
                         backgroundColor: hasData ? colors.slice(0, sortedMarkets.length) : ['rgba(100, 100, 100, 0.3)'],
-                        borderColor: 'rgba(255, 255, 255, 0.2)',
-                        borderWidth: 2
+                        borderColor: 'transparent',
+                        borderWidth: 0
                     }]
                 },
                 options: {
