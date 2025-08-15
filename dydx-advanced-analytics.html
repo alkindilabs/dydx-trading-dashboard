@@ -376,15 +376,15 @@
         </div>
         
         <div class="nav-tabs">
-            <div class="nav-tab" onclick="switchTab('overview')">Overview</div>
-            <div class="nav-tab" onclick="switchTab('performance')">Performance</div>
-            <div class="nav-tab" onclick="switchTab('positions')">Positions</div>
-            <div class="nav-tab" onclick="switchTab('history')">Trade History</div>
-            <div class="nav-tab" onclick="switchTab('risk')">Risk Analysis</div>
+            <div class="nav-tab" onclick="switchTab('overview', this)">Overview</div>
+            <div class="nav-tab" onclick="switchTab('performance', this)">Performance</div>
+            <div class="nav-tab" onclick="switchTab('positions', this)">Positions</div>
+            <div class="nav-tab" onclick="switchTab('history', this)">Trade History</div>
+            <div class="nav-tab" onclick="switchTab('risk', this)">Risk Analysis</div>
         </div>
         
         <!-- Overview Tab (hidden by default until data loads) -->
-        <div id="overview" class="tab-content" style="display: none;">
+        <div id="overview" class="tab-content">
             <div class="metrics-grid">
                 <div class="metric-card highlight">
                     <div class="metric-label">Total Equity</div>
@@ -703,9 +703,14 @@
         // Show initial message when page loads
         window.addEventListener('DOMContentLoaded', () => {
             if (!currentPortfolioData) {
-                // Hide all tab content
+                // Make sure no tab content is active (CSS will hide them)
                 document.querySelectorAll('.tab-content').forEach(tab => {
-                    tab.style.display = 'none';
+                    tab.classList.remove('active');
+                });
+                
+                // Remove active from all nav tabs
+                document.querySelectorAll('.nav-tab').forEach(tab => {
+                    tab.classList.remove('active');
                 });
                 
                 // Create and show no data message
@@ -725,18 +730,42 @@
         });
 
 
-        function switchTab(tabName) {
+        function switchTab(tabName, clickedElement) {
+            // Don't switch tabs if no data is loaded
+            if (!currentPortfolioData) {
+                console.log('No data loaded, cannot switch tabs');
+                showMessage('Please load data first by entering an address and clicking "Load Dashboard"', 'error');
+                setTimeout(hideMessage, 3000);
+                return;
+            }
+            
             // Update tab buttons
             document.querySelectorAll('.nav-tab').forEach(tab => {
                 tab.classList.remove('active');
             });
-            event.target.classList.add('active');
             
-            // Update content
+            // Find the clicked tab or use the element parameter
+            if (clickedElement) {
+                clickedElement.classList.add('active');
+            } else {
+                // Find tab by name if no element provided
+                const tabs = document.querySelectorAll('.nav-tab');
+                const tabNames = ['overview', 'performance', 'positions', 'history', 'risk'];
+                const tabIndex = tabNames.indexOf(tabName);
+                if (tabIndex >= 0 && tabs[tabIndex]) {
+                    tabs[tabIndex].classList.add('active');
+                }
+            }
+            
+            // Update content - remove active from all, then add to selected
             document.querySelectorAll('.tab-content').forEach(content => {
                 content.classList.remove('active');
             });
-            document.getElementById(tabName).classList.add('active');
+            
+            const selectedTab = document.getElementById(tabName);
+            if (selectedTab) {
+                selectedTab.classList.add('active');
+            }
             
             // Initialize charts for the tab if not already done
             if (tabName === 'overview' && !charts.cumulativePnl) {
@@ -1309,12 +1338,11 @@
                     noDataMsg.style.display = 'none';
                 }
                 
-                // Show and activate the overview tab
-                document.getElementById('overview').style.display = 'block';
+                // Activate the overview tab and its nav button
                 document.getElementById('overview').classList.add('active');
-                // Make overview nav tab active
+                // Make overview nav tab active (first tab)
                 document.querySelectorAll('.nav-tab').forEach(tab => tab.classList.remove('active'));
-                document.querySelector('.nav-tab').classList.add('active'); // First tab is overview
+                document.querySelector('.nav-tab').classList.add('active');
                 
                 // Update metrics display with real data
                 updateMetricsDisplay();
