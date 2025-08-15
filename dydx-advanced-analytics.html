@@ -866,6 +866,35 @@
             return '$' + value.toFixed(0);
         }
         
+        // Update element helper function
+        function updateElement(id, value, format = 'currency', condition = null) {
+            const element = document.getElementById(id);
+            if (!element) return;
+            
+            if (format === 'currency') {
+                element.textContent = value !== 0 ? `$${Math.abs(value).toLocaleString()}` : '-';
+            } else if (format === 'percent') {
+                element.textContent = value !== 0 ? `${value.toFixed(1)}%` : '-';
+            } else if (format === 'number') {
+                element.textContent = value !== 0 ? value.toFixed(2) : '-';
+            } else if (format === 'eth') {
+                element.textContent = value !== 0 ? `${value} ETH` : '-';
+            } else {
+                element.textContent = value || '-';
+            }
+            
+            // Apply color classes based on condition
+            if (condition === 'positive' && value > 0) {
+                element.className = 'metric-value positive';
+            } else if (condition === 'negative' && value < 0) {
+                element.className = 'metric-value negative';
+            } else if (condition === 'warning' && value > 0) {
+                element.className = 'metric-value warning';
+            } else {
+                element.className = 'metric-value';
+            }
+        }
+        
         // Batch update helper to reduce repetitive updateElement calls
         function updateMetrics(updates) {
             updates.forEach(({ id, value, format = 'currency', condition = null }) => {
@@ -1776,35 +1805,6 @@
             const updateDescription = (id, text) => {
                 const element = document.getElementById(id);
                 if (element) element.textContent = text;
-            };
-            
-            // Update overview metrics with real data
-            const updateElement = (id, value, format = 'currency', condition = null) => {
-                const element = document.getElementById(id);
-                if (!element) return;
-                
-                if (format === 'currency') {
-                    element.textContent = value !== 0 ? `$${Math.abs(value).toLocaleString()}` : '-';
-                } else if (format === 'percent') {
-                    element.textContent = value !== 0 ? `${value.toFixed(1)}%` : '-';
-                } else if (format === 'number') {
-                    element.textContent = value !== 0 ? value.toFixed(2) : '-';
-                } else if (format === 'eth') {
-                    element.textContent = value !== 0 ? `${value} ETH` : '-';
-                } else {
-                    element.textContent = value || '-';
-                }
-                
-                // Apply color classes based on condition
-                if (condition === 'positive' && value > 0) {
-                    element.className = 'metric-value positive';
-                } else if (condition === 'negative' && value < 0) {
-                    element.className = 'metric-value negative';
-                } else if (condition === 'warning' && value > 0) {
-                    element.className = 'metric-value warning';
-                } else {
-                    element.className = 'metric-value';
-                }
             };
             
             const metrics = currentPortfolioData.performance_metrics;
