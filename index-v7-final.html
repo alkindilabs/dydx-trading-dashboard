@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>dYdX Analytics - dydx1agx...ampv</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <style>
         * {
             margin: 0;
@@ -522,6 +523,14 @@
                     <div class="metric-value mono" id="maxDrawdown">-</div>
                     <div class="metric-change mono" id="maxDrawdownDetail">-</div>
                 </div>
+            </div>
+
+            <!-- Trading Activity Chart (Market Distribution) -->
+            <div class="chart-container" style="height: 400px;">
+                <div class="chart-header">
+                    <div class="chart-title">Trading Activity by Market</div>
+                </div>
+                <canvas id="marketDistributionChart" style="max-width: 400px; margin: 0 auto;"></canvas>
             </div>
 
             <!-- P&L Chart -->
@@ -1461,22 +1470,35 @@
             currentAddress = address;
 
             try {
-                // Fetch data - add orders to get trade history
-                const [subaccountRes, positionsRes, ordersRes, fillsRes] = await Promise.all([
+                // Fetch data using CORRECT endpoint structure from docs
+                const [
+                    subaccountRes, 
+                    openPositionsRes, 
+                    closedPositionsRes, 
+                    ordersRes, 
+                    fillsRes
+                ] = await Promise.all([
                     fetch(`${DYDX_API}/addresses/${address}/subaccountNumber/0`),
-                    fetch(`${DYDX_API}/perpetualPositions?address=${address}&subaccountNumber=0&limit=100`),
-                    fetch(`${DYDX_API}/orders?address=${address}&subaccountNumber=0&limit=100`),
-                    fetch(`${DYDX_API}/fills?address=${address}&subaccountNumber=0&limit=100`)
+                    // Get OPEN positions
+                    fetch(`${DYDX_API}/addresses/${address}/subaccountNumber/0/perpetualPositions?status=OPEN&limit=100`),
+                    // Get CLOSED positions - this is what we were missing!
+                    fetch(`${DYDX_API}/addresses/${address}/subaccountNumber/0/perpetualPositions?status=CLOSED&limit=100`),
+                    // Get orders
+                    fetch(`${DYDX_API}/addresses/${address}/subaccountNumber/0/orders?limit=100`),
+                    // Get fills
+                    fetch(`${DYDX_API}/addresses/${address}/subaccountNumber/0/fills?limit=100`)
                 ]);
 
                 const subaccountData = await subaccountRes.json();
-                const positionsData = await positionsRes.json();
+                const openPositionsData = await openPositionsRes.json();
+                const closedPositionsData = await closedPositionsRes.json();
                 const ordersData = await ordersRes.json();
                 const fillsData = await fillsRes.json();
 
                 allData = {
                     subaccount: subaccountData,
-                    positions: positionsData,
+                    openPositions: openPositionsData,
+                    closedPositions: closedPositionsData,
                     orders: ordersData,
                     fills: fillsData
                 };
@@ -1496,19 +1518,21 @@
             // Get subaccount data
             const subaccount = allData.subaccount?.subaccount;
             
-            // Get ALL positions (including closed ones)
+            // Get ALL positions (both open and closed)
             let allPositions = [];
             
-            // First get open positions from subaccount
-            if (subaccount?.openPerpetualPositions) {
-                const openPos = Object.values(subaccount.openPerpetualPositions);
-                allPositions = allPositions.concat(openPos.map(p => ({...p, status: 'OPEN'})));
+            // Add open positions
+            if (allData.openPositions?.positions) {
+                allPositions = allPositions.concat(allData.openPositions.positions);
             }
             
-            // Then add positions from positions endpoint (may include closed)
-            if (allData.positions?.positions) {
-                allPositions = allPositions.concat(allData.positions.positions);
+            // Add closed positions - THIS IS THE KEY FIX!
+            if (allData.closedPositions?.positions) {
+                allPositions = allPositions.concat(allData.closedPositions.positions);
             }
+            
+            console.log('Open positions:', allData.openPositions?.positions?.length || 0);
+            console.log('Closed positions:', allData.closedPositions?.positions?.length || 0);
             
             // Calculate P&L from positions and fills
             let totalUnrealizedPnL = 0;
@@ -1524,61 +1548,51 @@
                 totalRealizedPnL += parseFloat(pos.realizedPnl || 0);
             });
             
-            // Process fills to calculate win/loss statistics
+            // Calculate win/loss statistics from CLOSED positions
             let wins = 0;
             let losses = 0;
             let totalWinAmount = 0;
             let totalLossAmount = 0;
             
-            // Group fills by order to calculate P&L per trade
-            const fills = allData.fills?.fills || [];
-            const orderPnL = {};
-            
-            fills.forEach(fill => {
-                const orderId = fill.orderId;
-                if (!orderPnL[orderId]) {
-                    orderPnL[orderId] = {
-                        size: 0,
-                        cost: 0,
-                        side: fill.side,
-                        market: fill.market
-                    };
-                }
-                
-                const size = parseFloat(fill.size || 0);
-                const price = parseFloat(fill.price || 0);
-                const fee = parseFloat(fill.fee || 0);
-                
-                if (fill.side === 'BUY') {
-                    orderPnL[orderId].size += size;
-                    orderPnL[orderId].cost += (size * price) + fee;
-                } else {
-                    orderPnL[orderId].size -= size;
-                    orderPnL[orderId].cost -= (size * price) - fee;
-                }
-            });
-            
-            // Count completed trades
-            Object.values(orderPnL).forEach(order => {
-                if (Math.abs(order.size) < 0.0001) { // Closed position
-                    if (order.cost > 0) {
+            // Process closed positions to calculate win/loss
+            allPositions.forEach(pos => {
+                if (pos.status === 'CLOSED') {
+                    const realizedPnl = parseFloat(pos.realizedPnl || 0);
+                    if (realizedPnl > 0) {
                         wins++;
-                        totalWinAmount += order.cost;
-                    } else if (order.cost < 0) {
+                        totalWinAmount += realizedPnl;
+                    } else if (realizedPnl < 0) {
                         losses++;
-                        totalLossAmount += Math.abs(order.cost);
+                        totalLossAmount += Math.abs(realizedPnl);
                     }
                 }
             });
             
-            // If no trades from fills, check orders
-            if (wins === 0 && losses === 0) {
-                const orders = allData.orders?.orders || [];
-                const filledOrders = orders.filter(o => o.status === 'FILLED');
-                // For now, just count filled orders
-                const totalFilledOrders = filledOrders.length;
-                document.getElementById('winRateDetail').textContent = `${totalFilledOrders} orders executed`;
-            }
+            console.log('Wins:', wins, 'Losses:', losses);
+            console.log('Total win amount:', totalWinAmount, 'Total loss amount:', totalLossAmount);
+            
+            // Track market distribution for Trading Activity chart
+            const marketDistribution = {};
+            allPositions.forEach(pos => {
+                const market = pos.market || 'Unknown';
+                if (!marketDistribution[market]) {
+                    marketDistribution[market] = {
+                        tradeCount: 0,
+                        totalPnL: 0,
+                        openCount: 0
+                    };
+                }
+                marketDistribution[market].tradeCount++;
+                marketDistribution[market].totalPnL += parseFloat(pos.realizedPnl || 0) + parseFloat(pos.unrealizedPnl || 0);
+                if (pos.status === 'OPEN') {
+                    marketDistribution[market].openCount++;
+                }
+            });
+            
+            console.log('Market distribution:', marketDistribution);
+            
+            // Create Trading Activity Chart
+            createMarketDistributionChart(marketDistribution);
             
             // Calculate total P&L
             const totalPnL = totalUnrealizedPnL + totalRealizedPnL;
@@ -1645,6 +1659,100 @@
         function updateElement(id, value) {
             const el = document.getElementById(id);
             if (el) el.textContent = value;
+        }
+
+        let marketChart = null;
+        function createMarketDistributionChart(marketDistribution) {
+            const ctx = document.getElementById('marketDistributionChart');
+            if (!ctx) return;
+            
+            // Destroy existing chart if it exists
+            if (marketChart) {
+                marketChart.destroy();
+            }
+            
+            // Sort markets by trade count and take top 5
+            const sortedMarkets = Object.entries(marketDistribution)
+                .sort((a, b) => b[1].tradeCount - a[1].tradeCount)
+                .slice(0, 5);
+            
+            if (sortedMarkets.length === 0) {
+                // No data to display
+                return;
+            }
+            
+            const labels = sortedMarkets.map(([market, data]) => 
+                `${market} (${data.tradeCount})`
+            );
+            const data = sortedMarkets.map(([_, data]) => data.tradeCount);
+            const backgroundColors = [
+                '#10B981', // Green
+                '#3B82F6', // Blue  
+                '#F59E0B', // Yellow
+                '#EF4444', // Red
+                '#8B5CF6'  // Purple
+            ];
+            
+            marketChart = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        data: data,
+                        backgroundColor: backgroundColors,
+                        borderColor: 'var(--bg-primary)',
+                        borderWidth: 2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'right',
+                            labels: {
+                                color: 'var(--text-secondary)',
+                                padding: 15,
+                                font: {
+                                    size: 11
+                                },
+                                generateLabels: function(chart) {
+                                    const data = chart.data;
+                                    const total = data.datasets[0].data.reduce((a, b) => a + b, 0);
+                                    return data.labels.map((label, i) => {
+                                        const value = data.datasets[0].data[i];
+                                        const percentage = ((value / total) * 100).toFixed(1);
+                                        return {
+                                            text: `${label} - ${percentage}%`,
+                                            fillStyle: data.datasets[0].backgroundColor[i],
+                                            index: i
+                                        };
+                                    });
+                                }
+                            }
+                        },
+                        tooltip: {
+                            backgroundColor: 'var(--bg-elevated)',
+                            titleColor: 'var(--text-primary)',
+                            bodyColor: 'var(--text-secondary)',
+                            borderColor: 'var(--border)',
+                            borderWidth: 1,
+                            padding: 12,
+                            callbacks: {
+                                label: function(context) {
+                                    const market = sortedMarkets[context.dataIndex];
+                                    const lines = [
+                                        `Trades: ${market[1].tradeCount}`,
+                                        `Total P&L: ${formatCurrency(market[1].totalPnL)}`,
+                                        `Open Positions: ${market[1].openCount}`
+                                    ];
+                                    return lines;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
         }
 
         // Auto-load real data on page load
