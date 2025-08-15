@@ -1577,6 +1577,12 @@
         function updateMetricsDisplay() {
             if (!currentPortfolioData) return;
             
+            // Helper function to update text descriptions
+            const updateDescription = (id, text) => {
+                const element = document.getElementById(id);
+                if (element) element.textContent = text;
+            };
+            
             // Update overview metrics with real data
             const updateElement = (id, value, format = 'currency', condition = null) => {
                 const element = document.getElementById(id);
@@ -1688,12 +1694,6 @@
                 updateElement('liquidationPrice', 0, 'currency');
                 updateDescription('liquidationBuffer', 'No position');
             }
-            
-            // Update change descriptions
-            const updateDescription = (id, text) => {
-                const element = document.getElementById(id);
-                if (element) element.textContent = text;
-            };
             
             // Update metric descriptions with real data
             // Update equity change subtitle
