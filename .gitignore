@@ -1,6 +1,7 @@
 # Data files
 *.json
 *.md
+!CLAUDE.md
 
 # OS files
 .DS_Store
