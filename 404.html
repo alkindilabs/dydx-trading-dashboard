@@ -6,8 +6,7 @@
   <title>Not Found</title>
   <script>
     (function(){
-      // Client-side redirect for SPA-style routes
-      var target = '/index-v7-final.html' + window.location.search + window.location.hash;
+      var target = '/' + window.location.search + window.location.hash;
       try { window.location.replace(target); } catch(e) { window.location.href = target; }
     })();
   </script>
