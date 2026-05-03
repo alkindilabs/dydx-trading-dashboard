@@ -1470,14 +1470,19 @@
             }
 
             try {
-                const [subaccountData, openPositionsData, closedPositionsData, ordersData, fillsData, fundingPaymentsData, marketsData] = await Promise.all([
+                const [
+                    subaccountData, openPositionsData, closedPositionsData,
+                    ordersData, fillsData, fundingPaymentsData, marketsData,
+                    historicalPnlData
+                ] = await Promise.all([
                     fetchJson(`${DYDX_API}/addresses/${address}/subaccountNumber/0`),
                     fetchJson(`${DYDX_API}/perpetualPositions?address=${address}&subaccountNumber=0&status=OPEN&limit=100`),
                     fetchJson(`${DYDX_API}/perpetualPositions?address=${address}&subaccountNumber=0&status=CLOSED&limit=100`),
                     fetchJson(`${DYDX_API}/orders?address=${address}&subaccountNumber=0&limit=1000`),
                     fetchJson(`${DYDX_API}/fills?address=${address}&subaccountNumber=0&limit=1000`),
                     fetchJson(`${DYDX_API}/fundingPayments?address=${address}&subaccountNumber=0&limit=1000`),
-                    fetchJson(`${DYDX_API}/perpetualMarkets`)
+                    fetchJson(`${DYDX_API}/perpetualMarkets`),
+                    fetchJson(`${DYDX_API}/historical-pnl?address=${address}&subaccountNumber=0&limit=1000`)
                 ]);
 
                 allData = {
@@ -1487,7 +1492,8 @@
                     orders: ordersData,
                     fills: fillsData,
                     fundingPayments: fundingPaymentsData,
-                    markets: marketsData
+                    markets: marketsData,
+                    historicalPnl: historicalPnlData
                 };
 
                 processData();
@@ -1534,22 +1540,22 @@
             allPositions = allPositions.concat(extractPositions(allData.openPositions));
             allPositions = allPositions.concat(extractPositions(allData.closedPositions));
 
-            // Single source of truth for trade classification: realizedPnl > 0
-            // is a win, < 0 is a loss, == 0 is a scratch. Win-rate-style ratios
-            // exclude scratches; row-counts include them. Used everywhere on the
-            // dashboard (header, performance tab, monthly + asset tables) so the
-            // same trade is never bucketed two ways.
+            // Single source of truth for trade classification, drawdown, and
+            // per-market P&L — computed ONCE up front and threaded through to
+            // every renderer/table. No downstream code recomputes these so
+            // the same trade is never bucketed two ways across cards.
             const cls = window.RiskMetrics.classifyClosed(allPositions);
+            const tsd = window.RiskMetrics.tradeSystemDrawdown(allPositions);
+            const marketAgg = window.RiskMetrics.marketPnL(allPositions);
+            const marketsMap = extractMarketsMap(allData.markets);
+            const histArr = (allData.historicalPnl && allData.historicalPnl.historicalPnl) || [];
+
             const totalUnrealizedPnL = allPositions
                 .filter(p => p.status === 'OPEN')
                 .reduce((s, p) => s + parseFloat(p.unrealizedPnl || 0), 0);
             const totalRealizedPnL = cls.totalRealized;
             const totalPnL = totalUnrealizedPnL + totalRealizedPnL;
 
-            // Per-market P&L: realized of closed + unrealized of open. Same
-            // helper drives the Overview chart tooltip AND the Performance-by-
-            // Asset table so a market never reads two different P&L numbers.
-            const marketAgg = window.RiskMetrics.marketPnL(allPositions);
             const marketDistribution = {};
             Object.entries(marketAgg).forEach(([m, v]) => {
                 marketDistribution[m] = {
@@ -1604,26 +1610,23 @@
             const avgWin = wins > 0 ? totalWinAmount / wins : 0;
             const avgLoss = losses > 0 ? totalLossAmount / losses : 0;
 
-            // Headline Max Drawdown: ALWAYS the trade-system $ drawdown
-            // (peak-to-trough of cumulative realizedPnl over closed trades).
-            // Same series feeds the Drawdown Periods table so the headline
-            // can never disagree with the table.
-            (function renderHeadlineMDD() {
-                const tsd = window.RiskMetrics.tradeSystemDrawdown(allPositions);
-                if (tsd.dollarDrawdown > 0) {
-                    updateElement('maxDrawdown', formatCurrency(-tsd.dollarDrawdown));
-                    updateElement('maxDrawdownDetail',
-                        `Trade-system peak-to-trough · n=${tsd.n} closed`);
-                } else {
-                    updateElement('maxDrawdown', '—');
-                    updateElement('maxDrawdownDetail', cls.closedCount > 0
-                        ? 'No drawdown recorded'
-                        : 'No closed trades');
-                }
-            })();
+            // Headline Max Drawdown: trade-system $ drawdown of cumulative
+            // realizedPnl. Same series feeds the Drawdown Periods table so
+            // the headline can never disagree with the table.
+            if (tsd.dollarDrawdown > 0) {
+                updateElement('maxDrawdown', formatCurrency(-tsd.dollarDrawdown));
+                updateElement('maxDrawdownDetail',
+                    `Trade-system peak-to-trough · n=${tsd.n} closed`);
+            } else {
+                updateElement('maxDrawdown', '—');
+                updateElement('maxDrawdownDetail', cls.closedCount > 0
+                    ? 'No drawdown recorded'
+                    : 'No closed trades');
+            }
 
-            // All-time risk ratios + Calmar + VaR/CVaR + monthly tables from historical PnL
-            (async () => {
+            // All-time risk ratios + Calmar + VaR/CVaR + monthly tables.
+            // Sync — historical-pnl is already loaded by loadDashboard().
+            (function renderRiskRatios() {
                 const setRatioNA = (note = 'Insufficient data') => {
                     updateElement('sharpeRatio', '—');
                     updateElement('sortinoRatio', '—');
@@ -1641,78 +1644,74 @@
                     const e = document.getElementById('expectedShortfall');
                     if (e) e.title = note;
                 };
-                try {
-                    const hist = await fetchJson(`${DYDX_API}/historical-pnl?address=${currentAddress}&subaccountNumber=0&limit=1000`);
-                    const histArr = hist.historicalPnl || [];
-                    const rets = window.RiskMetrics.computeTimeWeightedReturnsFromHist(histArr);
-                    const series = histArr.slice().sort((a,b) => (a.createdAt||'').localeCompare(b.createdAt||''));
-                    const timestamps = series.map(p => p.createdAt).filter(Boolean);
-                    updateDrawdownPeriods(allPositions);
 
-                    const adq = window.RiskMetrics.assessAdequacy(rets, timestamps, histArr.length);
-                    const equityNow = subaccount ? parseFloat(subaccount.equity || 0) : 0;
+                if (!histArr.length) {
+                    setRatioNA('Failed to load historical PnL');
+                    setVarNA('Failed to load historical PnL');
+                    updatePerformanceTables(allPositions, [], marketAgg);
+                    return;
+                }
 
-                    if (!adq.adequate) {
-                        // Per-trade fallback: a separate, valid statistic computed
-                        // from realized P&L of closed trades. Honest when the
-                        // time-series sample is unusable but the trade log is
-                        // rich enough to summarize.
-                        const tm = computeTradeBasedMetrics(allPositions);
-                        if (tm.ok) {
-                            renderTradeBasedRatios(tm, adq.reason);
-                        } else {
-                            setRatioNA(adq.reason);
-                        }
-                        // VaR/CVaR share the time-series adequacy gate: a 4-day
-                        // post-redeposit window is not a basis for portfolio VaR.
-                        setVarNA(adq.reason);
-                        updatePerformanceTables(allPositions, histArr);
-                        return;
+                const rets = window.RiskMetrics.computeTimeWeightedReturnsFromHist(histArr);
+                const series = histArr.slice().sort((a,b) => (a.createdAt||'').localeCompare(b.createdAt||''));
+                const timestamps = series.map(p => p.createdAt).filter(Boolean);
+                updateDrawdownPeriods(allPositions);
+
+                const adq = window.RiskMetrics.assessAdequacy(rets, timestamps, histArr.length);
+                const equityNow = subaccount ? parseFloat(subaccount.equity || 0) : 0;
+
+                if (!adq.adequate) {
+                    // Per-trade fallback: independent statistic from realized
+                    // P&L of closed trades. Honest when the time-series sample
+                    // is unusable but the trade log is rich enough to summarize.
+                    const tm = computeTradeBasedMetrics(allPositions);
+                    if (tm.ok) {
+                        renderTradeBasedRatios(tm, adq.reason);
+                    } else {
+                        setRatioNA(adq.reason);
                     }
+                    // VaR/CVaR share the time-series adequacy gate: a 4-day
+                    // post-redeposit window is not a basis for portfolio VaR.
+                    setVarNA(adq.reason);
+                    updatePerformanceTables(allPositions, histArr, marketAgg);
+                    return;
+                }
 
-                    const ann = window.RiskMetrics.computeAnnualizedFromReturns(rets, timestamps, { mar: 0, denominator: 'all' });
-                    const fmtRatio = (v) => (v === null || v === undefined) ? '—' : (v === Infinity ? '∞' : v.toFixed(2));
-                    updateElement('sharpeRatio', fmtRatio(ann.sharpeAnnualized));
-                    updateElement('sortinoRatio', fmtRatio(ann.sortinoAnnualized));
+                const ann = window.RiskMetrics.computeAnnualizedFromReturns(rets, timestamps, { mar: 0, denominator: 'all' });
+                updateElement('sharpeRatio', fmtRatio(ann.sharpeAnnualized));
+                updateElement('sortinoRatio', fmtRatio(ann.sortinoAnnualized));
 
-                    const perText = adq.ppy > 8000 ? 'hourly' : adq.ppy > 300 ? 'daily' : 'periodic';
-                    const sharpeMeta = document.getElementById('sharpeMeta');
-                    const sortinoMeta = document.getElementById('sortinoMeta');
-                    const metaText = `Time-weighted · ${perText} · n=${rets.length} ⓘ`;
-                    const tipBase = `Sampling: ${perText} (PPY ≈ ${adq.ppy.toFixed(0)})
+                const perText = adq.ppy > 8000 ? 'hourly' : adq.ppy > 300 ? 'daily' : 'periodic';
+                const sharpeMeta = document.getElementById('sharpeMeta');
+                const sortinoMeta = document.getElementById('sortinoMeta');
+                const metaText = `Time-weighted · ${perText} · n=${rets.length} ⓘ`;
+                const tipBase = `Sampling: ${perText} (PPY ≈ ${adq.ppy.toFixed(0)})
 MAR: 0
 Returns: time-weighted (pnlΔ / equity_{t-1}); deposits/withdrawals excluded.
 Annualized assuming IID returns — ignores autocorrelation.
 Sample: ${rets.length} returns over ${(adq.years*12).toFixed(1)} months (${(adq.coverage*100).toFixed(0)}% coverage).`;
-                    if (sharpeMeta) { sharpeMeta.textContent = metaText; sharpeMeta.title = tipBase + '\nDenominator: standard deviation (σ)'; }
-                    if (sortinoMeta) { sortinoMeta.textContent = metaText; sortinoMeta.title = tipBase + '\nDenominator: downside deviation (target semi-deviation over all periods)'; }
+                if (sharpeMeta) { sharpeMeta.textContent = metaText; sharpeMeta.title = tipBase + '\nDenominator: standard deviation (σ)'; }
+                if (sortinoMeta) { sortinoMeta.textContent = metaText; sortinoMeta.title = tipBase + '\nDenominator: downside deviation (target semi-deviation over all periods)'; }
 
-                    // Calmar uses the same series as Sharpe. Numerator: CAGR of
-                    // the compounded TWR wealth curve. Denominator: that wealth
-                    // curve's worst peak-to-trough drawdown (validDrawdown
-                    // helper rejects zero-equity-start artifacts).
-                    let wealth = 1;
-                    const compoundedWealth = [wealth];
-                    for (let i = 0; i < rets.length; i++) {
-                        wealth *= (1 + rets[i]);
-                        compoundedWealth.push(wealth);
-                    }
-                    const compoundFactor = compoundedWealth[compoundedWealth.length - 1];
-                    const wealthDD = window.RiskMetrics.validDrawdownFromEquity(compoundedWealth);
-                    if (wealthDD && compoundFactor > 0 && adq.years > 0) {
-                        const cagr = Math.pow(compoundFactor, 1 / adq.years) - 1;
-                        updateElement('calmarRatio', (cagr / (wealthDD.pct / 100)).toFixed(2));
-                    } else {
-                        updateElement('calmarRatio', '—');
-                    }
-
-                    updateRiskFromHistorical(rets, equityNow);
-                    updatePerformanceTables(allPositions, histArr);
-                } catch (e) {
-                    setRatioNA('Failed to load historical PnL');
-                    setVarNA('Failed to load historical PnL');
-                    updatePerformanceTables(allPositions, []);
+                // Calmar shares the Sharpe series. CAGR of compounded TWR
+                // wealth ÷ that curve's worst valid drawdown.
+                let wealth = 1;
+                const compoundedWealth = [wealth];
+                for (let i = 0; i < rets.length; i++) {
+                    wealth *= (1 + rets[i]);
+                    compoundedWealth.push(wealth);
                 }
+                const compoundFactor = compoundedWealth[compoundedWealth.length - 1];
+                const wealthDD = window.RiskMetrics.validDrawdownFromEquity(compoundedWealth);
+                if (wealthDD && compoundFactor > 0 && adq.years > 0) {
+                    const cagr = Math.pow(compoundFactor, 1 / adq.years) - 1;
+                    updateElement('calmarRatio', fmtRatio(cagr / (wealthDD.pct / 100)));
+                } else {
+                    updateElement('calmarRatio', '—');
+                }
+
+                updateRiskFromHistorical(rets, equityNow);
+                updatePerformanceTables(allPositions, histArr, marketAgg);
             })();
 
             // Trading Statistics — losses always render as negative dollars so the
@@ -1726,24 +1725,18 @@ Sample: ${rets.length} returns over ${(adq.years*12).toFixed(1)} months (${(adq.
             updateElement('expectancy',
                 totalTrades > 0 ? formatCurrency(totalRealizedPnL / totalTrades) : 'N/A');
             // Recovery Factor: realized net profit ÷ trade-system $ drawdown.
-            // Reuses the same drawdown that drives the headline MDD card so
-            // both cards tell the same story.
-            (function renderRecoveryFactor() {
-                const tsd = window.RiskMetrics.tradeSystemDrawdown(allPositions);
-                if (tsd.dollarDrawdown > 0) {
-                    const rf = totalRealizedPnL / tsd.dollarDrawdown;
-                    updateElement('recoveryFactor', rf.toFixed(2));
-                } else {
-                    updateElement('recoveryFactor', 'N/A');
-                }
-            })();
+            // Reuses the cached tsd so both cards tell the same story.
+            updateElement('recoveryFactor',
+                tsd.dollarDrawdown > 0
+                    ? fmtRatio(totalRealizedPnL / tsd.dollarDrawdown)
+                    : 'N/A');
 
             const fillsArr = (allData.fills && (allData.fills.fills || allData.fills.data || allData.fills)) || [];
             updatePositionsTabFromData(allPositions, fillsArr, subaccount);
-            updatePerformanceMetrics(allPositions);
+            updatePerformanceMetrics(allPositions, cls);
             updateTimeAnalysis(allPositions);
             updateActivityHeatmap(allPositions);
-            updateLiquidationTable(allPositions, allData.markets, subaccount);
+            updateLiquidationTable(allPositions, marketsMap, subaccount);
             updateLeverageUtilization(allPositions, subaccount);
             updateDetectedPatterns(allPositions);
             updateCorrelationMatrix(allPositions);
@@ -1785,7 +1778,6 @@ Sample: ${rets.length} returns over ${(adq.years*12).toFixed(1)} months (${(adq.
             updateElement('fundingNet', formatCurrency(net));
             updateElement('fundingNetPct', 'Last 30 days');
 
-            const marketsMap = extractMarketsMap(allData.markets);
             updateFundingAnalysis(marketsMap, payments);
         }
 
@@ -1793,6 +1785,16 @@ Sample: ${rets.length} returns over ${(adq.years*12).toFixed(1)} months (${(adq.
             if (v === null || v === undefined) return '—';
             if (typeof v === 'number' && !isFinite(v)) return v === Infinity ? '∞' : '—';
             return v;
+        }
+
+        // Render a numeric ratio (Sharpe, Sortino, Calmar, Recovery Factor)
+        // with consistent null/Infinity handling. Used by every place that
+        // shows a 2-decimal ratio so the formatting can't drift.
+        function fmtRatio(v) {
+            if (v === null || v === undefined) return '—';
+            if (v === Infinity) return '∞';
+            if (typeof v !== 'number' || !isFinite(v)) return '—';
+            return v.toFixed(2);
         }
 
         function updateMetric(id, value, isPositive = true) {
@@ -1866,8 +1868,8 @@ Sample: ${rets.length} returns over ${(adq.years*12).toFixed(1)} months (${(adq.
             });
         }
 
-        function updatePerformanceMetrics(positions) {
-            const cls = window.RiskMetrics.classifyClosed(positions);
+        function updatePerformanceMetrics(positions, precomputedCls) {
+            const cls = precomputedCls || window.RiskMetrics.classifyClosed(positions);
             // Consecutive streaks: walk the closed-trade timeline, skip
             // scratches (treat as no signal — neither win nor loss). Single
             // owner of the maxConsecWins / maxConsecLosses card data.
@@ -2036,6 +2038,29 @@ Sample: ${rets.length} returns over ${(adq.years*12).toFixed(1)} months (${(adq.
             return n.toFixed(0);
         }
 
+        // Annualized per-trade Sharpe from a closed-trade list. Single helper
+        // shared by the per-trade fallback (when the time-series gate fails)
+        // and the per-asset Sharpe column so the two views can never adopt
+        // different return definitions or annualization conventions.
+        // Returns formatted string ('—' if too few decisive samples).
+        function computeAnnualizedTradeSharpe(closedAll, minSampleSize) {
+            const decisive = (closedAll || [])
+                .filter(p => p && p.closedAt && parseFloat(p.realizedPnl || 0) !== 0)
+                .sort((a, b) => new Date(a.closedAt) - new Date(b.closedAt));
+            if (decisive.length < minSampleSize) return '—';
+            const rets = decisive
+                .map(p => window.RiskMetrics.tradeReturn(p))
+                .filter(r => r !== null && isFinite(r));
+            if (rets.length < 2) return '—';
+            const s = window.RiskMetrics.computeSharpe(rets, 0);
+            if (s === null) return '—';
+            const firstT = new Date(decisive[0].closedAt).getTime();
+            const lastT = new Date(decisive[decisive.length - 1].closedAt).getTime();
+            const years = (lastT - firstT) / (365.25 * 24 * 3600 * 1000);
+            const tpy = years > 0 ? rets.length / years : 0;
+            return fmtRatio(tpy > 0 ? s * Math.sqrt(tpy) : s);
+        }
+
         // Per-trade Sharpe / Sortino / Calmar fallback. Independent statistic
         // from time-series Sharpe — meaningful when the equity time-series
         // sample is biased (post-wipeout window) but the trade log is rich
@@ -2088,10 +2113,9 @@ Sample: ${rets.length} returns over ${(adq.years*12).toFixed(1)} months (${(adq.
         }
 
         function renderTradeBasedRatios(tm, tsReason) {
-            const fmt = (v) => (v === null || v === undefined) ? '—' : (v === Infinity ? '∞' : v.toFixed(2));
-            updateElement('sharpeRatio', fmt(tm.sharpeAnn));
-            updateElement('sortinoRatio', fmt(tm.sortinoAnn));
-            updateElement('calmarRatio', fmt(tm.calmarAnn));
+            updateElement('sharpeRatio', fmtRatio(tm.sharpeAnn));
+            updateElement('sortinoRatio', fmtRatio(tm.sortinoAnn));
+            updateElement('calmarRatio', fmtRatio(tm.calmarAnn));
 
             const meta = `Per-trade · n=${tm.n} ⓘ`;
             const sharpeMeta = document.getElementById('sharpeMeta');
@@ -2198,13 +2222,12 @@ Small-N caveat: standard error widens; not a forward-Sharpe forecast.`;
         // single-position account this is exact.
         // LEVERAGE column = position notional ÷ subaccount equity (account-
         // level utilization attributed to each position by notional share).
-        function updateLiquidationTable(positions, marketsContainer, subaccount) {
+        function updateLiquidationTable(positions, marketsMap, subaccount) {
             const body = document.getElementById('liquidationRiskBody');
             if (!body) return;
             body.innerHTML = '';
             const open = positions.filter(p => p.status === 'OPEN');
             if (!open.length) return;
-            const marketsMap = extractMarketsMap(marketsContainer);
             const equity = subaccount ? parseFloat(subaccount.equity || 0) : 0;
             open.forEach(p => {
                 const market = p.market || '—';
@@ -2641,13 +2664,15 @@ Small-N caveat: standard error widens; not a forward-Sharpe forecast.`;
             });
         }
 
-        // Adjusted equity series with shaded drawdown
-        async function renderCumulativePnlChart(address) {
+        // Adjusted equity series with shaded drawdown.
+        // Caller passes the historical-pnl payload (already loaded by
+        // loadDashboard) so we don't refetch.
+        function renderCumulativePnlChart(historicalPnlPayload) {
             const el = document.getElementById('pnlCumulativeChart');
             if (!el) return;
             try {
-                const hist = await fetchJson(`${DYDX_API}/historical-pnl?address=${address}&subaccountNumber=0&limit=1000`);
-                const pairs = computeAdjustedEquityPairsFromHist(hist.historicalPnl || []);
+                const arr = (historicalPnlPayload && historicalPnlPayload.historicalPnl) || [];
+                const pairs = computeAdjustedEquityPairsFromHist(arr);
                 if (pairs.length === 0) return;
                 const labels = pairs.map(p => new Date(p.t));
                 const equityAdj = pairs.map(p => p.e);
@@ -2724,7 +2749,7 @@ Small-N caveat: standard error widens; not a forward-Sharpe forecast.`;
             }
         }
 
-        function updatePerformanceTables(positions, historicalPnl = []) {
+        function updatePerformanceTables(positions, historicalPnl = [], marketAggIn = null) {
             // Bucket closed trades by month using the same classifier rules
             // as the header so monthly win-rate denominators match the header
             // win-rate denominator (decisive trades only).
@@ -2800,9 +2825,7 @@ Small-N caveat: standard error widens; not a forward-Sharpe forecast.`;
                             if (adq.adequate) {
                                 const ann = window.RiskMetrics.computeAnnualizedFromReturns(
                                     rets, tsSeg, { mar: 0, denominator: 'all' });
-                                sharpeTxt = ann.sharpeAnnualized === null
-                                    ? '—'
-                                    : ann.sharpeAnnualized.toFixed(2);
+                                sharpeTxt = fmtRatio(ann.sharpeAnnualized);
                             }
                             const eqSeg = byMonthEqAdj[label] || [];
                             const dd = window.RiskMetrics.validDrawdownFromEquity(eqSeg);
@@ -2818,7 +2841,7 @@ Small-N caveat: standard error widens; not a forward-Sharpe forecast.`;
                             <td class="mono">${tradesCol}</td>
                             <td class="mono ${avgWin>=0?'profit':'loss'}">${formatCurrency(avgWin)}</td>
                             <td class="mono loss">${formatCurrency(-avgLoss)}</td>
-                            <td class="mono">${pf===null?'N/A':pf.toFixed(2)}</td>
+                            <td class="mono">${pf===null?'N/A':fmtRatio(pf)}</td>
                             <td class="mono">${mddTxt}</td>
                             <td class="mono">${sharpeTxt}</td>
                         `;
@@ -2829,7 +2852,15 @@ Small-N caveat: standard error widens; not a forward-Sharpe forecast.`;
             // Per-asset roll-up uses the shared marketPnL helper for the P&L
             // column (so it agrees with the Overview chart tooltip) and the
             // shared classifier for win-rate counts (matches the header).
-            const market = window.RiskMetrics.marketPnL(positions);
+            // Bucket positions by market ONCE so the per-asset loop doesn't
+            // rescan the full positions array on every iteration.
+            const market = marketAggIn || window.RiskMetrics.marketPnL(positions);
+            const positionsByMarket = new Map();
+            positions.forEach(p => {
+                const m = p.market || 'Unknown';
+                if (!positionsByMarket.has(m)) positionsByMarket.set(m, []);
+                positionsByMarket.get(m).push(p);
+            });
             const bodyA = document.getElementById('assetPerformanceBody');
             if (bodyA) {
                 bodyA.innerHTML = '';
@@ -2838,7 +2869,7 @@ Small-N caveat: standard error widens; not a forward-Sharpe forecast.`;
                     .sort((a,b) => Math.abs(b[1].total) - Math.abs(a[1].total))
                     .forEach(([ticker, slot]) => {
                         const assetCls = window.RiskMetrics.classifyClosed(
-                            positions.filter(p => (p.market || 'Unknown') === ticker)
+                            positionsByMarket.get(ticker) || []
                         );
                         const winRate = assetCls.decisiveCount
                             ? (assetCls.winCount / assetCls.decisiveCount) * 100
@@ -2852,29 +2883,7 @@ Small-N caveat: standard error widens; not a forward-Sharpe forecast.`;
                         const worstAbs = assetCls.lossCount
                             ? assetCls.grossLoss / assetCls.lossCount
                             : 0;
-                        // Asset Sharpe uses the same per-trade return
-                        // definition as the per-trade fallback so the two
-                        // can't disagree. Annualized via per-asset trade
-                        // frequency. Render `—` for assets with too few
-                        // decisive trades (statistically meaningless below 5).
-                        let assetSharpeTxt = '—';
-                        const decisive = assetCls.all
-                            .filter(p => parseFloat(p.realizedPnl || 0) !== 0)
-                            .sort((a,b) => new Date(a.closedAt) - new Date(b.closedAt));
-                        if (decisive.length >= 5) {
-                            const rets = decisive
-                                .map(p => window.RiskMetrics.tradeReturn(p))
-                                .filter(r => r !== null && isFinite(r));
-                            const s = window.RiskMetrics.computeSharpe(rets, 0);
-                            if (s !== null) {
-                                const firstT = new Date(decisive[0].closedAt).getTime();
-                                const lastT = new Date(decisive[decisive.length - 1].closedAt).getTime();
-                                const years = (lastT - firstT) / (365.25 * 24 * 3600 * 1000);
-                                const tpy = years > 0 ? rets.length / years : 0;
-                                const annualized = tpy > 0 ? s * Math.sqrt(tpy) : s;
-                                assetSharpeTxt = annualized.toFixed(2);
-                            }
-                        }
+                        const assetSharpeTxt = computeAnnualizedTradeSharpe(assetCls.all, 5);
                         const tradesCol = assetCls.closedCount === assetCls.decisiveCount
                             ? String(assetCls.closedCount)
                             : `${assetCls.decisiveCount} (+${assetCls.scratchCount})`;
@@ -2903,8 +2912,8 @@ Small-N caveat: standard error widens; not a forward-Sharpe forecast.`;
                 activateTab('overview');
             }
             await loadDashboard();
-            if (currentAddress) {
-                renderCumulativePnlChart(currentAddress);
+            if (currentAddress && allData.historicalPnl) {
+                renderCumulativePnlChart(allData.historicalPnl);
             }
         });
     </script>
