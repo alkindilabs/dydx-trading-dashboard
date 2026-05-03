@@ -840,23 +840,23 @@
                     <table>
                         <tr>
                             <td>Avg Hold Time (Win)</td>
-                            <td class="mono">4h 23m</td>
+                            <td class="mono" id="avgHoldWin">—</td>
                         </tr>
                         <tr>
                             <td>Avg Hold Time (Loss)</td>
-                            <td class="mono">1h 47m</td>
+                            <td class="mono" id="avgHoldLoss">—</td>
                         </tr>
                         <tr>
                             <td>Best Trading Hour</td>
-                            <td class="mono">14:00 UTC</td>
+                            <td class="mono" id="bestHour">—</td>
                         </tr>
                         <tr>
                             <td>Worst Trading Hour</td>
-                            <td class="mono">03:00 UTC</td>
+                            <td class="mono" id="worstHour">—</td>
                         </tr>
                         <tr>
                             <td>Most Active Day</td>
-                            <td class="mono">Wednesday</td>
+                            <td class="mono" id="mostActiveDay">—</td>
                         </tr>
                     </table>
                 </div>
@@ -954,37 +954,35 @@
             <div class="metrics-grid">
                 <div class="metric-card">
                     <div class="metric-label">Value at Risk (95%)</div>
-                    <div class="metric-value mono loss">-$3,847</div>
-                    <div class="metric-change mono">Daily VaR</div>
+                    <div class="metric-value mono" id="var95">—</div>
+                    <div class="metric-change mono">Per-period (5th pctile)</div>
                 </div>
                 <div class="metric-card">
                     <div class="metric-label">Expected Shortfall</div>
-                    <div class="metric-value mono loss">-$4,923</div>
+                    <div class="metric-value mono" id="expectedShortfall">—</div>
                     <div class="metric-change mono">CVaR 95%</div>
                 </div>
                 <div class="metric-card">
                     <div class="metric-label">Beta to BTC</div>
-                    <div class="metric-value mono">1.24</div>
-                    <div class="metric-change mono">30-day rolling</div>
+                    <div class="metric-value mono" id="betaBtc">—</div>
+                    <div class="metric-change mono">Awaiting reference returns</div>
                 </div>
                 <div class="metric-card">
                     <div class="metric-label">Beta to ETH</div>
-                    <div class="metric-value mono">0.87</div>
-                    <div class="metric-change mono">30-day rolling</div>
+                    <div class="metric-value mono" id="betaEth">—</div>
+                    <div class="metric-change mono">Awaiting reference returns</div>
                 </div>
                 <div class="metric-card">
                     <div class="metric-label">Leverage Utilization</div>
-                    <div class="metric-value mono">3.2x</div>
+                    <div class="metric-value mono" id="leverageUtil">—</div>
                     <div class="risk-bar">
-                        <div class="risk-bar-fill" style="width: 32%;"></div>
+                        <div class="risk-bar-fill" id="leverageUtilBar" style="width: 0%;"></div>
                     </div>
                 </div>
                 <div class="metric-card">
                     <div class="metric-label">Margin Call Risk</div>
-                    <div class="metric-value mono warning">Medium</div>
-                    <div class="risk-bar">
-                        <div class="risk-bar-fill warning" style="width: 45%;"></div>
-                    </div>
+                    <div class="metric-value mono" id="marginCallRisk">—</div>
+                    <div class="metric-change mono">Awaiting margin schedule</div>
                 </div>
             </div>
 
@@ -1005,38 +1003,7 @@
                             <th>RISK SCORE</th>
                         </tr>
                     </thead>
-                    <tbody>
-                        <tr>
-                            <td>BTC-USD LONG</td>
-                            <td class="mono">1.5</td>
-                            <td class="mono">5x</td>
-                            <td class="mono">67,420</td>
-                            <td class="mono">69,183</td>
-                            <td class="mono loss">58,947</td>
-                            <td class="mono">14.8%</td>
-                            <td class="mono warning">MEDIUM</td>
-                        </tr>
-                        <tr>
-                            <td>ETH-USD LONG</td>
-                            <td class="mono">12.0</td>
-                            <td class="mono">4x</td>
-                            <td class="mono">3,420</td>
-                            <td class="mono">3,485</td>
-                            <td class="mono loss">2,987</td>
-                            <td class="mono">14.3%</td>
-                            <td class="mono warning">MEDIUM</td>
-                        </tr>
-                        <tr>
-                            <td>SOL-USD SHORT</td>
-                            <td class="mono">250</td>
-                            <td class="mono">3x</td>
-                            <td class="mono">178.50</td>
-                            <td class="mono">176.25</td>
-                            <td class="mono loss">195.35</td>
-                            <td class="mono">10.8%</td>
-                            <td class="mono loss">HIGH</td>
-                        </tr>
-                    </tbody>
+                    <tbody id="liquidationRiskBody"></tbody>
                 </table>
             </div>
 
@@ -1044,33 +1011,7 @@
                 <div class="table-header">
                     <div class="table-title">Position Correlation Matrix</div>
                 </div>
-                <div class="correlation-matrix">
-                    <div class="correlation-cell">1.00</div>
-                    <div class="correlation-cell">0.78</div>
-                    <div class="correlation-cell">0.62</div>
-                    <div class="correlation-cell">0.45</div>
-                    <div class="correlation-cell">-0.23</div>
-                    <div class="correlation-cell">0.78</div>
-                    <div class="correlation-cell">1.00</div>
-                    <div class="correlation-cell">0.71</div>
-                    <div class="correlation-cell">0.53</div>
-                    <div class="correlation-cell">-0.18</div>
-                    <div class="correlation-cell">0.62</div>
-                    <div class="correlation-cell">0.71</div>
-                    <div class="correlation-cell">1.00</div>
-                    <div class="correlation-cell">0.67</div>
-                    <div class="correlation-cell">-0.31</div>
-                    <div class="correlation-cell">0.45</div>
-                    <div class="correlation-cell">0.53</div>
-                    <div class="correlation-cell">0.67</div>
-                    <div class="correlation-cell">1.00</div>
-                    <div class="correlation-cell">-0.15</div>
-                    <div class="correlation-cell">-0.23</div>
-                    <div class="correlation-cell">-0.18</div>
-                    <div class="correlation-cell">-0.31</div>
-                    <div class="correlation-cell">-0.15</div>
-                    <div class="correlation-cell">1.00</div>
-                </div>
+                <div class="correlation-matrix" id="correlationMatrix"></div>
             </div>
 
             <div class="table-container">
@@ -1088,32 +1029,7 @@
                             <th>TROUGH VALUE</th>
                         </tr>
                     </thead>
-                    <tbody>
-                        <tr>
-                            <td>Mar 12-18, 2024</td>
-                            <td class="mono loss">-18.7%</td>
-                            <td class="mono">6 days</td>
-                            <td class="mono">4 days</td>
-                            <td class="mono">$45,000</td>
-                            <td class="mono">$36,580</td>
-                        </tr>
-                        <tr>
-                            <td>Feb 3-8, 2024</td>
-                            <td class="mono loss">-11.2%</td>
-                            <td class="mono">5 days</td>
-                            <td class="mono">3 days</td>
-                            <td class="mono">$32,100</td>
-                            <td class="mono">$28,505</td>
-                        </tr>
-                        <tr>
-                            <td>Jan 15-17, 2024</td>
-                            <td class="mono loss">-6.7%</td>
-                            <td class="mono">2 days</td>
-                            <td class="mono">1 day</td>
-                            <td class="mono">$18,470</td>
-                            <td class="mono">$17,232</td>
-                        </tr>
-                    </tbody>
+                    <tbody id="drawdownPeriodsBody"></tbody>
                 </table>
             </div>
         </div>
@@ -1198,33 +1114,33 @@
             <div class="metrics-grid">
                 <div class="metric-card">
                     <div class="metric-label">Discipline Score</div>
-                    <div class="metric-value mono">87/100</div>
-                    <div class="metric-change mono profit">↑ 5 pts this week</div>
+                    <div class="metric-value mono" id="disciplineScore">—</div>
+                    <div class="metric-change mono">Not yet defined</div>
                 </div>
                 <div class="metric-card">
                     <div class="metric-label">Stop Loss Adherence</div>
-                    <div class="metric-value mono">92.3%</div>
-                    <div class="metric-change mono">38/41 honored</div>
+                    <div class="metric-value mono" id="stopLossAdherence">—</div>
+                    <div class="metric-change mono">Awaiting stop-loss tags</div>
                 </div>
                 <div class="metric-card">
                     <div class="metric-label">Revenge Trading</div>
-                    <div class="metric-value mono warning">2</div>
-                    <div class="metric-change mono">Instances this month</div>
+                    <div class="metric-value mono" id="revengeTrades">—</div>
+                    <div class="metric-change mono">Not yet defined</div>
                 </div>
                 <div class="metric-card">
                     <div class="metric-label">FOMO Entries</div>
-                    <div class="metric-value mono warning">5</div>
-                    <div class="metric-change mono loss">Cost: -$847</div>
+                    <div class="metric-value mono" id="fomoEntries">—</div>
+                    <div class="metric-change mono">Not yet defined</div>
                 </div>
                 <div class="metric-card">
                     <div class="metric-label">Overtrading Score</div>
-                    <div class="metric-value mono profit">Low</div>
-                    <div class="metric-change mono">4.2 trades/day avg</div>
+                    <div class="metric-value mono" id="overtradingScore">—</div>
+                    <div class="metric-change mono">Not yet defined</div>
                 </div>
                 <div class="metric-card">
                     <div class="metric-label">Scaling Efficiency</div>
-                    <div class="metric-value mono">78.4%</div>
-                    <div class="metric-change mono">In/out effectiveness</div>
+                    <div class="metric-value mono" id="scalingEfficiency">—</div>
+                    <div class="metric-change mono">Not yet defined</div>
                 </div>
             </div>
 
@@ -1242,36 +1158,7 @@
                             <th>RECOMMENDATION</th>
                         </tr>
                     </thead>
-                    <tbody>
-                        <tr>
-                            <td>Morning Breakout (08:00-10:00)</td>
-                            <td class="mono">47</td>
-                            <td class="mono profit">74.5%</td>
-                            <td class="mono profit">+$287</td>
-                            <td style="color: var(--profit)">CONTINUE</td>
-                        </tr>
-                        <tr>
-                            <td>Post-Loss Double Down</td>
-                            <td class="mono">12</td>
-                            <td class="mono loss">33.3%</td>
-                            <td class="mono loss">-$423</td>
-                            <td style="color: var(--loss)">AVOID</td>
-                        </tr>
-                        <tr>
-                            <td>Friday Afternoon Trades</td>
-                            <td class="mono">23</td>
-                            <td class="mono loss">43.5%</td>
-                            <td class="mono loss">-$127</td>
-                            <td style="color: var(--warning)">REDUCE</td>
-                        </tr>
-                        <tr>
-                            <td>Trend Following (&gt;4h)</td>
-                            <td class="mono">31</td>
-                            <td class="mono profit">80.6%</td>
-                            <td class="mono profit">+$512</td>
-                            <td style="color: var(--profit)">INCREASE</td>
-                        </tr>
-                    </tbody>
+                    <tbody id="patternsBody"></tbody>
                 </table>
             </div>
 
@@ -1304,18 +1191,18 @@
                 </div>
                 <div class="metric-card">
                     <div class="metric-label">Basis Arbitrage</div>
-                    <div class="metric-value mono profit">+$847</div>
-                    <div class="metric-change mono">4 opportunities</div>
+                    <div class="metric-value mono" id="basisArb">—</div>
+                    <div class="metric-change mono">Awaiting basis feed</div>
                 </div>
                 <div class="metric-card">
                     <div class="metric-label">Spread Captured</div>
-                    <div class="metric-value mono">42.3%</div>
-                    <div class="metric-change mono">Maker orders</div>
+                    <div class="metric-value mono" id="spreadCaptured">—</div>
+                    <div class="metric-change mono">Awaiting fill-side data</div>
                 </div>
                 <div class="metric-card">
                     <div class="metric-label">Book Imbalance Win</div>
-                    <div class="metric-value mono">67.8%</div>
-                    <div class="metric-change mono">At entry</div>
+                    <div class="metric-value mono" id="bookImbalanceWin">—</div>
+                    <div class="metric-change mono">Awaiting order-book data</div>
                 </div>
             </div>
 
@@ -1354,41 +1241,9 @@
                             <th>EFFECTIVENESS</th>
                         </tr>
                     </thead>
-                    <tbody>
+                    <tbody id="bookImbalanceBody">
                         <tr>
-                            <td>&gt;70% Buy</td>
-                            <td class="mono">47</td>
-                            <td class="mono profit">78.7%</td>
-                            <td class="mono profit">+$342</td>
-                            <td style="color: var(--profit)">HIGH</td>
-                        </tr>
-                        <tr>
-                            <td>50-70% Buy</td>
-                            <td class="mono">62</td>
-                            <td class="mono">68.2%</td>
-                            <td class="mono profit">+$187</td>
-                            <td style="color: var(--profit)">GOOD</td>
-                        </tr>
-                        <tr>
-                            <td>Balanced</td>
-                            <td class="mono">124</td>
-                            <td class="mono">52.4%</td>
-                            <td class="mono profit">+$23</td>
-                            <td style="color: var(--warning)">NEUTRAL</td>
-                        </tr>
-                        <tr>
-                            <td>50-70% Sell</td>
-                            <td class="mono">58</td>
-                            <td class="mono">71.3%</td>
-                            <td class="mono profit">+$214</td>
-                            <td style="color: var(--profit)">GOOD</td>
-                        </tr>
-                        <tr>
-                            <td>&gt;70% Sell</td>
-                            <td class="mono">41</td>
-                            <td class="mono profit">75.6%</td>
-                            <td class="mono profit">+$298</td>
-                            <td style="color: var(--profit)">HIGH</td>
+                            <td colspan="5" style="text-align: center; color: var(--ink-3); font-style: italic; padding: 24px;">Awaiting order-book data — order-book history not yet wired</td>
                         </tr>
                     </tbody>
                 </table>
@@ -1433,47 +1288,34 @@
             });
         });
 
-        // Generate distribution bars (placeholders on Positions tab only)
-        function generateDistribution(containerId, count = 30) {
+        // Render a histogram of bar counts into a .distribution-bars container.
+        // bins: [{ label, count }]; opt.colorize: 'split' (loss/gain by half), 'gain', 'loss', 'neutral'
+        function renderHistogram(containerId, bins, opt = {}) {
             const container = document.getElementById(containerId);
             if (!container) return;
-
-            for (let i = 0; i < count; i++) {
+            container.innerHTML = '';
+            if (!bins.length) return;
+            const maxC = Math.max(1, ...bins.map(b => b.count));
+            bins.forEach((b, i) => {
                 const bar = document.createElement('div');
                 bar.className = 'distribution-bar';
-                const height = Math.random() * 80 + 20;
-                bar.style.height = `${height}%`;
-
-                if (i < count * 0.3) {
-                    bar.style.background = 'var(--loss)';
-                    bar.style.opacity = '0.45';
-                } else if (i > count * 0.7) {
+                const h = (b.count / maxC) * 100;
+                bar.style.height = `${Math.max(2, h)}%`;
+                if (opt.colorize === 'split') {
+                    const half = Math.floor(bins.length / 2);
+                    bar.style.background = i < half ? 'var(--loss)' : 'var(--gain)';
+                    bar.style.opacity = '0.55';
+                } else if (opt.colorize === 'gain') {
                     bar.style.background = 'var(--gain)';
-                    bar.style.opacity = '0.45';
+                    bar.style.opacity = '0.55';
+                } else if (opt.colorize === 'loss') {
+                    bar.style.background = 'var(--loss)';
+                    bar.style.opacity = '0.55';
                 }
-
+                bar.title = `${b.label}: ${b.count}`;
                 container.appendChild(bar);
-            }
+            });
         }
-
-        // Generate heatmap
-        function generateHeatmap(containerId) {
-            const container = document.getElementById(containerId);
-            if (!container) return;
-
-            for (let i = 0; i < 168; i++) {
-                const cell = document.createElement('div');
-                cell.className = 'heatmap-cell';
-                const intensity = Math.random();
-                cell.style.backgroundColor = `rgba(215, 172, 96, ${intensity * 0.55})`;
-                container.appendChild(cell);
-            }
-        }
-
-        // Initialize visualizations
-        generateDistribution('holdTimeDistribution', 24);
-        generateDistribution('sizeDistribution', 20);
-        generateHeatmap('activityHeatmap');
 
         // Time selector functionality
         document.querySelectorAll('.time-option').forEach(option => {
@@ -1608,19 +1450,23 @@
         function computeMaxDrawdownFromEquity(equityArray) {
             if (!Array.isArray(equityArray) || equityArray.length === 0) return { pct: 0, abs: 0 };
             let peak = -Infinity;
-            let peakVal = 0;
-            let troughVal = 0;
+            let peakAtMaxDD = 0;   // peak that pairs with the worst drawdown so far
+            let troughVal = 0;     // trough that pairs with the worst drawdown so far
             let maxDrawdown = 0;
             for (let i = 0; i < equityArray.length; i++) {
                 const v = parseFloat(equityArray[i] || 0);
                 if (!isFinite(v)) continue;
-                if (v > peak) { peak = v; peakVal = v; }
+                if (v > peak) peak = v;
                 if (peak > 0) {
                     const dd = (v - peak) / peak;
-                    if (dd < maxDrawdown) { maxDrawdown = dd; troughVal = v; }
+                    if (dd < maxDrawdown) {
+                        maxDrawdown = dd;
+                        peakAtMaxDD = peak;
+                        troughVal = v;
+                    }
                 }
             }
-            const abs = Math.max(0, peakVal - troughVal);
+            const abs = Math.max(0, peakAtMaxDD - troughVal);
             return { pct: Math.abs(maxDrawdown) * 100, abs };
         }
 
@@ -1838,64 +1684,66 @@
             updateElement('maxConsecLosses', String(maxL || 0));
             updateElement('maxConsecLossesDetail', worstStreakPnL ? `${formatCurrency(worstStreakPnL)}` : '');
 
-            // All-time risk ratios from historical PnL
+            // All-time risk ratios + Calmar + Risk-tab metrics + monthly tables from historical PnL
             (async () => {
+                const setRatioNA = () => {
+                    updateElement('sharpeRatio', '—');
+                    updateElement('sortinoRatio', '—');
+                    updateElement('calmarRatio', '—');
+                    updateMetric('var95', '—', false);
+                    updateMetric('expectedShortfall', '—', false);
+                };
                 try {
                     const hist = await fetchJson(`${DYDX_API}/historical-pnl?address=${currentAddress}&subaccountNumber=0&limit=1000`);
-                    let marPerPeriod = 0;
-                    const fp = (allData.fundingPayments && (allData.fundingPayments.fundingPayments || [])) || [];
-                    if (fp.length > 0) {
-                        let totalPayment = 0;
-                        let totalNotional = 0;
-                        fp.forEach(p => {
-                            const pay = parseFloat(p.payment || 0);
-                            const size = Math.abs(parseFloat(p.size || 0));
-                            const price = parseFloat(p.oraclePrice || 0);
-                            const notional = (isNaN(size) || isNaN(price)) ? 0 : size * price;
-                            if (!isNaN(pay)) totalPayment += pay;
-                            if (notional > 0) totalNotional += notional;
-                        });
-                        if (totalNotional > 0) marPerPeriod = totalPayment / totalNotional;
+                    const histArr = hist.historicalPnl || [];
+                    // Time-weighted returns: per-period PnL change scaled by start-of-period equity.
+                    // Independent of deposits/withdrawals because totalPnl excludes transfers,
+                    // and the denominator is real equity at time of measurement.
+                    const rets = window.RiskMetrics.computeTimeWeightedReturnsFromHist(histArr);
+                    const series = histArr.slice().sort((a,b) => (a.createdAt||'').localeCompare(b.createdAt||''));
+                    const timestamps = series.map(p => p.createdAt).filter(Boolean);
+                    // Adjusted equity (cash flows excluded) is still used for drawdown depth/periods.
+                    const eqAdj = computeAdjustedEquitySeriesFromHist(histArr);
+                    updateDrawdownPeriods(histArr);
+                    const equityNow = subaccount ? parseFloat(subaccount.equity || 0) : (eqAdj.length ? eqAdj[eqAdj.length - 1] : 0);
+                    updateRiskFromHistorical(rets, eqAdj, equityNow);
+                    if (rets.length <= 2) { setRatioNA(); updatePerformanceTables(allPositions, []); return; }
+
+                    const ann = window.RiskMetrics.computeAnnualizedFromReturns(rets, timestamps, { mar: 0, denominator: 'all' });
+                    const ppy = ann.ppy || 0;
+                    const fmtRatio = (v) => (v === null || v === undefined) ? '—' : (v === Infinity ? '∞' : v.toFixed(2));
+                    updateElement('sharpeRatio', fmtRatio(ann.sharpeAnnualized));
+                    updateElement('sortinoRatio', fmtRatio(ann.sortinoAnnualized));
+
+                    const perText = ppy > 8000 ? 'hourly' : ppy > 300 ? 'daily' : 'periodic';
+                    const sharpeMeta = document.getElementById('sharpeMeta');
+                    const sortinoMeta = document.getElementById('sortinoMeta');
+                    const tipBase = `Sampling: ${perText} (PPY ≈ ${ppy.toFixed(0)})\nMAR: 0\nReturns: time-weighted (pnlΔ / equity_{t-1}); deposits/withdrawals excluded.\nAnnualized assuming IID returns — ignores autocorrelation.`;
+                    if (sharpeMeta) sharpeMeta.title = tipBase + '\nDenominator: standard deviation (σ)';
+                    if (sortinoMeta) sortinoMeta.title = tipBase + '\nDenominator: downside deviation (target semi-deviation over all periods)';
+
+                    // Geometric Calmar: CAGR over compounded TWR wealth / |max drawdown of that same wealth curve|.
+                    // Building the wealth curve from rets keeps numerator and denominator on the same series,
+                    // so cash flows can't distort one side relative to the other.
+                    const years = ppy > 0 ? rets.length / ppy : 0;
+                    let wealth = 1;
+                    const compoundedWealth = [wealth];
+                    for (let i = 0; i < rets.length; i++) {
+                        wealth *= (1 + rets[i]);
+                        compoundedWealth.push(wealth);
                     }
-                    const res = window.RiskMetrics.computeAnnualizedFromHistoricalPnl(hist.historicalPnl, { mar: marPerPeriod, denominator: 'negative' });
-                    if (res.returns.length > 2) {
-                        document.getElementById('sharpeRatio').textContent = (res.sharpeAnnualized || 0).toFixed(2);
-                        document.getElementById('sortinoRatio').textContent = (res.sortinoAnnualized === Infinity ? '∞' : (res.sortinoAnnualized || 0).toFixed(2));
-                        const ppy = res.ppy || 0;
-                        const sharpeMeta = document.getElementById('sharpeMeta');
-                        const sortinoMeta = document.getElementById('sortinoMeta');
-                        const marPct = (marPerPeriod * (ppy || 1) * 100).toFixed(3);
-                        const perText = ppy > 8000 ? 'hourly' : ppy > 300 ? 'daily' : 'periodic';
-                        const tipSharpe = `MAR (${perText}, annualized): ${marPct}%\nPPY (periods/year): ${ppy.toFixed(0)}\nDenominator: standard deviation (σ)`;
-                        const tipSortino = `MAR (${perText}, annualized): ${marPct}%\nPPY (periods/year): ${ppy.toFixed(0)}\nDenominator: downside deviation (negative-only LPSD)`;
-                        if (sharpeMeta) sharpeMeta.title = tipSharpe;
-                        if (sortinoMeta) sortinoMeta.title = tipSortino;
-
-                        const eq = computeAdjustedEquitySeriesFromHist(hist.historicalPnl || []);
-                        if (eq.length > 1) {
-                            const timestamps = (hist.historicalPnl || []).map(p => p.createdAt).filter(Boolean);
-                            const rets = window.RiskMetrics.computeReturnsFromEquitySeries(eq);
-                            const ann = window.RiskMetrics.computeAnnualizedFromReturns(rets, timestamps, { mar: 0, denominator: 'negative' });
-                            const mu = rets.length ? (rets.reduce((a,b)=>a+b,0) / rets.length) : 0;
-                            const annualReturn = mu * (ann.ppy || 0);
-                            const mddPct = computeMaxDrawdownPctFromEquity(eq) / 100;
-                            const calmar = mddPct > 0 ? (annualReturn / mddPct) : null;
-                            updateElement('calmarRatio', calmar === null ? 'N/A' : calmar.toFixed(2));
-                        } else {
-                            updateElement('calmarRatio','N/A');
-                        }
-
-                        updatePerformanceTables(allPositions, hist.historicalPnl || []);
+                    const compoundFactor = compoundedWealth[compoundedWealth.length - 1];
+                    const mddTwrFraction = computeMaxDrawdownPctFromEquity(compoundedWealth) / 100;
+                    if (years >= (1/52) && compoundFactor > 0 && mddTwrFraction > 0) {
+                        const cagr = Math.pow(compoundFactor, 1 / years) - 1;
+                        updateElement('calmarRatio', (cagr / mddTwrFraction).toFixed(2));
                     } else {
-                        document.getElementById('sharpeRatio').textContent = 'N/A';
-                        document.getElementById('sortinoRatio').textContent = 'N/A';
-                        updateElement('calmarRatio','N/A');
-                        updatePerformanceTables(allPositions, []);
+                        updateElement('calmarRatio', '—');
                     }
+
+                    updatePerformanceTables(allPositions, histArr);
                 } catch (e) {
-                    document.getElementById('sharpeRatio').textContent = 'N/A';
-                    document.getElementById('sortinoRatio').textContent = 'N/A';
-                    updateElement('calmarRatio','N/A');
+                    setRatioNA();
                     updatePerformanceTables(allPositions, []);
                 }
             })();
@@ -1922,7 +1770,7 @@
             // Trading Statistics
             updateElement('avgWin', wins > 0 ? formatCurrency(avgWin) : 'N/A');
             updateElement('avgLoss', losses > 0 ? formatCurrency(avgLoss) : 'N/A');
-            updateElement('riskReward', avgLoss > 0 ? `1:${(avgWin/avgLoss).toFixed(2)}` : 'N/A');
+            updateElement('riskReward', avgLoss > 0 ? `${(avgWin/avgLoss).toFixed(2)}:1` : '—');
             updateElement('expectancy', totalTrades > 0 ? formatCurrency(totalPnL/totalTrades) : 'N/A');
             (async () => {
                 try {
@@ -1944,6 +1792,12 @@
             const fillsArr = (allData.fills && (allData.fills.fills || allData.fills.data || allData.fills)) || [];
             updatePositionsTabFromData(allPositions, fillsArr, subaccount);
             updatePerformanceMetrics(allPositions);
+            updateTimeAnalysis(allPositions);
+            updateActivityHeatmap(allPositions);
+            updateLiquidationTable(allPositions, allData.markets);
+            updateLeverageUtilization(allPositions, subaccount);
+            updateDetectedPatterns(allPositions);
+            updateCorrelationMatrix(allPositions);
 
             // Kelly criterion
             (function(){
@@ -1986,17 +1840,23 @@
             updateFundingAnalysis(marketsMap, payments);
         }
 
+        function safeText(v) {
+            if (v === null || v === undefined) return '—';
+            if (typeof v === 'number' && !isFinite(v)) return v === Infinity ? '∞' : '—';
+            return v;
+        }
+
         function updateMetric(id, value, isPositive = true) {
             const el = document.getElementById(id);
             if (el) {
-                el.textContent = value;
+                el.textContent = safeText(value);
                 el.className = isPositive ? 'metric-value mono profit' : 'metric-value mono loss';
             }
         }
 
         function updateElement(id, value) {
             const el = document.getElementById(id);
-            if (el) el.textContent = value;
+            if (el) el.textContent = safeText(value);
         }
 
         function updatePositionsTabFromData(positions, fills, subaccount) {
@@ -2076,13 +1936,30 @@
             const avgWin = wins.length? wins.reduce((s,p)=>s+parseFloat(p.realizedPnl||0),0)/wins.length:0;
             const avgLoss = losses.length? Math.abs(losses.reduce((s,p)=>s+parseFloat(p.realizedPnl||0),0))/losses.length:0;
             const rrr = avgLoss>0? avgWin/avgLoss : null;
-            if(rrr!=null){ updateElement('avgRRR', rrr.toFixed(2)+':1'); updateElement('avgRRRDetail','vs 2:1 target'); } else { updateElement('avgRRR','N/A'); }
+            if(rrr!=null){ updateElement('avgRRR', rrr.toFixed(2)+':1'); updateElement('avgRRRDetail','vs 2:1 target'); } else { updateElement('avgRRR','—'); updateElement('avgRRRDetail',''); }
 
-            const N= Math.min(50, closed.length);
+            // Real Win Rate Trend: compare recent N to all-time
+            const allWins = wins.length;
+            const allTotal = closed.length;
+            const allTimeWR = allTotal ? (allWins / allTotal) * 100 : 0;
+            const N = Math.min(50, allTotal);
             const last = closed.slice(-N);
-            const wrt = last.length? (last.filter(p=>parseFloat(p.realizedPnl||0)>0).length/last.length)*100:0;
-            const el = document.getElementById('winRateTrend'); if(el){ el.textContent = (wrt? ('↑ '+wrt.toFixed(1)+'%'):'-'); el.className = 'metric-value mono '+(wrt>=50?'profit':'loss'); }
-            updateElement('winRateTrendDetail', last.length? `Last ${last.length} trades`:'');
+            const recentWins = last.filter(p => parseFloat(p.realizedPnl||0) > 0).length;
+            const recentWR = last.length ? (recentWins / last.length) * 100 : 0;
+            const trendEl = document.getElementById('winRateTrend');
+            if (trendEl) {
+                if (allTotal === 0 || N < 2) {
+                    trendEl.textContent = '—';
+                    trendEl.className = 'metric-value mono';
+                } else {
+                    const delta = recentWR - allTimeWR;
+                    const arrow = delta > 1 ? '↑' : delta < -1 ? '↓' : '→';
+                    const cls = delta > 1 ? 'profit' : delta < -1 ? 'loss' : '';
+                    trendEl.textContent = `${arrow} ${recentWR.toFixed(1)}%`;
+                    trendEl.className = 'metric-value mono ' + cls;
+                }
+            }
+            updateElement('winRateTrendDetail', allTotal && N >= 2 ? `Last ${N} (vs ${allTimeWR.toFixed(1)}% all-time)` : '');
 
             const container = document.getElementById('winLossDistribution');
             if (container) {
@@ -2123,6 +2000,438 @@
                     if (title) title.textContent = 'Win/Loss Distribution (no data)';
                 }
             }
+
+            // Hold time + size distributions on Positions tab from real data
+            const closedPos = positions.filter(p => p.status === 'CLOSED');
+            const holdHours = closedPos.map(p => {
+                const c = new Date(p.createdAt).getTime();
+                const d = new Date(p.closedAt).getTime();
+                return (isFinite(c) && isFinite(d) && d > c) ? (d - c) / 3600000 : null;
+            }).filter(v => v !== null);
+            const holdBuckets = [
+                { label: '0–1h',     range: [0,1],     count: 0 },
+                { label: '1–4h',     range: [1,4],     count: 0 },
+                { label: '4–12h',    range: [4,12],    count: 0 },
+                { label: '12–24h',   range: [12,24],   count: 0 },
+                { label: '1–3d',     range: [24,72],   count: 0 },
+                { label: '3–7d',     range: [72,168],  count: 0 },
+                { label: '>7d',      range: [168, Infinity], count: 0 }
+            ];
+            holdHours.forEach(h => {
+                const b = holdBuckets.find(b => h >= b.range[0] && h < b.range[1]);
+                if (b) b.count += 1;
+            });
+            renderHistogram('holdTimeDistribution', holdBuckets, { colorize: 'gain' });
+
+            const notionals = closedPos.map(p => {
+                const sz = parseFloat(p.sumOpen || p.size || 0);
+                const px = parseFloat(p.entryPrice || 0);
+                return (sz > 0 && px > 0) ? sz * px : null;
+            }).filter(v => v !== null).sort((a,b) => a - b);
+            if (notionals.length) {
+                const numBins = Math.min(12, Math.max(4, notionals.length));
+                const min = notionals[0], max = notionals[notionals.length - 1];
+                const step = (max - min) / numBins || 1;
+                const bins = [];
+                for (let i = 0; i < numBins; i++) {
+                    const lo = min + i * step;
+                    const hi = i === numBins - 1 ? Infinity : min + (i + 1) * step;
+                    bins.push({ label: `$${formatShortNumber(lo)}–${i === numBins - 1 ? '∞' : '$' + formatShortNumber(hi)}`, range: [lo, hi], count: 0 });
+                }
+                notionals.forEach(n => {
+                    const b = bins.find(b => n >= b.range[0] && n < b.range[1]) || bins[bins.length - 1];
+                    b.count += 1;
+                });
+                renderHistogram('sizeDistribution', bins, { colorize: 'gain' });
+            } else {
+                renderHistogram('sizeDistribution', [], {});
+            }
+        }
+
+        function formatShortNumber(n) {
+            if (!isFinite(n)) return '∞';
+            const a = Math.abs(n);
+            if (a >= 1e6) return (n/1e6).toFixed(1) + 'M';
+            if (a >= 1e3) return (n/1e3).toFixed(1) + 'K';
+            return n.toFixed(0);
+        }
+
+        // Time Analysis (Overview): hold times, best/worst trading hour, most active day
+        function updateTimeAnalysis(positions) {
+            const closed = positions.filter(p => p.status === 'CLOSED' && p.closedAt && p.createdAt);
+            if (!closed.length) {
+                ['avgHoldWin','avgHoldLoss','bestHour','worstHour','mostActiveDay'].forEach(id => updateElement(id, '—'));
+                return;
+            }
+            const holdMs = (p) => new Date(p.closedAt).getTime() - new Date(p.createdAt).getTime();
+            const fmtDur = (ms) => {
+                if (!isFinite(ms) || ms <= 0) return '—';
+                const totalMin = Math.round(ms / 60000);
+                const h = Math.floor(totalMin / 60);
+                const m = totalMin % 60;
+                return h > 0 ? `${h}h ${m}m` : `${m}m`;
+            };
+            const winsArr = closed.filter(p => parseFloat(p.realizedPnl||0) > 0);
+            const lossArr = closed.filter(p => parseFloat(p.realizedPnl||0) < 0);
+            const meanMs = (arr) => arr.length ? arr.reduce((s,p) => s + holdMs(p), 0) / arr.length : NaN;
+            updateElement('avgHoldWin',  winsArr.length ? fmtDur(meanMs(winsArr)) : '—');
+            updateElement('avgHoldLoss', lossArr.length ? fmtDur(meanMs(lossArr)) : '—');
+
+            // Hour-of-day buckets weighted by realized P&L
+            const hourPnl = new Array(24).fill(0);
+            const hourCount = new Array(24).fill(0);
+            closed.forEach(p => {
+                const h = new Date(p.closedAt).getUTCHours();
+                hourPnl[h] += parseFloat(p.realizedPnl || 0);
+                hourCount[h] += 1;
+            });
+            let bestH = -1, worstH = -1, bestPnl = -Infinity, worstPnl = Infinity;
+            for (let h = 0; h < 24; h++) {
+                if (hourCount[h] === 0) continue;
+                const avg = hourPnl[h] / hourCount[h];
+                if (avg > bestPnl)  { bestPnl  = avg; bestH  = h; }
+                if (avg < worstPnl) { worstPnl = avg; worstH = h; }
+            }
+            const padHr = (h) => String(h).padStart(2, '0') + ':00 UTC';
+            updateElement('bestHour',  bestH  >= 0 ? padHr(bestH)  : '—');
+            updateElement('worstHour', worstH >= 0 ? padHr(worstH) : '—');
+
+            // Day-of-week (UTC) most active by trade count
+            const dayCount = new Array(7).fill(0);
+            closed.forEach(p => { dayCount[new Date(p.closedAt).getUTCDay()] += 1; });
+            const dayNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+            let topDay = -1, topCount = 0;
+            for (let d = 0; d < 7; d++) if (dayCount[d] > topCount) { topCount = dayCount[d]; topDay = d; }
+            updateElement('mostActiveDay', topDay >= 0 ? dayNames[topDay] : '—');
+        }
+
+        // Activity heatmap: 7×24 grid (UTC day-of-week × hour-of-day) of closed-trade counts
+        function updateActivityHeatmap(positions) {
+            const container = document.getElementById('activityHeatmap');
+            if (!container) return;
+            container.innerHTML = '';
+            const grid = Array.from({ length: 7 }, () => new Array(24).fill(0));
+            const closed = positions.filter(p => p.status === 'CLOSED' && p.closedAt);
+            closed.forEach(p => {
+                const d = new Date(p.closedAt);
+                if (!isFinite(d.getTime())) return;
+                grid[d.getUTCDay()][d.getUTCHours()] += 1;
+            });
+            const max = Math.max(1, ...grid.flat());
+            const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+            for (let day = 0; day < 7; day++) {
+                for (let hour = 0; hour < 24; hour++) {
+                    const cell = document.createElement('div');
+                    cell.className = 'heatmap-cell';
+                    const count = grid[day][hour];
+                    const intensity = count / max;
+                    const alpha = count === 0 ? 0.06 : (0.18 + 0.55 * intensity);
+                    cell.style.backgroundColor = `rgba(215,172,96,${alpha.toFixed(3)})`;
+                    cell.title = `${dayNames[day]} ${String(hour).padStart(2,'0')}:00 UTC — ${count} trade${count===1?'':'s'}`;
+                    container.appendChild(cell);
+                }
+            }
+        }
+
+        // Liquidation table from open perpetual positions joined with markets
+        function updateLiquidationTable(positions, marketsContainer) {
+            const body = document.getElementById('liquidationRiskBody');
+            if (!body) return;
+            body.innerHTML = '';
+            const open = positions.filter(p => p.status === 'OPEN');
+            if (!open.length) return;
+            const marketsMap = (marketsContainer && (marketsContainer.perpetualMarkets || marketsContainer)) || {};
+            open.forEach(p => {
+                const market = p.market || '—';
+                const m = marketsMap[market] || {};
+                const size = Math.abs(parseFloat(p.size || 0));
+                const entry = parseFloat(p.entryPrice || 0);
+                const oracle = parseFloat(p.oraclePrice || m.oraclePrice || 0);
+                const mmf = parseFloat(m.maintenanceMarginFraction || 0);
+                const side = (p.side || '').toUpperCase();
+                const notional = size * entry;
+                const lev = (notional && p.equity) ? notional / parseFloat(p.equity) : null;
+                // Approx isolated liq: entry × (1 ± (1 − mmf) × initial-margin-fraction).
+                // Without per-position margin we estimate liq using the simpler rule:
+                // long  liq ≈ entry × (1 − (1 − mmf))    when fully levered
+                // We expose a conservative "distance to oracle" view instead.
+                const liqApprox = (mmf > 0 && entry > 0)
+                    ? (side === 'LONG' ? entry * (1 - (1 - mmf)) : entry * (1 + (1 - mmf)))
+                    : null;
+                const distancePct = (oracle > 0 && liqApprox) ? Math.abs((oracle - liqApprox) / oracle) * 100 : null;
+                let scoreClass = '';
+                let scoreLabel = '—';
+                if (distancePct !== null) {
+                    if (distancePct < 10)      { scoreClass = 'loss';    scoreLabel = 'HIGH'; }
+                    else if (distancePct < 20) { scoreClass = 'warning'; scoreLabel = 'MEDIUM'; }
+                    else                       { scoreClass = 'profit';  scoreLabel = 'LOW'; }
+                }
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${market} ${side}</td>
+                    <td class="mono">${size ? size.toFixed(4) : '—'}</td>
+                    <td class="mono">${lev ? lev.toFixed(2) + 'x' : '—'}</td>
+                    <td class="mono">${entry ? entry.toFixed(2) : '—'}</td>
+                    <td class="mono">${oracle ? oracle.toFixed(2) : '—'}</td>
+                    <td class="mono ${scoreClass}">${liqApprox ? liqApprox.toFixed(2) : '—'}</td>
+                    <td class="mono">${distancePct !== null ? distancePct.toFixed(1) + '%' : '—'}</td>
+                    <td class="mono ${scoreClass}">${scoreLabel}</td>
+                `;
+                body.appendChild(tr);
+            });
+        }
+
+        function updateLeverageUtilization(positions, subaccount) {
+            const open = positions.filter(p => p.status === 'OPEN');
+            const equity = subaccount ? parseFloat(subaccount.equity || 0) : 0;
+            const notional = open.reduce((s, p) => {
+                const sz = Math.abs(parseFloat(p.size || 0));
+                const px = parseFloat(p.entryPrice || p.oraclePrice || 0);
+                return s + (sz * px);
+            }, 0);
+            const lev = equity > 0 ? notional / equity : null;
+            updateMetric('leverageUtil', lev !== null ? lev.toFixed(2) + 'x' : '—', true);
+            const bar = document.getElementById('leverageUtilBar');
+            if (bar) bar.style.width = `${Math.min(100, (lev || 0) * 10).toFixed(1)}%`;
+        }
+
+        // Detected Trading Patterns from real position sequence
+        function updateDetectedPatterns(positions) {
+            const body = document.getElementById('patternsBody');
+            if (!body) return;
+            body.innerHTML = '';
+            const closed = positions
+                .filter(p => p.status === 'CLOSED' && p.closedAt && p.createdAt)
+                .sort((a,b) => new Date(a.closedAt) - new Date(b.closedAt));
+            if (!closed.length) return;
+            const pnl = (p) => parseFloat(p.realizedPnl || 0);
+            const sizeUsd = (p) => Math.abs(parseFloat(p.sumOpen || p.size || 0)) * parseFloat(p.entryPrice || 0);
+            const holdH = (p) => (new Date(p.closedAt) - new Date(p.createdAt)) / 3600000;
+
+            // Pattern 1: Post-Loss Double Down — a loser followed within 1h in the same market by ≥1.2× size
+            const doubleDown = [];
+            for (let i = 0; i < closed.length - 1; i++) {
+                const cur = closed[i], nxt = closed[i+1];
+                if (cur.market !== nxt.market) continue;
+                if (pnl(cur) >= 0) continue;
+                const gapH = (new Date(nxt.createdAt) - new Date(cur.closedAt)) / 3600000;
+                if (gapH < 0 || gapH > 1) continue;
+                const curSize = sizeUsd(cur), nxtSize = sizeUsd(nxt);
+                if (curSize > 0 && nxtSize >= 1.2 * curSize) doubleDown.push(nxt);
+            }
+            // Pattern 2: Trend-following (>4h holds)
+            const trend = closed.filter(p => holdH(p) > 4);
+            // Pattern 3: Short-window flips (<15m holds)
+            const flips = closed.filter(p => holdH(p) < 0.25);
+
+            const summarize = (label, set, recommend) => {
+                const n = set.length;
+                if (n === 0) return null;
+                const wins = set.filter(p => pnl(p) > 0).length;
+                const wr = (wins / n) * 100;
+                const avg = set.reduce((s,p) => s + pnl(p), 0) / n;
+                let rec, recCls;
+                if (typeof recommend === 'function') {
+                    const r = recommend(wr, avg);
+                    rec = r.label; recCls = r.cls;
+                } else {
+                    rec = '—'; recCls = '';
+                }
+                return { label, n, wr, avg, rec, recCls };
+            };
+            const recommendByEdge = (wr, avg) => {
+                if (avg > 0 && wr >= 55) return { label: 'CONTINUE', cls: 'profit' };
+                if (avg < 0 && wr < 50)  return { label: 'AVOID',    cls: 'loss' };
+                return { label: 'REVIEW', cls: 'warning' };
+            };
+            const rows = [
+                summarize('Post-Loss Double Down (same market, ≤1h, ≥1.2×)', doubleDown, recommendByEdge),
+                summarize('Trend Following (>4h hold)', trend, recommendByEdge),
+                summarize('Quick Flip (<15m hold)', flips, recommendByEdge)
+            ].filter(Boolean);
+            rows.forEach(r => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${r.label}</td>
+                    <td class="mono">${r.n}</td>
+                    <td class="mono ${r.wr >= 50 ? 'profit' : 'loss'}">${r.wr.toFixed(1)}%</td>
+                    <td class="mono ${r.avg >= 0 ? 'profit' : 'loss'}">${formatCurrency(r.avg)}</td>
+                    <td style="color: var(--${r.recCls === 'warning' ? 'warn' : r.recCls === 'profit' ? 'gain' : r.recCls === 'loss' ? 'loss' : 'ink-3'})">${r.rec}</td>
+                `;
+                body.appendChild(tr);
+            });
+        }
+
+        // Position Correlation Matrix from per-market trade-return series.
+        // Builds a same-length vector per market by aligning each market's trades
+        // to a shared 1-day grid and using the (signed) per-trade return.
+        function updateCorrelationMatrix(positions) {
+            const container = document.getElementById('correlationMatrix');
+            if (!container) return;
+            container.innerHTML = '';
+            const closed = positions.filter(p => p.status === 'CLOSED' && p.entryPrice && p.exitPrice && p.closedAt);
+            const byMarket = {};
+            closed.forEach(p => {
+                const m = p.market || 'Unknown';
+                if (!byMarket[m]) byMarket[m] = [];
+                const e = parseFloat(p.entryPrice), x = parseFloat(p.exitPrice);
+                if (e > 0) {
+                    const ret = (x - e) / e * ((p.side||'').toUpperCase() === 'LONG' ? 1 : -1);
+                    if (isFinite(ret)) byMarket[m].push({ t: new Date(p.closedAt).getTime(), r: ret });
+                }
+            });
+            const markets = Object.keys(byMarket).filter(m => byMarket[m].length >= 3);
+            if (markets.length < 2) {
+                container.style.display = 'flex';
+                container.style.alignItems = 'center';
+                container.style.justifyContent = 'center';
+                container.style.padding = '32px';
+                container.style.color = 'var(--ink-3)';
+                container.style.fontFamily = "var(--ff-mono)";
+                container.style.fontSize = '11px';
+                container.style.letterSpacing = '0.18em';
+                container.style.textTransform = 'uppercase';
+                container.textContent = 'Insufficient overlap (need ≥2 markets, ≥3 trades each)';
+                return;
+            }
+            container.style.gridTemplateColumns = `repeat(${markets.length + 1}, 1fr)`;
+            // Pearson correlation on equal-length vectors (mean per-day return per market)
+            const dayKey = (t) => Math.floor(t / (24*3600*1000));
+            const allDays = new Set();
+            const perMarketByDay = {};
+            markets.forEach(m => {
+                const byDay = {};
+                byMarket[m].forEach(({t, r}) => {
+                    const k = dayKey(t);
+                    if (!byDay[k]) byDay[k] = [];
+                    byDay[k].push(r);
+                });
+                perMarketByDay[m] = byDay;
+                Object.keys(byDay).forEach(k => allDays.add(k));
+            });
+            const days = Array.from(allDays).sort((a,b) => a-b);
+            const vec = (m) => days.map(k => {
+                const arr = perMarketByDay[m][k];
+                return arr ? arr.reduce((s,v)=>s+v,0)/arr.length : 0;
+            });
+            const meanV = (v) => v.reduce((s,x)=>s+x,0) / v.length;
+            const corr = (a, b) => {
+                const ma = meanV(a), mb = meanV(b);
+                let num = 0, da = 0, db = 0;
+                for (let i = 0; i < a.length; i++) {
+                    const xa = a[i] - ma, xb = b[i] - mb;
+                    num += xa * xb; da += xa * xa; db += xb * xb;
+                }
+                const denom = Math.sqrt(da * db);
+                return denom > 0 ? num / denom : 0;
+            };
+            const vecs = {};
+            markets.forEach(m => { vecs[m] = vec(m); });
+            // Header row: blank corner + market labels
+            const corner = document.createElement('div');
+            corner.className = 'correlation-cell';
+            corner.style.background = 'var(--paper)';
+            container.appendChild(corner);
+            markets.forEach(m => {
+                const c = document.createElement('div');
+                c.className = 'correlation-cell';
+                c.style.background = 'var(--paper)';
+                c.textContent = m.replace('-USD','');
+                container.appendChild(c);
+            });
+            markets.forEach(rowM => {
+                const lbl = document.createElement('div');
+                lbl.className = 'correlation-cell';
+                lbl.style.background = 'var(--paper)';
+                lbl.textContent = rowM.replace('-USD','');
+                container.appendChild(lbl);
+                markets.forEach(colM => {
+                    const cell = document.createElement('div');
+                    cell.className = 'correlation-cell';
+                    const r = rowM === colM ? 1 : corr(vecs[rowM], vecs[colM]);
+                    cell.textContent = r.toFixed(2);
+                    const a = Math.min(1, Math.abs(r));
+                    cell.style.color = r >= 0 ? 'var(--gain)' : 'var(--loss)';
+                    cell.style.background = `rgba(${r >= 0 ? '143,170,114' : '203,92,80'}, ${(0.1 + 0.35 * a).toFixed(3)})`;
+                    container.appendChild(cell);
+                });
+            });
+        }
+
+        // VaR / CVaR + Drawdown Periods from synthetic equity series
+        function updateRiskFromHistorical(returns, eq, equityNow) {
+            // VaR 95: 5th-percentile per-period return (loss). Render in dollars at current equity.
+            if (returns.length < 20 || !equityNow) {
+                updateMetric('var95', '—', false);
+                updateMetric('expectedShortfall', '—', false);
+                return;
+            }
+            const sorted = returns.slice().sort((a,b) => a - b);
+            const idx = Math.max(0, Math.floor(0.05 * sorted.length) - 1);
+            const var95Ret = sorted[idx];
+            const tail = sorted.slice(0, idx + 1);
+            const cvar95Ret = tail.length ? tail.reduce((s,v)=>s+v,0) / tail.length : var95Ret;
+            const var95Usd = var95Ret * equityNow;
+            const cvar95Usd = cvar95Ret * equityNow;
+            updateMetric('var95', formatCurrency(var95Usd), var95Usd >= 0);
+            updateMetric('expectedShortfall', formatCurrency(cvar95Usd), cvar95Usd >= 0);
+        }
+
+        function updateDrawdownPeriods(historicalPnl) {
+            const body = document.getElementById('drawdownPeriodsBody');
+            if (!body) return;
+            body.innerHTML = '';
+            const pairs = computeAdjustedEquityPairsFromHist(historicalPnl || []);
+            if (pairs.length < 3) return;
+            const events = [];
+            let peakIdx = 0;
+            for (let i = 1; i < pairs.length; i++) {
+                if (pairs[i].e > pairs[peakIdx].e) {
+                    peakIdx = i;
+                    continue;
+                }
+                // descending — find local trough then recovery (eq ≥ peak ends the drawdown)
+                let troughIdx = i;
+                while (i + 1 < pairs.length && pairs[i+1].e < pairs[peakIdx].e) {
+                    if (pairs[i+1].e < pairs[troughIdx].e) troughIdx = i + 1;
+                    i += 1;
+                }
+                const recoveryIdx = (i + 1 < pairs.length && pairs[i+1].e >= pairs[peakIdx].e) ? i + 1 : null;
+                const peakV = pairs[peakIdx].e, troughV = pairs[troughIdx].e;
+                // Drop synthetic-equity artifacts: negative trough means the inception-time
+                // principal proxy went under zero, which isn't a real drawdown.
+                if (peakV > 0 && troughV >= 0 && troughV < peakV) {
+                    events.push({
+                        peakAt: pairs[peakIdx].t,
+                        troughAt: pairs[troughIdx].t,
+                        recoveryAt: recoveryIdx ? pairs[recoveryIdx].t : null,
+                        peakV, troughV,
+                        depthPct: (troughV - peakV) / peakV * 100
+                    });
+                }
+                peakIdx = recoveryIdx !== null ? recoveryIdx : troughIdx;
+            }
+            events.sort((a,b) => a.depthPct - b.depthPct);
+            const top = events.slice(0, 5);
+            const fmtDate = (iso) => new Date(iso).toISOString().slice(0,10);
+            const dayDelta = (a, b) => Math.max(1, Math.round((new Date(b) - new Date(a)) / 86400000));
+            top.forEach(ev => {
+                const tr = document.createElement('tr');
+                const period = ev.recoveryAt
+                    ? `${fmtDate(ev.peakAt)} → ${fmtDate(ev.recoveryAt)}`
+                    : `${fmtDate(ev.peakAt)} → ongoing`;
+                const duration = `${dayDelta(ev.peakAt, ev.troughAt)}d`;
+                const recovery = ev.recoveryAt ? `${dayDelta(ev.troughAt, ev.recoveryAt)}d` : '—';
+                tr.innerHTML = `
+                    <td>${period}</td>
+                    <td class="mono loss">${ev.depthPct.toFixed(1)}%</td>
+                    <td class="mono">${duration}</td>
+                    <td class="mono">${recovery}</td>
+                    <td class="mono">${formatCurrency(ev.peakV)}</td>
+                    <td class="mono">${formatCurrency(ev.troughV)}</td>
+                `;
+                body.appendChild(tr);
+            });
         }
 
         function updateFundingAnalysis(marketsMap, fundingPayments) {
@@ -2377,16 +2686,18 @@
                 else if (pnl < 0) { monthly[key].losses += 1; monthly[key].lossSum += Math.abs(pnl); }
             });
 
-            const hist = Array.isArray(historicalPnl) ? historicalPnl.slice() : [];
-            const byMonthEquity = {};
+            const hist = Array.isArray(historicalPnl) ? historicalPnl.slice().sort((a,b) => (a.createdAt||'').localeCompare(b.createdAt||'')) : [];
+            const byMonthHist = {};
+            const byMonthEqAdj = {};
             if (hist.length > 2) {
                 const pairs = computeAdjustedEquityPairsFromHist(hist);
-                pairs.forEach(pt => {
-                    const d = new Date(pt.t);
+                hist.forEach((pt, i) => {
+                    const d = new Date(pt.createdAt);
                     if (isNaN(d)) return;
                     const key = d.toLocaleString('en-US', { month: 'long', year: 'numeric' });
-                    if (!byMonthEquity[key]) byMonthEquity[key] = [];
-                    byMonthEquity[key].push({ t: pt.t, e: pt.e });
+                    if (!byMonthHist[key]) { byMonthHist[key] = []; byMonthEqAdj[key] = []; }
+                    byMonthHist[key].push(pt);
+                    if (pairs[i]) byMonthEqAdj[key].push(pairs[i].e);
                 });
             }
             const bodyM = document.getElementById('monthlyPerformanceBody');
@@ -2400,17 +2711,21 @@
                         const avgWin = m.wins ? m.winSum / m.wins : 0;
                         const avgLoss = m.losses ? m.lossSum / m.losses : 0;
                         const pf = m.lossSum > 0 ? (m.winSum / m.lossSum) : null;
-                        let sharpeTxt = '-';
-                        let mddTxt = '-';
-                        if (byMonthEquity[label] && byMonthEquity[label].length > 2) {
-                            const seg = byMonthEquity[label];
-                            const eqSeg = seg.map(x => x.e);
-                            const tsSeg = seg.map(x => x.t);
-                            const rets = window.RiskMetrics.computeReturnsFromEquitySeries(eqSeg);
-                            const ann = window.RiskMetrics.computeAnnualizedFromReturns(rets, tsSeg, { mar: 0, denominator: 'negative' });
-                            const mddPct = computeMaxDrawdownPctFromEquity(eqSeg);
-                            sharpeTxt = (ann.sharpeAnnualized || 0).toFixed(2);
-                            mddTxt = mddPct.toFixed(1) + '%';
+                        let sharpeTxt = '—';
+                        let mddTxt = '—';
+                        const monthHist = byMonthHist[label] || [];
+                        if (monthHist.length > 2) {
+                            const rets = window.RiskMetrics.computeTimeWeightedReturnsFromHist(monthHist);
+                            if (rets.length > 2) {
+                                const tsSeg = monthHist.map(p => p.createdAt);
+                                const ann = window.RiskMetrics.computeAnnualizedFromReturns(rets, tsSeg, { mar: 0, denominator: 'all' });
+                                sharpeTxt = ann.sharpeAnnualized === null ? '—' : ann.sharpeAnnualized.toFixed(2);
+                            }
+                            const eqSeg = byMonthEqAdj[label] || [];
+                            if (eqSeg.length > 1) {
+                                const mddPct = computeMaxDrawdownPctFromEquity(eqSeg);
+                                mddTxt = mddPct.toFixed(1) + '%';
+                            }
                         }
                         tr.innerHTML = `
                             <td>${label}</td>
@@ -2450,7 +2765,7 @@
                         const avgPnL = a.trades ? (a.winSum - a.lossSum) / a.trades : 0;
                         const best = a.winSum > 0 ? a.winSum / Math.max(1,a.wins) : 0;
                         const worst = a.lossSum > 0 ? -a.lossSum / Math.max(1,a.losses) : 0;
-                        let assetSharpeTxt = '-';
+                        let assetSharpeTxt = '—';
                         const assetClosed = positions.filter(p => p.status==='CLOSED' && (p.market||'Unknown')===ticker);
                         if (assetClosed.length > 2) {
                             const tradeReturns = assetClosed.map(p => {
@@ -2461,7 +2776,7 @@
                                 return ((exit - entry) / entry) * (side==='LONG'?1:-1);
                             }).filter(v=>isFinite(v));
                             const s = window.RiskMetrics.computeSharpe(tradeReturns, 0);
-                            assetSharpeTxt = s.toFixed(2);
+                            assetSharpeTxt = s === null ? '—' : s.toFixed(2);
                         }
                         const tr = document.createElement('tr');
                         tr.innerHTML = `
