@@ -262,6 +262,25 @@
     return { adequate, reason, ppy, years, coverage, n };
   }
 
+  // Sort closed positions chronologically and build the cumulative
+  // realizedPnl series. Shared by tradeSystemDrawdown (worst single event)
+  // and tradeSystemDrawdownEvents (every peak→recovery cycle) so the two
+  // can never operate on different inputs.
+  function buildCumulativeRealizedSeries(closedPositions) {
+    const closed = (closedPositions || [])
+      .filter(p => p && p.status === 'CLOSED' && p.closedAt)
+      .slice()
+      .sort((a, b) => (
+        new Date(a.closedAt).getTime() - new Date(b.closedAt).getTime()
+      ));
+    let cum = 0;
+    const cums = closed.map(p => {
+      cum += parseFloat(p.realizedPnl || 0);
+      return { t: p.closedAt, c: cum };
+    });
+    return { closed, cums };
+  }
+
   // Trade-system drawdown: peak-to-trough on cumulative realizedPnl over
   // closed trades, in chronological order. The headline Max Drawdown card
   // and the Drawdown Periods table both derive from this so the two views
@@ -269,21 +288,15 @@
   // artifacts (no inception-time principal proxy), so no negative-trough
   // filter is needed here.
   function tradeSystemDrawdown(closedPositions) {
-    const closed = (closedPositions || [])
-      .filter(p => p && p.status === 'CLOSED' && p.closedAt)
-      .slice()
-      .sort((a, b) => (
-        new Date(a.closedAt).getTime() - new Date(b.closedAt).getTime()
-      ));
-    if (closed.length === 0) {
+    const { closed, cums } = buildCumulativeRealizedSeries(closedPositions);
+    if (cums.length === 0) {
       return { dollarDrawdown: 0, pctOfPeakProfit: 0, n: 0, peakIdx: -1, troughIdx: -1 };
     }
-    let cum = 0, peak = 0, peakIdx = -1;
+    let peak = 0, peakIdx = -1;
     let ddAbs = 0, ddPeakIdx = -1, ddTroughIdx = -1, ddPeak = 0;
-    closed.forEach((p, i) => {
-      cum += parseFloat(p.realizedPnl || 0);
-      if (cum > peak) { peak = cum; peakIdx = i; }
-      const dd = peak - cum;
+    cums.forEach((pt, i) => {
+      if (pt.c > peak) { peak = pt.c; peakIdx = i; }
+      const dd = peak - pt.c;
       if (dd > ddAbs) {
         ddAbs = dd;
         ddPeak = peak;
@@ -305,16 +318,9 @@
   // curve. Used to populate the Historical Drawdown Periods table so it
   // cannot silently disagree with the headline MDD.
   function tradeSystemDrawdownEvents(closedPositions) {
-    const closed = (closedPositions || [])
-      .filter(p => p && p.status === 'CLOSED' && p.closedAt)
-      .slice()
-      .sort((a, b) => (
-        new Date(a.closedAt).getTime() - new Date(b.closedAt).getTime()
-      ));
+    const { cums } = buildCumulativeRealizedSeries(closedPositions);
     const events = [];
-    if (closed.length < 2) return events;
-    let cum = 0;
-    const cums = closed.map(p => (cum += parseFloat(p.realizedPnl || 0), { t: p.closedAt, c: cum }));
+    if (cums.length < 2) return events;
     let peakIdx = 0;
     for (let i = 1; i < cums.length; i++) {
       if (cums[i].c > cums[peakIdx].c) { peakIdx = i; continue; }
