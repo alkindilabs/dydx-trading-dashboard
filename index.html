@@ -1707,8 +1707,8 @@
                     updateElement('maxDrawdownDetail', note);
                     const sharpeMeta = document.getElementById('sharpeMeta');
                     const sortinoMeta = document.getElementById('sortinoMeta');
-                    if (sharpeMeta) sharpeMeta.title = note;
-                    if (sortinoMeta) sortinoMeta.title = note;
+                    if (sharpeMeta) { sharpeMeta.textContent = note + ' ⓘ'; sharpeMeta.title = note; }
+                    if (sortinoMeta) { sortinoMeta.textContent = note + ' ⓘ'; sortinoMeta.title = note; }
                 };
                 try {
                     const hist = await fetchJson(`${DYDX_API}/historical-pnl?address=${currentAddress}&subaccountNumber=0&limit=1000`);
@@ -1736,12 +1736,20 @@
                     const equityNow = subaccount ? parseFloat(subaccount.equity || 0) : 0;
 
                     if (!adequate) {
-                        const reason = rets.length < MIN_RETS
+                        const tsReason = rets.length < MIN_RETS
                             ? `Need ≥${MIN_RETS} returns (have ${rets.length})`
                             : years < MIN_YEARS
                               ? `Need ≥1 month of valid data (have ${(years*12).toFixed(1)} months)`
                               : `Coverage ${(coverage*100).toFixed(0)}% — most periods filtered (likely post-wipeout sample bias)`;
-                        setRatioNA(reason);
+                        // Try per-trade fallback: a separate, valid statistic computed from
+                        // realized P&L of closed trades. Honest when the time-series sample
+                        // is unusable but the trade log is rich enough to summarize.
+                        const tm = computeTradeBasedMetrics(allPositions);
+                        if (tm.ok) {
+                            renderTradeBasedRatios(tm, tsReason);
+                        } else {
+                            setRatioNA(tsReason);
+                        }
                         // VaR/CVaR can still render if returns are sufficient on their own
                         updateRiskFromHistorical(rets, compoundedWealth, equityNow);
                         updatePerformanceTables(allPositions, histArr);
@@ -1756,13 +1764,14 @@
                     const perText = ppy > 8000 ? 'hourly' : ppy > 300 ? 'daily' : 'periodic';
                     const sharpeMeta = document.getElementById('sharpeMeta');
                     const sortinoMeta = document.getElementById('sortinoMeta');
+                    const metaText = `Time-weighted · ${perText} · n=${rets.length} ⓘ`;
                     const tipBase = `Sampling: ${perText} (PPY ≈ ${ppy.toFixed(0)})
 MAR: 0
 Returns: time-weighted (pnlΔ / equity_{t-1}); deposits/withdrawals excluded.
 Annualized assuming IID returns — ignores autocorrelation.
 Sample: ${rets.length} returns over ${(years*12).toFixed(1)} months (${(coverage*100).toFixed(0)}% coverage).`;
-                    if (sharpeMeta) sharpeMeta.title = tipBase + '\nDenominator: standard deviation (σ)';
-                    if (sortinoMeta) sortinoMeta.title = tipBase + '\nDenominator: downside deviation (target semi-deviation over all periods)';
+                    if (sharpeMeta) { sharpeMeta.textContent = metaText; sharpeMeta.title = tipBase + '\nDenominator: standard deviation (σ)'; }
+                    if (sortinoMeta) { sortinoMeta.textContent = metaText; sortinoMeta.title = tipBase + '\nDenominator: downside deviation (target semi-deviation over all periods)'; }
 
                     // Headline MDD: drawdown of the compounded TWR wealth curve.
                     const mddInfo = computeMaxDrawdownFromEquity(compoundedWealth);
@@ -2080,6 +2089,100 @@ Sample: ${rets.length} returns over ${(years*12).toFixed(1)} months (${(coverage
             if (a >= 1e6) return (n/1e6).toFixed(1) + 'M';
             if (a >= 1e3) return (n/1e3).toFixed(1) + 'K';
             return n.toFixed(0);
+        }
+
+        // Per-trade Sharpe / Sortino / Calmar / system MDD computed from realized P&L
+        // of closed positions. Independent statistic from time-series Sharpe; meaningful
+        // when the equity time-series is biased (e.g. post-wipeout window) but the trade
+        // log is rich enough to characterize the strategy. Returns are r_i = realizedPnl /
+        // (size × entryPrice), the % return on notional deployed at trade entry.
+        function computeTradeBasedMetrics(positions) {
+            const closed = (positions || [])
+                .filter(p => p.status === 'CLOSED')
+                .filter(p => parseFloat(p.entryPrice || 0) > 0
+                          && Math.abs(parseFloat(p.sumOpen || p.size || 0)) > 0
+                          && p.closedAt)
+                .sort((a, b) => new Date(a.closedAt) - new Date(b.closedAt));
+            const n = closed.length;
+            if (n < 2) return { ok: false, n };
+            const returns = closed.map(p => {
+                const sz = Math.abs(parseFloat(p.sumOpen || p.size || 0));
+                const px = parseFloat(p.entryPrice || 0);
+                const pnl = parseFloat(p.realizedPnl || 0);
+                return pnl / (sz * px);
+            }).filter(r => isFinite(r));
+            if (returns.length < 2) return { ok: false, n };
+
+            const sharpe = window.RiskMetrics.computeSharpe(returns, 0);
+            const sortino = window.RiskMetrics.computeSortino(returns, 0, 'all');
+
+            const firstT = new Date(closed[0].closedAt).getTime();
+            const lastT = new Date(closed[n - 1].closedAt).getTime();
+            const yearsSpan = (lastT - firstT) / (365.25 * 24 * 3600 * 1000);
+            const tpy = yearsSpan > 0 ? n / yearsSpan : 0;
+            const annFactor = tpy > 0 ? Math.sqrt(tpy) : 1;
+            const annualize = (v) => (v === null || !isFinite(v)) ? v : v * annFactor;
+
+            // Compounded trade-equity curve (multiplicative) → CAGR + relative MDD
+            let w = 1;
+            const wealth = [w];
+            for (const r of returns) { w *= (1 + r); wealth.push(w); }
+            const compoundFactor = wealth[wealth.length - 1];
+            const mdd = computeMaxDrawdownFromEquity(wealth);
+            const mddFraction = mdd.pct / 100;
+            const calmarAnn = (yearsSpan >= 1/52 && compoundFactor > 0 && mddFraction > 0)
+                ? (Math.pow(compoundFactor, 1 / yearsSpan) - 1) / mddFraction
+                : null;
+
+            // Trade-system $ drawdown: peak-to-trough on cumulative realized P&L (in $).
+            // This is the dollar drawdown a real-time follower of the trade list would have
+            // experienced; independent of capital-base assumptions.
+            let cum = 0, peak = 0, ddAbs = 0;
+            for (const p of closed) {
+                cum += parseFloat(p.realizedPnl || 0);
+                if (cum > peak) peak = cum;
+                const dd = peak - cum;
+                if (dd > ddAbs) ddAbs = dd;
+            }
+
+            return {
+                ok: true, n: returns.length,
+                sharpe, sortino,
+                sharpeAnn: annualize(sharpe),
+                sortinoAnn: annualize(sortino),
+                calmarAnn,
+                mddPct: mdd.pct,
+                mddDollar: ddAbs,
+                tpy, yearsSpan
+            };
+        }
+
+        function renderTradeBasedRatios(tm, tsReason) {
+            const fmt = (v) => (v === null || v === undefined) ? '—' : (v === Infinity ? '∞' : v.toFixed(2));
+            updateElement('sharpeRatio', fmt(tm.sharpeAnn));
+            updateElement('sortinoRatio', fmt(tm.sortinoAnn));
+            updateElement('calmarRatio', fmt(tm.calmarAnn));
+
+            const meta = `Per-trade · n=${tm.n} ⓘ`;
+            const sharpeMeta = document.getElementById('sharpeMeta');
+            const sortinoMeta = document.getElementById('sortinoMeta');
+            const tipBase = `Per-trade Sharpe/Sortino computed from ${tm.n} closed trades.
+Time-series fallback: ${tsReason}.
+Return per trade: realizedPnl / (size × entryPrice).
+Annualized via √(trades-per-year ≈ ${tm.tpy.toFixed(0)}).
+Small-N caveat: standard error widens; not a forward-Sharpe forecast.`;
+            if (sharpeMeta) {
+                sharpeMeta.textContent = meta;
+                sharpeMeta.title = tipBase + '\nDenominator: standard deviation of trade returns.';
+            }
+            if (sortinoMeta) {
+                sortinoMeta.textContent = meta;
+                sortinoMeta.title = tipBase + '\nDenominator: downside deviation of trade returns (target semi-deviation).';
+            }
+            if (tm.mddDollar > 0) {
+                updateElement('maxDrawdown', tm.mddPct.toFixed(1) + '%');
+                updateElement('maxDrawdownDetail', `Trade-system: ${formatCurrency(-tm.mddDollar)} (n=${tm.n} closed)`);
+            }
         }
 
         // Time Analysis (Overview): hold times, best/worst trading hour, most active day
