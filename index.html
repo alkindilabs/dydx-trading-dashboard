@@ -1684,48 +1684,48 @@
             updateElement('maxConsecLosses', String(maxL || 0));
             updateElement('maxConsecLossesDetail', worstStreakPnL ? `${formatCurrency(worstStreakPnL)}` : '');
 
-            // All-time risk ratios + Calmar + Risk-tab metrics + monthly tables from historical PnL
+            // All-time risk ratios + Calmar + Max DD + Risk-tab metrics + monthly tables from historical PnL
             (async () => {
-                const setRatioNA = () => {
+                // Sample-adequacy thresholds. Both must hold for a ratio to be meaningful:
+                //   - at least 30 valid time-weighted returns, AND
+                //   - at least ~1 month of valid coverage so the sample isn't dominated
+                //     by a brief idle window after a wipeout/deposit event.
+                // Coverage = valid returns / total historical-pnl rows. With dydx hourly
+                // sampling, low coverage means many periods had equity ≤ 0 (wipeout) and
+                // were filtered, so the surviving sample is biased.
+                const MIN_RETS = 30;
+                const MIN_YEARS = 1/12;
+                const MIN_COVERAGE = 0.5;
+
+                const setRatioNA = (note = 'Insufficient data') => {
                     updateElement('sharpeRatio', '—');
                     updateElement('sortinoRatio', '—');
                     updateElement('calmarRatio', '—');
                     updateMetric('var95', '—', false);
                     updateMetric('expectedShortfall', '—', false);
+                    updateElement('maxDrawdown', '—');
+                    updateElement('maxDrawdownDetail', note);
+                    const sharpeMeta = document.getElementById('sharpeMeta');
+                    const sortinoMeta = document.getElementById('sortinoMeta');
+                    if (sharpeMeta) sharpeMeta.title = note;
+                    if (sortinoMeta) sortinoMeta.title = note;
                 };
                 try {
                     const hist = await fetchJson(`${DYDX_API}/historical-pnl?address=${currentAddress}&subaccountNumber=0&limit=1000`);
                     const histArr = hist.historicalPnl || [];
-                    // Time-weighted returns: per-period PnL change scaled by start-of-period equity.
-                    // Independent of deposits/withdrawals because totalPnl excludes transfers,
-                    // and the denominator is real equity at time of measurement.
                     const rets = window.RiskMetrics.computeTimeWeightedReturnsFromHist(histArr);
                     const series = histArr.slice().sort((a,b) => (a.createdAt||'').localeCompare(b.createdAt||''));
                     const timestamps = series.map(p => p.createdAt).filter(Boolean);
-                    // Adjusted equity (cash flows excluded) is still used for drawdown depth/periods.
-                    const eqAdj = computeAdjustedEquitySeriesFromHist(histArr);
                     updateDrawdownPeriods(histArr);
-                    const equityNow = subaccount ? parseFloat(subaccount.equity || 0) : (eqAdj.length ? eqAdj[eqAdj.length - 1] : 0);
-                    updateRiskFromHistorical(rets, eqAdj, equityNow);
-                    if (rets.length <= 2) { setRatioNA(); updatePerformanceTables(allPositions, []); return; }
 
-                    const ann = window.RiskMetrics.computeAnnualizedFromReturns(rets, timestamps, { mar: 0, denominator: 'all' });
-                    const ppy = ann.ppy || 0;
-                    const fmtRatio = (v) => (v === null || v === undefined) ? '—' : (v === Infinity ? '∞' : v.toFixed(2));
-                    updateElement('sharpeRatio', fmtRatio(ann.sharpeAnnualized));
-                    updateElement('sortinoRatio', fmtRatio(ann.sortinoAnnualized));
-
-                    const perText = ppy > 8000 ? 'hourly' : ppy > 300 ? 'daily' : 'periodic';
-                    const sharpeMeta = document.getElementById('sharpeMeta');
-                    const sortinoMeta = document.getElementById('sortinoMeta');
-                    const tipBase = `Sampling: ${perText} (PPY ≈ ${ppy.toFixed(0)})\nMAR: 0\nReturns: time-weighted (pnlΔ / equity_{t-1}); deposits/withdrawals excluded.\nAnnualized assuming IID returns — ignores autocorrelation.`;
-                    if (sharpeMeta) sharpeMeta.title = tipBase + '\nDenominator: standard deviation (σ)';
-                    if (sortinoMeta) sortinoMeta.title = tipBase + '\nDenominator: downside deviation (target semi-deviation over all periods)';
-
-                    // Geometric Calmar: CAGR over compounded TWR wealth / |max drawdown of that same wealth curve|.
-                    // Building the wealth curve from rets keeps numerator and denominator on the same series,
-                    // so cash flows can't distort one side relative to the other.
+                    const ppy = window.RiskMetrics.detectPeriodsPerYearFromTimestamps(timestamps);
                     const years = ppy > 0 ? rets.length / ppy : 0;
+                    const coverage = histArr.length ? rets.length / histArr.length : 0;
+                    const adequate = rets.length >= MIN_RETS && years >= MIN_YEARS && coverage >= MIN_COVERAGE;
+
+                    // Compounded TWR wealth curve: drives both Calmar denominator and the
+                    // headline Max Drawdown card. Stays on the same series as the numerator
+                    // so cash flows and synthetic-equity artifacts can't distort one side.
                     let wealth = 1;
                     const compoundedWealth = [wealth];
                     for (let i = 0; i < rets.length; i++) {
@@ -1733,37 +1733,63 @@
                         compoundedWealth.push(wealth);
                     }
                     const compoundFactor = compoundedWealth[compoundedWealth.length - 1];
-                    const mddTwrFraction = computeMaxDrawdownPctFromEquity(compoundedWealth) / 100;
-                    if (years >= (1/52) && compoundFactor > 0 && mddTwrFraction > 0) {
+                    const equityNow = subaccount ? parseFloat(subaccount.equity || 0) : 0;
+
+                    if (!adequate) {
+                        const reason = rets.length < MIN_RETS
+                            ? `Need ≥${MIN_RETS} returns (have ${rets.length})`
+                            : years < MIN_YEARS
+                              ? `Need ≥1 month of valid data (have ${(years*12).toFixed(1)} months)`
+                              : `Coverage ${(coverage*100).toFixed(0)}% — most periods filtered (likely post-wipeout sample bias)`;
+                        setRatioNA(reason);
+                        // VaR/CVaR can still render if returns are sufficient on their own
+                        updateRiskFromHistorical(rets, compoundedWealth, equityNow);
+                        updatePerformanceTables(allPositions, histArr);
+                        return;
+                    }
+
+                    const ann = window.RiskMetrics.computeAnnualizedFromReturns(rets, timestamps, { mar: 0, denominator: 'all' });
+                    const fmtRatio = (v) => (v === null || v === undefined) ? '—' : (v === Infinity ? '∞' : v.toFixed(2));
+                    updateElement('sharpeRatio', fmtRatio(ann.sharpeAnnualized));
+                    updateElement('sortinoRatio', fmtRatio(ann.sortinoAnnualized));
+
+                    const perText = ppy > 8000 ? 'hourly' : ppy > 300 ? 'daily' : 'periodic';
+                    const sharpeMeta = document.getElementById('sharpeMeta');
+                    const sortinoMeta = document.getElementById('sortinoMeta');
+                    const tipBase = `Sampling: ${perText} (PPY ≈ ${ppy.toFixed(0)})
+MAR: 0
+Returns: time-weighted (pnlΔ / equity_{t-1}); deposits/withdrawals excluded.
+Annualized assuming IID returns — ignores autocorrelation.
+Sample: ${rets.length} returns over ${(years*12).toFixed(1)} months (${(coverage*100).toFixed(0)}% coverage).`;
+                    if (sharpeMeta) sharpeMeta.title = tipBase + '\nDenominator: standard deviation (σ)';
+                    if (sortinoMeta) sortinoMeta.title = tipBase + '\nDenominator: downside deviation (target semi-deviation over all periods)';
+
+                    // Headline MDD: drawdown of the compounded TWR wealth curve.
+                    const mddInfo = computeMaxDrawdownFromEquity(compoundedWealth);
+                    if (equityNow > 0 && mddInfo.pct > 0) {
+                        updateElement('maxDrawdown', mddInfo.pct.toFixed(1) + '%');
+                        // Translate the unitless wealth-curve drawdown back to a dollar
+                        // amount at current equity: dollars ≈ pct * equityNow.
+                        const dollarDD = (mddInfo.pct / 100) * equityNow;
+                        updateElement('maxDrawdownDetail', `Peak-to-trough: ${formatCurrency(-dollarDD)} (TWR @ current equity)`);
+                    } else {
+                        updateElement('maxDrawdown', '—');
+                        updateElement('maxDrawdownDetail', '');
+                    }
+
+                    const mddTwrFraction = mddInfo.pct / 100;
+                    if (compoundFactor > 0 && mddTwrFraction > 0) {
                         const cagr = Math.pow(compoundFactor, 1 / years) - 1;
                         updateElement('calmarRatio', (cagr / mddTwrFraction).toFixed(2));
                     } else {
                         updateElement('calmarRatio', '—');
                     }
 
+                    updateRiskFromHistorical(rets, compoundedWealth, equityNow);
                     updatePerformanceTables(allPositions, histArr);
                 } catch (e) {
-                    setRatioNA();
+                    setRatioNA('Failed to load historical PnL');
                     updatePerformanceTables(allPositions, []);
-                }
-            })();
-
-            // Max DD from historical equity excluding cash flows
-            (async () => {
-                try {
-                    const hist = await fetchJson(`${DYDX_API}/historical-pnl?address=${currentAddress}&subaccountNumber=0&limit=1000`);
-                    const eqAdj = computeAdjustedEquitySeriesFromHist(hist.historicalPnl || []);
-                    if (eqAdj.length > 1) {
-                        const mdd = computeMaxDrawdownFromEquity(eqAdj);
-                        updateElement('maxDrawdown', mdd.pct.toFixed(1) + '%');
-                        updateElement('maxDrawdownDetail', `Peak-to-trough: ${formatCurrency(-mdd.abs)}`);
-                    } else {
-                        updateElement('maxDrawdown','N/A');
-                        updateElement('maxDrawdownDetail','-');
-                    }
-                } catch (e) {
-                    updateElement('maxDrawdown','N/A');
-                    updateElement('maxDrawdownDetail','-');
                 }
             })();
 
