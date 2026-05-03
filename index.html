@@ -2097,10 +2097,15 @@ Sample: ${rets.length} returns over ${(years*12).toFixed(1)} months (${(coverage
         // log is rich enough to characterize the strategy. Returns are r_i = realizedPnl /
         // (size × entryPrice), the % return on notional deployed at trade entry.
         function computeTradeBasedMetrics(positions) {
+            // Match the win-rate filter used elsewhere in the dashboard: only count
+            // positions with non-zero realizedPnl so scratches / dust closes do not
+            // dilute the per-trade sample. Keeps the n value consistent with the
+            // "X / Y trades" line on the Win Rate card.
             const closed = (positions || [])
                 .filter(p => p.status === 'CLOSED')
                 .filter(p => parseFloat(p.entryPrice || 0) > 0
                           && Math.abs(parseFloat(p.sumOpen || p.size || 0)) > 0
+                          && parseFloat(p.realizedPnl || 0) !== 0
                           && p.closedAt)
                 .sort((a, b) => new Date(a.closedAt) - new Date(b.closedAt));
             const n = closed.length;
