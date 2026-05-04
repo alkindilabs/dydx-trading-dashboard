@@ -194,11 +194,19 @@
     };
   }
 
-  // Per-trade fractional return on notional deployed at entry.
+  // Per-trade fractional return on max-instantaneous notional.
+  // Denominator: maxSize × entryPrice — the largest position notional
+  // ever held during the lifecycle, NOT the cumulative entered size.
+  // For scaled-in/out positions, sumOpen overstates capital deployed
+  // and biases per-trade ratios low; maxSize (when the indexer
+  // exposes it) is the honest "peak capital at risk." Falls back to
+  // sumOpen / size when maxSize is absent so legacy responses still
+  // produce a number, with the caveat that scaled positions read
+  // smaller-than-actual returns.
   // Used by per-trade Sharpe (fallback) AND asset-level Sharpe AND
   // win/loss distribution. Returns null when notional is undefined.
   function tradeReturn(p) {
-    const sz = Math.abs(parseFloat(p.sumOpen || p.size || 0));
+    const sz = Math.abs(parseFloat(p.maxSize || p.sumOpen || p.size || 0));
     const px = parseFloat(p.entryPrice || 0);
     const pnl = parseFloat(p.realizedPnl || 0);
     if (!(sz > 0) || !(px > 0)) return null;
@@ -300,15 +308,22 @@
     }));
   }
 
-  // Worst peak-to-trough drawdown on the totalPnl series. Replaces the
-  // trade-system-only definition for accounts that built large unrealized
-  // gains and then gave them back (the trade ledger only sees the final
-  // realized P&L, missing the peak entirely).
-  function histPnlDrawdown(historicalPnl) {
-    const cums = buildCumulativeTotalPnlSeries(historicalPnl);
-    if (cums.length === 0) {
-      return { dollarDrawdown: 0, pctOfPeakProfit: 0, n: 0, peakAt: null, troughAt: null };
-    }
+  // Single peak-to-trough/peak-to-recovery scanner over a {t, c}[] series.
+  // Single source of truth for both the totalPnl-based and realizedPnl-based
+  // drawdown views — the wrappers below only differ in which series they
+  // build. Returns the worst-event summary AND the full event list so a
+  // caller never has to re-scan.
+  function scanDrawdownEvents(cums) {
+    const empty = {
+      worst: { dollarDrawdown: 0, pctOfPeakProfit: 0, n: cums.length,
+               peakAt: null, troughAt: null,
+               peakValue: 0, troughValue: 0,
+               peakIdx: -1, troughIdx: -1 },
+      events: []
+    };
+    if (cums.length === 0) return empty;
+
+    // Worst-event scan.
     let peak = cums[0].c, peakIdx = 0;
     let ddAbs = 0, ddPeakIdx = 0, ddTroughIdx = 0, ddPeak = peak;
     cums.forEach((pt, i) => {
@@ -321,115 +336,84 @@
         ddTroughIdx = i;
       }
     });
+
+    // Per-event peak → trough → recovery scan.
+    const events = [];
+    if (cums.length >= 2) {
+      let pIdx = 0;
+      for (let i = 1; i < cums.length; i++) {
+        if (cums[i].c > cums[pIdx].c) { pIdx = i; continue; }
+        let tIdx = i;
+        while (i + 1 < cums.length && cums[i + 1].c < cums[pIdx].c) {
+          if (cums[i + 1].c < cums[tIdx].c) tIdx = i + 1;
+          i += 1;
+        }
+        const recIdx = (i + 1 < cums.length && cums[i + 1].c >= cums[pIdx].c) ? i + 1 : null;
+        const peakV = cums[pIdx].c;
+        const troughV = cums[tIdx].c;
+        const depthAbs = Math.max(0, peakV - troughV);
+        if (depthAbs > 0) {
+          events.push({
+            peakAt: cums[pIdx].t,
+            troughAt: cums[tIdx].t,
+            recoveryAt: recIdx !== null ? cums[recIdx].t : null,
+            peakCum: peakV,
+            troughCum: troughV,
+            depthAbs
+          });
+        }
+        pIdx = recIdx !== null ? recIdx : tIdx;
+      }
+    }
+
     return {
-      dollarDrawdown: ddAbs,
-      pctOfPeakProfit: ddPeak > 0 ? (ddAbs / ddPeak) * 100 : 0,
-      n: cums.length,
-      peakAt: cums[ddPeakIdx].t,
-      troughAt: cums[ddTroughIdx].t,
-      peakValue: cums[ddPeakIdx].c,
-      troughValue: cums[ddTroughIdx].c
+      worst: {
+        dollarDrawdown: ddAbs,
+        pctOfPeakProfit: ddPeak > 0 ? (ddAbs / ddPeak) * 100 : 0,
+        n: cums.length,
+        peakAt: cums[ddPeakIdx].t,
+        troughAt: cums[ddTroughIdx].t,
+        peakValue: cums[ddPeakIdx].c,
+        troughValue: cums[ddTroughIdx].c,
+        peakIdx: ddPeakIdx,
+        troughIdx: ddTroughIdx
+      },
+      events
     };
+  }
+
+  // Worst peak-to-trough drawdown on the totalPnl series. Replaces the
+  // trade-system-only definition for accounts that built large unrealized
+  // gains and then gave them back (the trade ledger only sees the final
+  // realized P&L, missing the peak entirely).
+  function histPnlDrawdown(historicalPnl) {
+    return scanDrawdownEvents(buildCumulativeTotalPnlSeries(historicalPnl)).worst;
   }
 
   // Find every peak-to-recovery drawdown event on the totalPnl series.
   // Recovery = totalPnl returns to the prior peak (or higher).
   function histPnlDrawdownEvents(historicalPnl) {
-    const cums = buildCumulativeTotalPnlSeries(historicalPnl);
-    const events = [];
-    if (cums.length < 2) return events;
-    let peakIdx = 0;
-    for (let i = 1; i < cums.length; i++) {
-      if (cums[i].c > cums[peakIdx].c) { peakIdx = i; continue; }
-      let troughIdx = i;
-      while (i + 1 < cums.length && cums[i + 1].c < cums[peakIdx].c) {
-        if (cums[i + 1].c < cums[troughIdx].c) troughIdx = i + 1;
-        i += 1;
-      }
-      const recoveryIdx = (i + 1 < cums.length && cums[i + 1].c >= cums[peakIdx].c) ? i + 1 : null;
-      const peakV = cums[peakIdx].c;
-      const troughV = cums[troughIdx].c;
-      const depthAbs = Math.max(0, peakV - troughV);
-      if (depthAbs > 0) {
-        events.push({
-          peakAt: cums[peakIdx].t,
-          troughAt: cums[troughIdx].t,
-          recoveryAt: recoveryIdx ? cums[recoveryIdx].t : null,
-          peakCum: peakV,
-          troughCum: troughV,
-          depthAbs
-        });
-      }
-      peakIdx = recoveryIdx !== null ? recoveryIdx : troughIdx;
-    }
-    return events;
+    return scanDrawdownEvents(buildCumulativeTotalPnlSeries(historicalPnl)).events;
   }
 
   // Trade-system drawdown: peak-to-trough on cumulative realizedPnl over
-  // closed trades, in chronological order. The headline Max Drawdown card
-  // and the Drawdown Periods table both derive from this so the two views
-  // never disagree. Cumulative realizedPnl never has synthetic-equity
-  // artifacts (no inception-time principal proxy), so no negative-trough
-  // filter is needed here.
+  // closed trades, in chronological order. Used as the fallback when
+  // historical-pnl is unavailable. Cumulative realizedPnl never has
+  // synthetic-equity artifacts, so no negative-trough filter is needed.
   function tradeSystemDrawdown(closedPositions) {
     const { closed, cums } = buildCumulativeRealizedSeries(closedPositions);
-    if (cums.length === 0) {
-      return { dollarDrawdown: 0, pctOfPeakProfit: 0, n: 0, peakIdx: -1, troughIdx: -1 };
-    }
-    let peak = 0, peakIdx = -1;
-    let ddAbs = 0, ddPeakIdx = -1, ddTroughIdx = -1, ddPeak = 0;
-    cums.forEach((pt, i) => {
-      if (pt.c > peak) { peak = pt.c; peakIdx = i; }
-      const dd = peak - pt.c;
-      if (dd > ddAbs) {
-        ddAbs = dd;
-        ddPeak = peak;
-        ddPeakIdx = peakIdx;
-        ddTroughIdx = i;
-      }
-    });
-    return {
-      dollarDrawdown: ddAbs,
-      pctOfPeakProfit: ddPeak > 0 ? (ddAbs / ddPeak) * 100 : 0,
-      n: closed.length,
-      peakIdx: ddPeakIdx,
-      troughIdx: ddTroughIdx,
-      closed
-    };
+    const out = scanDrawdownEvents(cums).worst;
+    out.n = closed.length;
+    out.closed = closed;
+    return out;
   }
 
   // Find every peak-to-recovery drawdown event on the cumulative realizedPnl
-  // curve. Used to populate the Historical Drawdown Periods table so it
-  // cannot silently disagree with the headline MDD.
+  // curve. Used as the fallback for the Drawdown Periods table when
+  // historical-pnl is unavailable.
   function tradeSystemDrawdownEvents(closedPositions) {
     const { cums } = buildCumulativeRealizedSeries(closedPositions);
-    const events = [];
-    if (cums.length < 2) return events;
-    let peakIdx = 0;
-    for (let i = 1; i < cums.length; i++) {
-      if (cums[i].c > cums[peakIdx].c) { peakIdx = i; continue; }
-      let troughIdx = i;
-      while (i + 1 < cums.length && cums[i + 1].c < cums[peakIdx].c) {
-        if (cums[i + 1].c < cums[troughIdx].c) troughIdx = i + 1;
-        i += 1;
-      }
-      const recoveryIdx = (i + 1 < cums.length && cums[i + 1].c >= cums[peakIdx].c) ? i + 1 : null;
-      const peakV = cums[peakIdx].c;
-      const troughV = cums[troughIdx].c;
-      const depthAbs = Math.max(0, peakV - troughV);
-      if (depthAbs > 0) {
-        events.push({
-          peakAt: cums[peakIdx].t,
-          troughAt: cums[troughIdx].t,
-          recoveryAt: recoveryIdx ? cums[recoveryIdx].t : null,
-          peakCum: peakV,
-          troughCum: troughV,
-          depthAbs
-        });
-      }
-      peakIdx = recoveryIdx !== null ? recoveryIdx : troughIdx;
-    }
-    return events;
+    return scanDrawdownEvents(cums).events;
   }
 
   // Per-market P&L. Single definition: realized of CLOSED + unrealized of
