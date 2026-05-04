@@ -3,7 +3,21 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>dYdX Analytics</title>
+    <title>dydx.trading — Independent Analytics for dYdX v4 (Unaffiliated)</title>
+    <meta name="description" content="dydx.trading is an independent, third-party, read-only analytics reader for dYdX v4 traders. Not affiliated with dYdX Trading Inc., dYdX Operations Services Ltd., dYdX Foundation, or dydx.trade. No custody, no orders.">
+    <meta name="robots" content="index, follow">
+    <meta name="theme-color" content="#0E0C09">
+    <meta name="author" content="dydx.trading (independent)">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="dydx.trading (independent)">
+    <meta property="og:title" content="dydx.trading — Independent Analytics for dYdX v4">
+    <meta property="og:description" content="An independent, third-party, read-only analytics reader for dYdX v4 traders. Not affiliated with dydx.trade, dYdX Trading Inc., or dYdX Operations Services Ltd.">
+    <meta property="og:url" content="https://dydx.trading/">
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:title" content="dydx.trading — Independent Analytics for dYdX v4">
+    <meta name="twitter:description" content="An independent, read-only analytics reader. Not affiliated with dydx.trade.">
+    <link rel="canonical" href="https://dydx.trading/">
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='10' fill='%230E0C09'/><text x='50%25' y='68%25' text-anchor='middle' font-family='Georgia,Times New Roman,serif' font-style='italic' font-size='46' fill='%23D7AC60'>§</text></svg>">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght,SOFT@0,9..144,300..900,0..100;1,9..144,300..900,0..100&family=Geist:wght@300..700&family=JetBrains+Mono:wght@300..600&display=swap" rel="stylesheet">
@@ -832,10 +846,274 @@
         .tab-content.active .metric-card:nth-child(6) { animation-delay: 0.34s; }
         .tab-content.active .chart-container,
         .tab-content.active .table-container { animation: rise 0.6s cubic-bezier(0.2, 0.7, 0.1, 1) both; animation-delay: 0.16s; }
+
+        /* ─── NAMEPLATE BLOCK ─── */
+        .nameplate-block {
+            display: grid;
+            grid-template-columns: minmax(0, auto) 1fr;
+            align-items: end;
+            gap: 36px;
+            padding: 4px 0 22px;
+            margin-bottom: 22px;
+            border-bottom: 1px solid var(--rule-strong);
+            position: relative;
+        }
+        .nameplate-block::after {
+            content: '';
+            position: absolute;
+            left: 0; right: 0; bottom: -4px;
+            height: 1px;
+            background: var(--rule);
+            opacity: 0.7;
+        }
+        .nameplate {
+            font-family: var(--ff-display);
+            font-style: italic;
+            font-weight: 350;
+            font-size: clamp(56px, 8.4vw, 116px);
+            line-height: 0.84;
+            letter-spacing: -0.045em;
+            color: var(--ink);
+            font-variation-settings: 'opsz' 144, 'SOFT' 100;
+            text-rendering: geometricPrecision;
+            display: inline-flex;
+            align-items: baseline;
+            user-select: none;
+            white-space: nowrap;
+        }
+        .nameplate .np-domain { color: var(--ink); }
+        .nameplate .np-dot {
+            color: var(--ink-3);
+            margin: 0 -0.04em;
+            font-style: normal;
+            font-feature-settings: 'tnum' 0;
+        }
+        .nameplate .np-tld { color: var(--gold); }
+
+        .nameplate-kicker {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 10px;
+            text-align: right;
+            padding-bottom: 10px;
+        }
+        .kicker-mono {
+            font-family: var(--ff-mono);
+            font-size: 10px;
+            letter-spacing: 0.28em;
+            text-transform: uppercase;
+            color: var(--ink-3);
+        }
+        .kicker-mono .kicker-strike {
+            color: var(--ink-4);
+            text-decoration: line-through;
+            text-decoration-color: var(--rule-strong);
+            text-decoration-thickness: 1px;
+        }
+        .kicker-mono .gold { color: var(--gold); }
+        .kicker-italic {
+            font-family: var(--ff-display);
+            font-style: italic;
+            font-weight: 350;
+            font-size: 16px;
+            line-height: 1.4;
+            letter-spacing: -0.005em;
+            color: var(--ink-2);
+            font-variation-settings: 'opsz' 36, 'SOFT' 80;
+            max-width: 34ch;
+        }
+        @media (max-width: 880px) {
+            .nameplate-block { grid-template-columns: 1fr; gap: 12px; }
+            .nameplate-kicker { align-items: flex-start; text-align: left; padding-bottom: 0; }
+        }
+
+        /* ─── DISCLOSURE STRIP ─── */
+        .disclosure-strip {
+            position: relative;
+            margin: 22px 0 28px;
+            padding: 14px 22px;
+            display: grid;
+            grid-template-columns: max-content 1fr max-content;
+            gap: 22px;
+            align-items: center;
+            background: linear-gradient(180deg, rgba(215,172,96,0.05), rgba(215,172,96,0.012));
+            border-top: 1px solid rgba(215,172,96,0.32);
+            border-bottom: 1px solid rgba(215,172,96,0.18);
+        }
+        .disclosure-strip-eyebrow {
+            font-family: var(--ff-mono);
+            font-size: 9.5px;
+            letter-spacing: 0.32em;
+            text-transform: uppercase;
+            color: var(--gold);
+            border: 1px solid rgba(215,172,96,0.5);
+            padding: 5px 10px 4px;
+            white-space: nowrap;
+        }
+        .disclosure-strip-body {
+            font-family: var(--ff-display);
+            font-style: italic;
+            font-weight: 350;
+            font-size: 14px;
+            line-height: 1.5;
+            color: var(--ink-2);
+            letter-spacing: 0.005em;
+            font-variation-settings: 'opsz' 24, 'SOFT' 60;
+        }
+        .disclosure-strip-body strong {
+            font-family: var(--ff-sans);
+            font-style: normal;
+            font-weight: 500;
+            letter-spacing: 0.015em;
+            color: var(--ink);
+        }
+        .disclosure-strip-body em {
+            font-style: italic;
+            color: var(--gold);
+        }
+        .disclosure-strip-tags {
+            display: flex;
+            gap: 0;
+            font-family: var(--ff-mono);
+            font-size: 9.5px;
+            letter-spacing: 0.24em;
+            text-transform: uppercase;
+            color: var(--ink-3);
+            white-space: nowrap;
+        }
+        .disclosure-strip-tags span:not(:first-child)::before {
+            content: '·';
+            color: var(--ink-4);
+            margin: 0 12px;
+        }
+        @media (max-width: 880px) {
+            .disclosure-strip {
+                grid-template-columns: 1fr;
+                gap: 12px;
+                padding: 14px 16px;
+            }
+            .disclosure-strip-tags { flex-wrap: wrap; }
+        }
+
+        /* ─── COLOPHON FOOTER ─── */
+        .colophon {
+            margin-top: 96px;
+            padding-top: 36px;
+            border-top: 1px solid var(--rule-strong);
+            position: relative;
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 44px;
+        }
+        .colophon::before {
+            content: '';
+            position: absolute;
+            top: -5px; left: 0; right: 0;
+            height: 1px;
+            background: var(--rule);
+            opacity: 0.7;
+        }
+        .colophon-col { display: flex; flex-direction: column; }
+        .colophon-title {
+            font-family: var(--ff-display);
+            font-style: italic;
+            font-weight: 400;
+            font-size: 24px;
+            line-height: 1.1;
+            letter-spacing: -0.02em;
+            color: var(--ink);
+            margin-bottom: 16px;
+            font-variation-settings: 'opsz' 60, 'SOFT' 80;
+        }
+        .colophon dl { margin: 0; }
+        .colophon dt {
+            font-family: var(--ff-mono);
+            font-size: 9.5px;
+            text-transform: uppercase;
+            letter-spacing: 0.28em;
+            color: var(--gold);
+            margin-bottom: 6px;
+            margin-top: 14px;
+        }
+        .colophon dt:first-of-type { margin-top: 0; }
+        .colophon dd {
+            font-family: var(--ff-display);
+            font-style: italic;
+            font-weight: 350;
+            font-size: 14px;
+            line-height: 1.55;
+            color: var(--ink-2);
+            margin: 0;
+            letter-spacing: 0.002em;
+            font-variation-settings: 'opsz' 24, 'SOFT' 60;
+        }
+        .colophon dd strong {
+            font-family: var(--ff-sans);
+            font-style: normal;
+            font-weight: 500;
+            color: var(--ink);
+            letter-spacing: 0.015em;
+        }
+        .colophon dd em { color: var(--gold); }
+        .colophon dd a {
+            color: var(--ink);
+            text-decoration: none;
+            border-bottom: 1px dotted var(--rule-strong);
+            transition: color 0.15s, border-color 0.15s;
+        }
+        .colophon dd a:hover {
+            color: var(--gold);
+            border-bottom-color: var(--gold);
+        }
+        .colophon-imprint {
+            grid-column: 1 / -1;
+            margin-top: 36px;
+            padding-top: 22px;
+            border-top: 1px solid var(--rule);
+            font-family: var(--ff-display);
+            font-style: italic;
+            font-weight: 350;
+            font-size: 13.5px;
+            letter-spacing: 0.02em;
+            color: var(--ink-3);
+            text-align: center;
+            font-variation-settings: 'opsz' 36, 'SOFT' 80;
+        }
+        .colophon-imprint strong {
+            font-family: var(--ff-sans);
+            font-style: normal;
+            font-weight: 500;
+            color: var(--ink);
+            letter-spacing: 0.04em;
+        }
+        .colophon-imprint .vol {
+            font-family: var(--ff-mono);
+            font-style: normal;
+            font-size: 11px;
+            letter-spacing: 0.32em;
+            text-transform: uppercase;
+            color: var(--gold);
+            margin: 0 4px;
+        }
+        @media (max-width: 880px) {
+            .colophon { grid-template-columns: 1fr; gap: 28px; }
+        }
     </style>
 </head>
 <body>
     <div class="container">
+        <!-- Nameplate -->
+        <header class="nameplate-block" role="banner">
+            <a class="nameplate" href="/" aria-label="dydx.trading — independent analytics for dYdX v4">
+                <span class="np-domain">dydx</span><span class="np-dot">.</span><span class="np-tld">trading</span>
+            </a>
+            <div class="nameplate-kicker">
+                <span class="kicker-mono"><span class="gold">Independent</span> · Reader's edition · Not <span class="kicker-strike">dydx.trade</span></span>
+                <span class="kicker-italic">A third-party analytics supplement for dYdX v4 traders. Read-only public chain data.</span>
+            </div>
+        </header>
+
         <!-- Masthead -->
         <div class="header">
             <div class="masthead-left">
@@ -877,6 +1155,17 @@
             </div>
             <div id="fetchRule" class="fetch-rule" aria-hidden="true"></div>
         </div>
+
+        <!-- Disclosure / Notice strip -->
+        <aside class="disclosure-strip" role="note" aria-label="Independence notice">
+            <span class="disclosure-strip-eyebrow">Notice</span>
+            <p class="disclosure-strip-body">
+                This is <strong>dydx.trading</strong>, an independent third-party analytics reader. <em>Not affiliated</em> with, endorsed by, sponsored by, or operated by <strong>dYdX&nbsp;Trading&nbsp;Inc.</strong>, <strong>dYdX&nbsp;Operations&nbsp;Services&nbsp;Ltd.</strong>, the <strong>dYdX&nbsp;Foundation</strong>, or <strong>dydx.trade</strong>.
+            </p>
+            <span class="disclosure-strip-tags">
+                <span>Read-only</span><span>No custody</span><span>No orders</span>
+            </span>
+        </aside>
 
         <!-- Navigation -->
         <div class="nav-tabs">
@@ -1280,6 +1569,42 @@
             </div>
 
         </div>
+
+        <!-- Colophon -->
+        <footer class="colophon" role="contentinfo">
+            <section class="colophon-col">
+                <h3 class="colophon-title">About this site</h3>
+                <dl>
+                    <dt>Publication</dt>
+                    <dd><strong>dydx.trading</strong> — an independent analytics reader for dYdX v4 traders.</dd>
+                    <dt>Method</dt>
+                    <dd>Strictly read-only. The site never holds private keys, never custodies funds, never signs transactions, and never routes orders.</dd>
+                </dl>
+            </section>
+            <section class="colophon-col">
+                <h3 class="colophon-title">Independence</h3>
+                <dl>
+                    <dt>Not affiliated</dt>
+                    <dd>This site is <em>not</em> affiliated with, endorsed by, sponsored by, or operated by <strong>dYdX&nbsp;Trading&nbsp;Inc.</strong>, <strong>dYdX&nbsp;Operations&nbsp;Services&nbsp;Ltd.</strong>, the <strong>dYdX&nbsp;Foundation</strong>, or any operator of <strong>dydx.trade</strong>.</dd>
+                    <dt>Trademarks</dt>
+                    <dd>"dYdX" and related marks are property of their respective owners and appear here for purposes of accurate description only.</dd>
+                </dl>
+            </section>
+            <section class="colophon-col">
+                <h3 class="colophon-title">Sources &amp; notes</h3>
+                <dl>
+                    <dt>Data</dt>
+                    <dd>All figures derived from the public dYdX&nbsp;v4 Indexer at <a href="https://indexer.dydx.trade/v4" target="_blank" rel="noopener noreferrer external">indexer.dydx.trade/v4</a>.</dd>
+                    <dt>Disclaimer</dt>
+                    <dd>This site does <em>not</em> provide investment, financial, legal, or trading advice.</dd>
+                    <dt>Source code</dt>
+                    <dd><a href="https://github.com/0xferit/dydx-trading-dashboard" target="_blank" rel="noopener noreferrer external">github.com/0xferit/dydx-trading-dashboard</a></dd>
+                </dl>
+            </section>
+            <p class="colophon-imprint">
+                <strong>dydx.trading</strong><span class="vol">·&nbsp;MMXXVI&nbsp;·</span>An independent reader for dYdX&nbsp;v4 traders. Not <span style="text-decoration:line-through;text-decoration-color:var(--rule-strong);color:var(--ink-4)">dydx.trade</span>.
+            </p>
+        </footer>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3"></script>
