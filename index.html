@@ -2131,6 +2131,19 @@
             return apr.toFixed(2) + '%';
         }
 
+        // Tooltip for the funding-rate cells: shows the underlying hourly rate
+        // at full precision (no decimal cap — by design for this surface only,
+        // since hourly funding rates are inherently sub-1% and the user asked
+        // to inspect raw precision on hover).
+        function formatHourlyDetail(rawFraction) {
+            if (rawFraction === null || rawFraction === undefined || rawFraction === '') return '—';
+            const n = parseFloat(rawFraction);
+            if (!isFinite(n)) return '—';
+            const pct = n * 100;
+            const bps = n * 10000;
+            return `Hourly fraction: ${rawFraction}\nHourly %: ${pct}%\nHourly bps: ${bps} bps\n— × 8760 = APR shown in cell`;
+        }
+
         // Unsigned dollar formatter for prices (entry / exit / oracle / liq).
         // Same K / M / 2-decimal rules as formatCurrency but no leading "+/-"
         // since prices are always non-negative — a "+$76.80K" entry-price
@@ -3534,8 +3547,10 @@ Small-N caveat: standard error widens; not a forward-Sharpe forecast.`;
                 const status = e.net > 0 ? 'profit' : e.net < 0 ? 'loss' : '';
                 const currApr = (parseFloat(e.current) || 0);
                 appendCell(tr, e.ticker);
-                appendCell(tr, formatFundingApr(parseFloat(e.current)), ['mono', currApr < 0 ? 'loss' : 'profit']);
-                appendCell(tr, formatFundingApr(parseFloat(e.predicted)), ['mono']);
+                const currTd = appendCell(tr, formatFundingApr(parseFloat(e.current)), ['mono', currApr < 0 ? 'loss' : 'profit']);
+                currTd.title = formatHourlyDetail(e.current);
+                const predTd = appendCell(tr, formatFundingApr(parseFloat(e.predicted)), ['mono']);
+                predTd.title = formatHourlyDetail(e.predicted);
                 appendCell(tr, formatCurrency(e.received), ['mono', 'profit']);
                 appendCell(tr, formatCurrency(-e.paid), ['mono', 'loss']);
                 appendCell(tr, formatCurrency(e.net), ['mono', status]);
