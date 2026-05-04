@@ -281,6 +281,90 @@
     return { closed, cums };
   }
 
+  // Build a clean cumulative trading-P&L series from /historical-pnl rows.
+  // dYdX's `totalPnl` field is realized + unrealized P&L excluding net
+  // transfers — the canonical "what did this account make from trading"
+  // measurement at each timestamp. This series captures unrealized peaks
+  // (e.g. a +$364K open profit that later got given back) which the
+  // closed-trade ledger cannot see.
+  function buildCumulativeTotalPnlSeries(historicalPnl) {
+    const arr = (historicalPnl || [])
+      .filter(r => r && r.createdAt && r.totalPnl !== undefined && r.totalPnl !== null)
+      .slice()
+      .sort((a, b) => (
+        new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+      ));
+    return arr.map(r => ({
+      t: r.createdAt,
+      c: parseFloat(r.totalPnl || 0)
+    }));
+  }
+
+  // Worst peak-to-trough drawdown on the totalPnl series. Replaces the
+  // trade-system-only definition for accounts that built large unrealized
+  // gains and then gave them back (the trade ledger only sees the final
+  // realized P&L, missing the peak entirely).
+  function histPnlDrawdown(historicalPnl) {
+    const cums = buildCumulativeTotalPnlSeries(historicalPnl);
+    if (cums.length === 0) {
+      return { dollarDrawdown: 0, pctOfPeakProfit: 0, n: 0, peakAt: null, troughAt: null };
+    }
+    let peak = cums[0].c, peakIdx = 0;
+    let ddAbs = 0, ddPeakIdx = 0, ddTroughIdx = 0, ddPeak = peak;
+    cums.forEach((pt, i) => {
+      if (pt.c > peak) { peak = pt.c; peakIdx = i; }
+      const dd = peak - pt.c;
+      if (dd > ddAbs) {
+        ddAbs = dd;
+        ddPeak = peak;
+        ddPeakIdx = peakIdx;
+        ddTroughIdx = i;
+      }
+    });
+    return {
+      dollarDrawdown: ddAbs,
+      pctOfPeakProfit: ddPeak > 0 ? (ddAbs / ddPeak) * 100 : 0,
+      n: cums.length,
+      peakAt: cums[ddPeakIdx].t,
+      troughAt: cums[ddTroughIdx].t,
+      peakValue: cums[ddPeakIdx].c,
+      troughValue: cums[ddTroughIdx].c
+    };
+  }
+
+  // Find every peak-to-recovery drawdown event on the totalPnl series.
+  // Recovery = totalPnl returns to the prior peak (or higher).
+  function histPnlDrawdownEvents(historicalPnl) {
+    const cums = buildCumulativeTotalPnlSeries(historicalPnl);
+    const events = [];
+    if (cums.length < 2) return events;
+    let peakIdx = 0;
+    for (let i = 1; i < cums.length; i++) {
+      if (cums[i].c > cums[peakIdx].c) { peakIdx = i; continue; }
+      let troughIdx = i;
+      while (i + 1 < cums.length && cums[i + 1].c < cums[peakIdx].c) {
+        if (cums[i + 1].c < cums[troughIdx].c) troughIdx = i + 1;
+        i += 1;
+      }
+      const recoveryIdx = (i + 1 < cums.length && cums[i + 1].c >= cums[peakIdx].c) ? i + 1 : null;
+      const peakV = cums[peakIdx].c;
+      const troughV = cums[troughIdx].c;
+      const depthAbs = Math.max(0, peakV - troughV);
+      if (depthAbs > 0) {
+        events.push({
+          peakAt: cums[peakIdx].t,
+          troughAt: cums[troughIdx].t,
+          recoveryAt: recoveryIdx ? cums[recoveryIdx].t : null,
+          peakCum: peakV,
+          troughCum: troughV,
+          depthAbs
+        });
+      }
+      peakIdx = recoveryIdx !== null ? recoveryIdx : troughIdx;
+    }
+    return events;
+  }
+
   // Trade-system drawdown: peak-to-trough on cumulative realizedPnl over
   // closed trades, in chronological order. The headline Max Drawdown card
   // and the Drawdown Periods table both derive from this so the two views
@@ -421,6 +505,9 @@
     assessAdequacy,
     tradeSystemDrawdown,
     tradeSystemDrawdownEvents,
+    histPnlDrawdown,
+    histPnlDrawdownEvents,
+    buildCumulativeTotalPnlSeries,
     marketPnL,
     crossMarginLiqPrice,
     ADEQUACY: {
