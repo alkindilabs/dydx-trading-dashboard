@@ -22,6 +22,8 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght,SOFT@0,9..144,300..900,0..100;1,9..144,300..900,0..100&family=Geist:wght@300..700&family=JetBrains+Mono:wght@300..600&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-financial@0.2.1/dist/chartjs-chart-financial.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js"></script>
     <style>
         :root {
@@ -1653,7 +1655,6 @@
         </footer>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3"></script>
     <script src="./risk-metrics.js"></script>
     <script src="./portfolio-cache.js"></script>
     <script>
@@ -3521,10 +3522,10 @@ Small-N caveat: standard error widens; not a forward-Sharpe forecast.`;
             const spanMs = new Date(cumsRaw[cumsRaw.length - 1].t).getTime() - new Date(cumsRaw[0].t).getTime();
             const spanDays = spanMs / 86400000;
             const xAxisUnit = spanDays > 350 ? 'month' : spanDays > 50 ? 'week' : 'day';
-            // Downsample to one sample per period so the chart line + cursor
-            // resolution match the chosen tick unit. End-of-bucket sample wins
-            // since the input is sorted ascending. The headline Max Drawdown
-            // card stays on the full hourly series (separate computation).
+            // Aggregate OHLC per period from the full hourly series so each
+            // candle shows intra-period high / low / open / close of cumulative
+            // profit. Headline Max Drawdown stays on the full hourly series
+            // (separate computation in RiskMetrics.histPnlDrawdown).
             const bucketKey = (t) => {
                 const d = new Date(t);
                 if (xAxisUnit === 'week') {
@@ -3534,49 +3535,58 @@ Small-N caveat: standard error widens; not a forward-Sharpe forecast.`;
                 if (xAxisUnit === 'month') {
                     return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1);
                 }
-                return new Date(t).getTime();
+                return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
             };
-            const cums = xAxisUnit === 'day'
-                ? cumsRaw
-                : (() => {
-                    const bucketed = new Map();
-                    for (const p of cumsRaw) bucketed.set(bucketKey(p.t), p);
-                    return [...bucketed.values()];
-                })();
-            const labels = cums.map(p => new Date(p.t));
-            const cum = cums.map(p => p.c);
-            // Running peak on full data, then sampled at the displayed timestamps,
-            // so the dashed peak line stays honest about all-time peaks ever seen.
-            const fullPeakByT = new Map();
+            const ohlcMap = new Map();
+            for (const p of cumsRaw) {
+                const k = bucketKey(p.t);
+                let b = ohlcMap.get(k);
+                if (!b) {
+                    ohlcMap.set(k, { x: k, o: p.c, h: p.c, l: p.c, c: p.c });
+                } else {
+                    if (p.c > b.h) b.h = p.c;
+                    if (p.c < b.l) b.l = p.c;
+                    b.c = p.c; // sorted asc → last point in bucket = close
+                }
+            }
+            const ohlc = [...ohlcMap.values()];
+            // Running peak on full hourly data, sampled at end-of-bucket so the
+            // dashed peak line stays honest about all-time peaks ever seen.
+            const fullPeakByBucket = new Map();
             let _peak = -Infinity;
             for (const p of cumsRaw) {
                 if (p.c > _peak) _peak = p.c;
-                fullPeakByT.set(p.t, _peak);
+                fullPeakByBucket.set(bucketKey(p.t), _peak);
             }
-            const peakLine = cums.map(p => fullPeakByT.get(p.t));
+            const peakLine = ohlc.map(b => ({ x: b.x, y: fullPeakByBucket.get(b.x) }));
             try {
                 if (window.pnlChart) { window.pnlChart.destroy(); }
                 window.pnlChart = new Chart(el.getContext('2d'), {
-                    type: 'line',
+                    type: 'candlestick',
                     data: {
-                        labels,
                         datasets: [{
+                            type: 'candlestick',
+                            label: 'Cumulative Profit',
+                            data: ohlc,
+                            color: {
+                                up: 'rgba(143,170,114,0.92)',
+                                down: 'rgba(203,92,80,0.92)',
+                                unchanged: 'rgba(215,172,96,0.92)'
+                            },
+                            borderColor: {
+                                up: '#8FAA72',
+                                down: '#CB5C50',
+                                unchanged: '#D7AC60'
+                            }
+                        }, {
+                            type: 'line',
                             label: 'Running Peak',
                             data: peakLine,
-                            borderColor: 'rgba(215,172,96,0.42)',
+                            borderColor: 'rgba(215,172,96,0.55)',
                             borderDash: [4, 4],
                             borderWidth: 1,
                             fill: false,
                             pointRadius: 0
-                        }, {
-                            label: 'Cumulative Realized Profit',
-                            data: cum,
-                            borderColor: '#D7AC60',
-                            backgroundColor: 'rgba(203,92,80,0.22)',
-                            borderWidth: 1.8,
-                            fill: '-1',
-                            pointRadius: 0,
-                            tension: 0
                         }]
                     },
                     options: {
@@ -3627,17 +3637,22 @@ Small-N caveat: standard error widens; not a forward-Sharpe forecast.`;
                                 titleFont: { family: "'Fraunces', serif", style: 'italic', size: 13, weight: '400' },
                                 bodyFont: { family: "'JetBrains Mono', monospace", size: 11 },
                                 callbacks: {
-                                    title: (items) => items[0] && items[0].label
+                                    title: (items) => items[0]
                                         ? new Date(items[0].parsed.x).toISOString().slice(0, 10)
                                         : '',
                                     label: (ctx) => {
-                                        const v = ctx.parsed.y;
                                         if (ctx.dataset.label === 'Running Peak') {
-                                            return `Peak: ${formatCurrency(v)}`;
+                                            return `Peak:  ${formatCurrency(ctx.parsed.y)}`;
                                         }
-                                        const idx = ctx.dataIndex;
-                                        const dd = peakLine[idx] - cum[idx];
-                                        const lines = [`Cumulative Profit: ${formatCurrency(v)}`];
+                                        const r = ctx.raw;
+                                        const peakHere = fullPeakByBucket.get(r.x);
+                                        const dd = peakHere != null ? peakHere - r.l : 0;
+                                        const lines = [
+                                            `Open:  ${formatCurrency(r.o)}`,
+                                            `High:  ${formatCurrency(r.h)}`,
+                                            `Low:   ${formatCurrency(r.l)}`,
+                                            `Close: ${formatCurrency(r.c)}`
+                                        ];
                                         if (dd > 0) lines.push(`Drawdown: ${formatCurrency(-dd)}`);
                                         return lines;
                                     }
