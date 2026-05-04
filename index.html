@@ -704,17 +704,11 @@
             .two-column, .three-column { grid-template-columns: 1fr; }
         }
 
-        /* OVERVIEW: chart + activity-by-market layout */
-        .overview-split {
-            display: grid;
-            grid-template-columns: 1.6fr 1fr;
-            gap: 24px;
-            margin-bottom: 28px;
+        /* OVERVIEW: hero equity curve + narrower activity row */
+        .chart-container--narrow {
+            max-width: clamp(420px, 58%, 780px);
         }
-        @media (max-width: 1100px) {
-            .overview-split { grid-template-columns: 1fr; }
-        }
-        .overview-split .chart-container { margin-bottom: 0; }
+        .chart-container--hero { margin-bottom: 32px; }
 
         /* RISK BAR */
         .risk-bar {
@@ -1268,23 +1262,23 @@
                 </div>
             </div>
 
-            <!-- Equity & Activity split -->
-            <div class="overview-split">
-                <div class="chart-container">
-                    <div class="chart-header">
-                        <div class="chart-title">Cumulative Profit with Drawdown Periods</div>
-                    </div>
-                    <canvas id="pnlCumulativeChart" class="mini-chart" style="height: 300px"></canvas>
+            <!-- Equity curve — hero chart, full row -->
+            <div class="chart-container chart-container--hero">
+                <div class="chart-header">
+                    <div class="chart-title">Cumulative Profit with Drawdown Periods</div>
                 </div>
-                <div class="chart-container">
-                    <div class="chart-header">
-                        <div class="chart-title">Trading Activity by Market</div>
-                    </div>
-                    <div class="canvas-wrap" style="position: relative; height: 320px;">
-                        <canvas id="marketDistributionChart"></canvas>
-                    </div>
-                    <div id="marketDistributionLegend" class="market-legend"></div>
+                <canvas id="pnlCumulativeChart" class="mini-chart" style="height: 380px"></canvas>
+            </div>
+
+            <!-- Trading activity by market — own row, narrower -->
+            <div class="chart-container chart-container--narrow">
+                <div class="chart-header">
+                    <div class="chart-title">Trading Activity by Market</div>
                 </div>
+                <div class="canvas-wrap" style="position: relative; height: 320px;">
+                    <canvas id="marketDistributionChart"></canvas>
+                </div>
+                <div id="marketDistributionLegend" class="market-legend"></div>
             </div>
 
             <!-- Quick Stats Grid -->
