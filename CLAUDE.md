@@ -34,6 +34,19 @@ The Trading Activity chart (doughnut chart on Overview tab) shows:
 4. Auto-load from URL if address parameter present
 5. **No metric is better than a wrong metric.** If a number can't be computed correctly from available data, render `—` and label "Data not available". Do not invent placeholder formulas.
 
+### Last-address cache (`portfolio-cache.js`)
+
+`loadDashboard()` runs a stale-while-revalidate cycle: on page load it tries to paint a cached snapshot before any network call, then always issues the foreground fetches and overwrites both `allData` and the cache slot when every endpoint succeeds. Reloads of the same address feel instant; the user still gets fresh data within the normal fetch window.
+
+- **Storage key**: `dydxCache:v1`. Single slot, address-keyed. Loading a different address overwrites the slot.
+- **Schema**: `{ v: 1, address, fetchedAt, data }` where `data` is the raw response map (`subaccount`, `openPositions`, `orders`, `markets`, `closedPositions`, `fills`, `fundingPayments`, `historicalPnl`). Derived fields like `allData.positions` are NOT persisted — `processData()` rebuilds them on hydrate. When the response shape of any cached field changes, bump `SCHEMA_VERSION` in `portfolio-cache.js` so old payloads are rejected as stale.
+- **Compression**: `LZString.compressToUTF16` (~3:1 on JSON-shaped data). Loaded from CDN alongside Chart.js; if the CDN fails, `PortfolioCache` no-ops cleanly and the dashboard behaves exactly as it did before the cache existed.
+- **Eviction order** on `QuotaExceededError` (largest payloads first): `fills` → `fundingPayments` → `historicalPnl` trimmed to last 5000 rows → `closedPositions`. Each step is retried once before the next is applied; if the slot still won't fit, the cache write is skipped silently.
+- **Persistence rule**: snapshot is written only when **all** endpoints succeed in a refresh, so a partial fetch can never replace a complete cache with a degraded one. `lastAddress` is still written on every successful load as the address-only fallback.
+- **Forget**: clears both `lastAddress` and `dydxCache:v1`.
+
+`PortfolioCache.read(address)` returns the cached `data` map (or `null` on miss / schema mismatch / address mismatch / corruption). `PortfolioCache.write(address, snapshot)` accepts a raw response map and handles compression + eviction. `PortfolioCache.clear()` drops the slot. The pure helpers `pack`, `unpack`, and `evictOnce` are exported on `_internal` for unit testing without LZString or localStorage.
+
 ## Metric Definitions (single source of truth)
 
 All trade-classification, return, drawdown, and adequacy logic lives in `risk-metrics.js` on `window.RiskMetrics`. **Do not recompute these inline in `index.html` — call the helper.** When semantics change, update the helper AND this section in the same commit.
