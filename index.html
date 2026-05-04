@@ -2099,6 +2099,17 @@
             return value.toFixed(1) + '%';
         }
 
+        // Strict 2-decimal cap for raw numeric strings from the indexer (prices,
+        // sizes, etc.). The dYdX API returns entryPrice/exitPrice/size as
+        // arbitrary-precision strings; rendering them verbatim leaks values
+        // like "76802.55482999999999999998". Always parse + cap.
+        function fmtNum(value) {
+            if (value === null || value === undefined || value === '') return '-';
+            const n = parseFloat(value);
+            if (!isFinite(n)) return '-';
+            return n.toFixed(2);
+        }
+
         // Generic paginator over a dYdX indexer collection endpoint. Walks
         // back to inception so every metric (closed-trade ledger, fills
         // volume, funding flow, historical-pnl drawdown) reflects the FULL
@@ -2854,14 +2865,14 @@ Sample: ${rets.length} returns over ${(adq.years*12).toFixed(1)} months (${(adq.
                     ? ((parseFloat(p.exitPrice) - parseFloat(p.entryPrice)) / parseFloat(p.entryPrice)) * (p.side === 'LONG' ? 100 : -100)
                     : 0;
                 const funding = parseFloat(p.netFunding || 0);
-                const sizeShown = String(p.maxSize || p.sumOpen || p.size || 0);
+                const sizeShown = fmtNum(p.maxSize || p.sumOpen || p.size || 0);
 
                 appendCell(tr, isFinite(closed.getTime()) ? closed.toLocaleString() : '—', ['mono']);
                 appendCell(tr, p.market || '-', ['mono']);
                 appendCell(tr, (p.side || '').toUpperCase(), ['mono']);
                 appendCell(tr, sizeShown, ['mono']);
-                appendCell(tr, p.entryPrice || '-', ['mono']);
-                appendCell(tr, p.exitPrice || '-', ['mono']);
+                appendCell(tr, fmtNum(p.entryPrice), ['mono']);
+                appendCell(tr, fmtNum(p.exitPrice), ['mono']);
                 appendCell(tr, formatCurrency(realized), ['mono', realized >= 0 ? 'profit' : 'loss']);
                 appendCell(tr, pct.toFixed(2) + '%', ['mono', pct >= 0 ? 'profit' : 'loss']);
                 appendCell(tr, durationText, ['mono']);
@@ -3264,7 +3275,7 @@ Small-N caveat: standard error widens; not a forward-Sharpe forecast.`;
                 }
                 const tr = document.createElement('tr');
                 appendCell(tr, `${market} ${side}`);
-                appendCell(tr, size ? size.toFixed(4) : '—', ['mono']);
+                appendCell(tr, size ? size.toFixed(2) : '—', ['mono']);
                 appendCell(tr, lev !== null && lev !== undefined ? lev.toFixed(2) + 'x' : '—', ['mono']);
                 appendCell(tr, entry ? entry.toFixed(2) : '—', ['mono']);
                 appendCell(tr, oracle ? oracle.toFixed(2) : '—', ['mono']);
@@ -3488,8 +3499,8 @@ Small-N caveat: standard error widens; not a forward-Sharpe forecast.`;
                 const currPct = (parseFloat(e.current) || 0) * 100;
                 const predPct = (parseFloat(e.predicted) || 0) * 100;
                 appendCell(tr, e.ticker);
-                appendCell(tr, currPct.toFixed(3) + '%', ['mono', currPct < 0 ? 'loss' : 'profit']);
-                appendCell(tr, predPct.toFixed(3) + '%', ['mono']);
+                appendCell(tr, currPct.toFixed(2) + '%', ['mono', currPct < 0 ? 'loss' : 'profit']);
+                appendCell(tr, predPct.toFixed(2) + '%', ['mono']);
                 appendCell(tr, formatCurrency(e.received), ['mono', 'profit']);
                 appendCell(tr, formatCurrency(-e.paid), ['mono', 'loss']);
                 appendCell(tr, formatCurrency(e.net), ['mono', status]);
