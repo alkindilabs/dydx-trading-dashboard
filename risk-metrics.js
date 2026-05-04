@@ -486,8 +486,11 @@
   // Per-position liquidation price under cross-margin assuming OTHER open
   // positions hold their current uPnL contribution. Exact for accounts with
   // a single open position; an isolation approximation otherwise.
-  // Long:  P_liq = oracle − equity / (size × (1 − MMF))
-  // Short: P_liq = (equity + oracle × |size|) / (|size| × (1 + MMF))
+  //
+  // Derivation — at liquidation, equity equals maintenance margin requirement
+  // computed off liquidation-price notional:
+  //   LONG:  E + S·(P_liq − O) = S·P_liq·MMF  →  P_liq = (S·O − E) / (S·(1 − MMF))
+  //   SHORT: E + |S|·(O − P_liq) = |S|·P_liq·MMF  →  P_liq = (E + |S|·O) / (|S|·(1 + MMF))
   // Returns null when MMF / size / equity unavailable.
   function crossMarginLiqPrice(position, subaccount, marketsMap) {
     if (!position || !subaccount) return null;
@@ -502,7 +505,7 @@
     if (side === 'LONG') {
       const denom = size * (1 - mmf);
       if (denom <= 0) return null;
-      return Math.max(0, oracle - equity / denom);
+      return Math.max(0, (size * oracle - equity) / denom);
     }
     if (side === 'SHORT') {
       const denom = size * (1 + mmf);
@@ -510,6 +513,44 @@
       return (equity + oracle * size) / denom;
     }
     return null;
+  }
+
+  // Account-level leverage utilization — sum of |size|×oracle across open
+  // positions ÷ subaccount equity. Notional prefers ORACLE (mark) over entry
+  // to match dYdX's official UI; falls back to entry when oracle is missing.
+  // Position objects from /perpetualPositions don't carry oraclePrice; the
+  // marketsMap lookup is the canonical source. Returns null when equity is
+  // non-positive or no usable notional exists.
+  function leverageUtilization(positions, subaccount, marketsMap) {
+    const equity = subaccount ? parseFloat(subaccount.equity || 0) : 0;
+    if (!(equity > 0)) return null;
+    const open = (positions || []).filter(p => p && p.status === 'OPEN');
+    const notional = open.reduce((s, p) => {
+      const sz = Math.abs(parseFloat(p.size || 0));
+      const m = (marketsMap && marketsMap[p.market]) || {};
+      const px = parseFloat(p.oraclePrice || m.oraclePrice || p.entryPrice || 0);
+      return (sz > 0 && px > 0) ? s + sz * px : s;
+    }, 0);
+    return notional > 0 ? notional / equity : null;
+  }
+
+  // Per-row liquidation table data. Pure compute; the caller renders. Notional
+  // / leverage source matches leverageUtilization (oracle-first) so the
+  // account-level card and per-row LEVERAGE column never diverge.
+  function liquidationRow(position, subaccount, marketsMap) {
+    if (!position || !subaccount) return null;
+    const m = (marketsMap && marketsMap[position.market]) || {};
+    const size = Math.abs(parseFloat(position.size || 0));
+    const entry = parseFloat(position.entryPrice || 0);
+    const oracle = parseFloat(position.oraclePrice || m.oraclePrice || 0);
+    const equity = parseFloat(subaccount.equity || 0);
+    const notional = size * (oracle || entry || 0);
+    const lev = (equity > 0 && notional > 0) ? notional / equity : null;
+    const liq = crossMarginLiqPrice(position, subaccount, marketsMap);
+    const distancePct = (oracle > 0 && liq !== null && isFinite(liq))
+      ? Math.abs((oracle - liq) / oracle) * 100
+      : null;
+    return { size, entry, oracle, notional, lev, liq, distancePct };
   }
 
   window.RiskMetrics = {
@@ -533,6 +574,8 @@
     buildCumulativeTotalPnlSeries,
     marketPnL,
     crossMarginLiqPrice,
+    leverageUtilization,
+    liquidationRow,
     ADEQUACY: {
       MIN_RETS: ADEQUACY_MIN_RETS,
       MIN_YEARS: ADEQUACY_MIN_YEARS,

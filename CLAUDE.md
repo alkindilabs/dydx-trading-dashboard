@@ -77,13 +77,21 @@ Helper: `RiskMetrics.assessAdequacy(returns, timestamps, histLength)` → `{ ade
 When the time-series gate fails, Sharpe/Sortino/Calmar fall back to `computeTradeBasedMetrics(positions)` which derives an annualized per-trade Sharpe from the realized-P&L log. VaR/CVaR have no fallback — they render `—` with the gate reason.
 
 ### Cross-margin liquidation price
-dYdX is cross-margin. Per-position liq price assumes OTHER open positions hold their current uPnL contribution — exact for single-position accounts; isolation approximation otherwise.
-- LONG:  `P_liq = oracle − equity / (size × (1 − MMF))`
+dYdX is cross-margin. Per-position liq price assumes OTHER open positions hold their current uPnL contribution — exact for single-position accounts; isolation approximation otherwise. Derivation: at liquidation, account equity equals maintenance margin requirement computed off liquidation-price notional (`MMR = |size| × P_liq × MMF`).
+- LONG:  `P_liq = (size × oracle − equity) / (size × (1 − MMF))`
 - SHORT: `P_liq = (equity + oracle × |size|) / (|size| × (1 + MMF))`
 
 Helper: `RiskMetrics.crossMarginLiqPrice(position, subaccount, marketsMap)` returns `null` when MMF / size / equity unavailable.
 
-The Liquidation Risk Analysis table's LEVERAGE column shows `notional / subaccount.equity` (account-level utilization attributed to each position by notional share). Per-position equity does not exist on the dYdX API.
+The Liquidation Risk Analysis table's LEVERAGE column shows `notional / subaccount.equity` where `notional = |size| × oracle` (mark-based, matches dYdX's official UI). Falls back to entry price when oracle is unavailable. Per-position equity does not exist on the dYdX API.
+
+Two display-side helpers wrap the formula so the Risk-tab Leverage card and the per-row LEVERAGE column never diverge: `RiskMetrics.leverageUtilization(positions, subaccount, marketsMap)` returns the account-level ratio; `RiskMetrics.liquidationRow(position, subaccount, marketsMap)` returns `{ size, entry, oracle, notional, lev, liq, distancePct }`. Position objects from `/perpetualPositions` do **not** carry `oraclePrice` — the oracle price lives on `marketsMap[market].oraclePrice`. Both helpers and `crossMarginLiqPrice` follow the same fallback chain `position.oraclePrice || marketsMap[market].oraclePrice || position.entryPrice`. All three are unit-tested in `test/risk-metrics.test.js`.
+
+## Tests
+
+`node --test test/` runs the regression suite for `risk-metrics.js`. The suite pins formulas that have shipped bugs in the past: cross-margin liq price (LONG and SHORT), leverage notional source, oracle field path, indexer-zeroed `realizedPnl` repair, drawdown family, sample-adequacy gate, classifier. CI runs the same command on every push and PR via `.github/workflows/test.yml`.
+
+When semantics of any helper change, update `risk-metrics.js`, the calling sites, this section, AND the test in the same commit.
 
 ### Sign convention
 **Losses always render as negative dollars.** Helper: `formatCurrency(value)` with negative input. Avg Loss / Trough cum P&L / Worst columns must pass `-Math.abs(loss)` so the displayed sign matches the visual loss styling.
