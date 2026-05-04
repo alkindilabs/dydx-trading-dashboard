@@ -168,6 +168,44 @@
   // drawdown calls these instead of recomputing inline.
   // ---------------------------------------------------------------------------
 
+  // Repair indexer-zeroed realizedPnl for older closed positions. dYdX's
+  // indexer is observed to return realizedPnl=0 for many positions before a
+  // certain date even when entry/exit prices clearly diverge. Without this
+  // patch the dashboard mis-classifies real losses/wins as scratches and
+  // shows $0 P&L for entire months. The fallback uses VWAP entry/exit and
+  // the maxSize field (peak position size; falls through to sumOpen / size
+  // when absent), producing gross price-difference P&L. Approximate — does
+  // NOT include fees — but a far better signal than zero.
+  //
+  // Mutates positions in place: sets `p.realizedPnl` to a stringified
+  // number and `p._derivedRealizedPnl = true` for transparency. Returns a
+  // summary `{correctedCount, totalCorrectedAbs}` so the caller can surface
+  // a banner.
+  function normalizeRealizedPnl(positions) {
+    let correctedCount = 0;
+    let totalCorrectedAbs = 0;
+    (positions || []).forEach(p => {
+      if (!p || p.status !== 'CLOSED') return;
+      const indexerRp = parseFloat(p.realizedPnl);
+      // Trust the indexer when it reports a non-zero value.
+      if (isNumber(indexerRp) && indexerRp !== 0) return;
+      const e = parseFloat(p.entryPrice || 0);
+      const x = parseFloat(p.exitPrice || 0);
+      const sz = Math.abs(parseFloat(p.maxSize || p.sumOpen || p.size || 0));
+      // Need real prices, real size, and a price move; otherwise leave the
+      // zero in place (truly a scratch or insufficient data).
+      if (!(e > 0) || !(x > 0) || !(sz > 0) || e === x) return;
+      const sideMult = (p.side || '').toUpperCase() === 'LONG' ? 1 : -1;
+      const computed = (x - e) * sz * sideMult;
+      if (!isNumber(computed) || computed === 0) return;
+      p.realizedPnl = String(computed);
+      p._derivedRealizedPnl = true;
+      correctedCount++;
+      totalCorrectedAbs += Math.abs(computed);
+    });
+    return { correctedCount, totalCorrectedAbs };
+  }
+
   // Classify closed positions into wins / losses / scratches by realizedPnl
   // sign. Scratches (realizedPnl == 0) are tracked separately and excluded
   // from win-rate-style ratios.
@@ -484,6 +522,7 @@
     computeAnnualizedFromReturns,
     computeAnnualizedFromHistoricalPnl,
     classifyClosed,
+    normalizeRealizedPnl,
     tradeReturn,
     validDrawdownFromEquity,
     assessAdequacy,
