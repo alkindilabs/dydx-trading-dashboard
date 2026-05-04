@@ -224,17 +224,110 @@
             background: linear-gradient(180deg, rgba(143,170,114,0.07), rgba(143,170,114,0.02));
             border-color: rgba(143,170,114,0.35);
         }
-        .status-badge.live::before {
+        .status-badge.live::before,
+        .status-badge.fetching::before,
+        .status-badge.offline::before {
             content: '';
             width: 6px; height: 6px; border-radius: 50%;
+            flex-shrink: 0;
+        }
+        .status-badge.live::before {
             background: var(--gain);
             animation: pulse 2.4s infinite;
-            flex-shrink: 0;
         }
         @keyframes pulse {
             0%   { box-shadow: 0 0 0 0 rgba(143,170,114,0.6); }
             70%  { box-shadow: 0 0 0 8px rgba(143,170,114,0); }
             100% { box-shadow: 0 0 0 0 rgba(143,170,114,0); }
+        }
+
+        /* fetching state — gold pulse, faster cadence */
+        .status-badge.fetching {
+            color: var(--gold);
+            background: linear-gradient(180deg, rgba(215,172,96,0.10), rgba(215,172,96,0.02));
+            border-color: rgba(215,172,96,0.42);
+        }
+        .status-badge.fetching::before {
+            background: var(--gold);
+            animation: pulse-gold 1.1s infinite;
+        }
+        @keyframes pulse-gold {
+            0%   { box-shadow: 0 0 0 0 rgba(215,172,96,0.7); }
+            70%  { box-shadow: 0 0 0 8px rgba(215,172,96,0); }
+            100% { box-shadow: 0 0 0 0 rgba(215,172,96,0); }
+        }
+
+        /* offline state — fully failed load */
+        .status-badge.offline {
+            color: var(--loss);
+            background: linear-gradient(180deg, rgba(203,92,80,0.08), rgba(203,92,80,0.02));
+            border-color: rgba(203,92,80,0.4);
+        }
+        .status-badge.offline::before { background: var(--loss); }
+
+        /* hairline sweep along masthead bottom rule */
+        .fetch-rule {
+            position: absolute;
+            left: 0; right: 0;
+            bottom: -4px;
+            height: 1px;
+            overflow: hidden;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.25s ease-out;
+            z-index: 2;
+        }
+        .fetch-rule.active { opacity: 1; }
+        .fetch-rule::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(
+                90deg,
+                transparent 0%,
+                rgba(215,172,96,0) 28%,
+                rgba(215,172,96,0.95) 50%,
+                rgba(215,172,96,0) 72%,
+                transparent 100%
+            );
+            background-size: 220% 100%;
+            animation: sweep 1.6s linear infinite;
+        }
+        @keyframes sweep {
+            from { background-position: 100% 0; }
+            to   { background-position: -120% 0; }
+        }
+
+        /* endpoint progress caption — small editorial mono cap */
+        .fetch-caption {
+            font-family: var(--ff-mono);
+            font-size: 9.5px;
+            letter-spacing: 0.22em;
+            text-transform: uppercase;
+            color: var(--ink-3);
+            display: none;
+            align-items: baseline;
+            gap: 9px;
+            flex-basis: 100%;
+            justify-content: flex-end;
+            margin-top: 4px;
+        }
+        .fetch-caption.active { display: flex; }
+        .fetch-caption .gold { color: var(--gold); }
+        .fetch-caption .sep  { color: var(--ink-4); }
+        .fetch-caption .dots::after {
+            content: '···';
+            display: inline-block;
+            width: 1.4em;
+            text-align: left;
+            color: var(--ink-4);
+            animation: dots 1.4s steps(4, end) infinite;
+        }
+        @keyframes dots {
+            0%, 24%   { clip-path: inset(0 100% 0 0); }
+            33%       { clip-path: inset(0 66%  0 0); }
+            66%       { clip-path: inset(0 33%  0 0); }
+            99%, 100% { clip-path: inset(0 0    0 0); }
         }
 
         /* NAV TABS */
@@ -776,7 +869,7 @@
                 <div class="breadcrumb" id="breadcrumb">dYdX Account Analytics</div>
             </div>
             <div class="header-right">
-                <span class="status-badge live">LIVE</span>
+                <span id="statusBadge" class="status-badge live">LIVE</span>
                 <div class="address-controls">
                     <input id="addressInput"
                            class="address-input mono"
@@ -791,7 +884,18 @@
                 <div class="address mono" id="addressDisplay">-</div>
                 <button id="addressForgetBtn" class="address-btn" style="display:none;" title="Clear stored address">Forget</button>
                 <div id="loadErrorBanner" class="error-banner" hidden></div>
+                <div id="fetchCaption" class="fetch-caption" role="status" aria-live="polite">
+                    <span class="gold" id="fetchCaptionVerb">Fetching</span>
+                    <span class="sep">·</span>
+                    <span id="fetchCaptionLabel">connecting</span>
+                    <span class="sep" id="fetchCaptionPageSep" hidden>·</span>
+                    <span id="fetchCaptionPage" hidden></span>
+                    <span class="sep">·</span>
+                    <span id="fetchCaptionTally">0/0</span>
+                    <span class="dots" aria-hidden="true"></span>
+                </div>
             </div>
+            <div id="fetchRule" class="fetch-rule" aria-hidden="true"></div>
         </div>
 
         <!-- Navigation -->
@@ -1281,6 +1385,76 @@
             });
         });
 
+        // Fetch progress controller. Drives the FETCHING badge state, the
+        // hairline sweep under the masthead, and the small endpoint caption
+        // so a user staring at a slow indexer page knows the load is alive.
+        const FetchProgress = (() => {
+            const badge   = document.getElementById('statusBadge');
+            const rule    = document.getElementById('fetchRule');
+            const caption = document.getElementById('fetchCaption');
+            const elLabel = document.getElementById('fetchCaptionLabel');
+            const elPageSep = document.getElementById('fetchCaptionPageSep');
+            const elPage  = document.getElementById('fetchCaptionPage');
+            const elTally = document.getElementById('fetchCaptionTally');
+            const elVerb  = document.getElementById('fetchCaptionVerb');
+            let total = 0;
+            let done  = 0;
+            let active = false;
+
+            function paint(label, page) {
+                if (elLabel) elLabel.textContent = label || 'connecting';
+                if (page && page > 1) {
+                    if (elPageSep) elPageSep.hidden = false;
+                    if (elPage) { elPage.hidden = false; elPage.textContent = `pg ${page}`; }
+                } else {
+                    if (elPageSep) elPageSep.hidden = true;
+                    if (elPage) { elPage.hidden = true; elPage.textContent = ''; }
+                }
+                if (elTally) elTally.textContent = `${done}/${total}`;
+            }
+
+            function begin(taskCount) {
+                total = taskCount | 0;
+                done  = 0;
+                active = true;
+                if (badge) {
+                    badge.classList.remove('live', 'offline');
+                    badge.classList.add('fetching');
+                    badge.textContent = 'FETCHING';
+                }
+                if (rule)    rule.classList.add('active');
+                if (caption) caption.classList.add('active');
+                if (elVerb)  elVerb.textContent = 'Fetching';
+                paint('connecting', 0);
+            }
+            function update(label, page) {
+                if (!active) return;
+                paint(label, page);
+            }
+            function taskDone(label) {
+                if (!active) return;
+                done = Math.min(done + 1, total);
+                paint(label || elLabel.textContent, 0);
+            }
+            function end(state /* 'ok' | 'partial' | 'offline' */) {
+                active = false;
+                if (rule)    rule.classList.remove('active');
+                if (caption) caption.classList.remove('active');
+                if (!badge) return;
+                badge.classList.remove('fetching');
+                if (state === 'offline') {
+                    badge.classList.remove('live');
+                    badge.classList.add('offline');
+                    badge.textContent = 'OFFLINE';
+                } else {
+                    badge.classList.remove('offline');
+                    badge.classList.add('live');
+                    badge.textContent = state === 'partial' ? 'LIVE · PARTIAL' : 'LIVE';
+                }
+            }
+            return { begin, update, taskDone, end };
+        })();
+
         // Banner used by the load handler and dashboard fetcher to surface
         // validation/network errors to the user.
         function showLoadError(msg) {
@@ -1519,7 +1693,8 @@
         async function fetchAllPaginated(opts) {
             const {
                 urlBase, joiner = '&', dataKeys, keyFn,
-                pageLimit, maxPages, label, mode = 'cursor'
+                pageLimit, maxPages, label, mode = 'cursor',
+                onProgress = null
             } = opts;
             let cursor = null;
             let pageNum = 1;
@@ -1540,6 +1715,9 @@
                     extraParam = `&page=${pageNum}`;
                 }
                 const url = `${urlBase}${joiner}limit=${pageLimit}${extraParam}`;
+                if (onProgress) {
+                    try { onProgress(label, i + 1); } catch (_) {}
+                }
                 let page;
                 try {
                     page = await fetchJson(url);
@@ -1588,7 +1766,7 @@
         }
 
         // /historical-pnl rows have no canonical id; use createdAt+blockHeight.
-        async function fetchAllHistoricalPnl(encodedAddress) {
+        async function fetchAllHistoricalPnl(encodedAddress, onProgress) {
             const all = await fetchAllPaginated({
                 urlBase: `${DYDX_API}/historical-pnl?address=${encodedAddress}&subaccountNumber=0`,
                 joiner: '&',
@@ -1596,7 +1774,8 @@
                 keyFn: r => `${r.createdAt}|${r.blockHeight}`,
                 pageLimit: HIST_PAGE_LIMIT,
                 maxPages: HIST_MAX_PAGES,
-                label: 'historical-pnl'
+                label: 'historical-pnl',
+                onProgress
             });
             return { historicalPnl: all };
         }
@@ -1605,7 +1784,7 @@
         // orders by openEventId DESC, which is monotonic with createdAt, so
         // the cursor walks back chronologically. createdAtHeight is the
         // unique block height of the open event — sufficient for dedup.
-        async function fetchAllClosedPositions(encodedAddress) {
+        async function fetchAllClosedPositions(encodedAddress, onProgress) {
             const all = await fetchAllPaginated({
                 urlBase: `${DYDX_API}/perpetualPositions?address=${encodedAddress}&subaccountNumber=0&status=CLOSED`,
                 joiner: '&',
@@ -1613,13 +1792,14 @@
                 keyFn: r => `${r.createdAt}|${r.createdAtHeight || ''}|${r.market}|${r.side}|${r.entryPrice}`,
                 pageLimit: POS_PAGE_LIMIT,
                 maxPages: POS_MAX_PAGES,
-                label: 'closedPositions'
+                label: 'closedPositions',
+                onProgress
             });
             return { positions: all };
         }
 
         // /fills rows expose a UUID `id`.
-        async function fetchAllFills(encodedAddress) {
+        async function fetchAllFills(encodedAddress, onProgress) {
             const all = await fetchAllPaginated({
                 urlBase: `${DYDX_API}/fills?address=${encodedAddress}&subaccountNumber=0`,
                 joiner: '&',
@@ -1627,7 +1807,8 @@
                 keyFn: r => r.id || `${r.createdAt}|${r.market}|${r.side}|${r.size}|${r.price}`,
                 pageLimit: FILLS_PAGE_LIMIT,
                 maxPages: FILLS_MAX_PAGES,
-                label: 'fills'
+                label: 'fills',
+                onProgress
             });
             return { fills: all };
         }
@@ -1635,7 +1816,7 @@
         // /fundingPayments uses 1-indexed offset pagination via `page=N`
         // (does not accept createdBeforeOrAt). No canonical id; use a
         // composite of all human-meaningful fields for dedup.
-        async function fetchAllFundingPayments(encodedAddress) {
+        async function fetchAllFundingPayments(encodedAddress, onProgress) {
             const all = await fetchAllPaginated({
                 urlBase: `${DYDX_API}/fundingPayments?address=${encodedAddress}&subaccountNumber=0`,
                 joiner: '&',
@@ -1644,7 +1825,8 @@
                 pageLimit: FUNDING_PAGE_LIMIT,
                 maxPages: FUNDING_MAX_PAGES,
                 label: 'fundingPayments',
-                mode: 'page'
+                mode: 'page',
+                onProgress
             });
             return { fundingPayments: all };
         }
@@ -1698,16 +1880,24 @@
                 ['orders',        `${DYDX_API}/orders?address=${encodedAddress}&subaccountNumber=0&limit=1000`],
                 ['markets',       `${DYDX_API}/perpetualMarkets`]
             ];
+            const onPageProgress = (label, page) => FetchProgress.update(label, page);
             const PAGINATED = [
-                ['closedPositions', () => fetchAllClosedPositions(encodedAddress)],
-                ['fills',           () => fetchAllFills(encodedAddress)],
-                ['fundingPayments', () => fetchAllFundingPayments(encodedAddress)],
-                ['historicalPnl',   () => fetchAllHistoricalPnl(encodedAddress)]
+                ['closedPositions', () => fetchAllClosedPositions(encodedAddress, onPageProgress)],
+                ['fills',           () => fetchAllFills(encodedAddress, onPageProgress)],
+                ['fundingPayments', () => fetchAllFundingPayments(encodedAddress, onPageProgress)],
+                ['historicalPnl',   () => fetchAllHistoricalPnl(encodedAddress, onPageProgress)]
             ];
 
+            FetchProgress.begin(SINGLE_PAGE.length + PAGINATED.length);
+            // Each task tags FetchProgress as it settles so the X/Y tally
+            // ticks even when paginated tasks finish out of declaration order.
+            const tagged = (label, p) => p.then(
+                v => { FetchProgress.taskDone(label); return v; },
+                e => { FetchProgress.taskDone(label); throw e; }
+            );
             const settled = await Promise.allSettled([
-                ...SINGLE_PAGE.map(([, url]) => fetchJson(url)),
-                ...PAGINATED.map(([, fn]) => fn())
+                ...SINGLE_PAGE.map(([k, url]) => tagged(k, fetchJson(url))),
+                ...PAGINATED.map(([k, fn]) => tagged(k, fn()))
             ]);
 
             const dataKeys = SINGLE_PAGE.map(([k]) => k).concat(PAGINATED.map(([k]) => k));
@@ -1725,6 +1915,7 @@
 
             if (failed.length === settled.length) {
                 showLoadError(`All endpoints failed (${failed.length}). Check network and address.`);
+                FetchProgress.end('offline');
                 return;
             }
             if (failed.length > 0) {
@@ -1738,8 +1929,11 @@
             } catch (e) {
                 console.error('Render error:', e);
                 showLoadError(`Render error: ${e && e.message || e}`);
+                FetchProgress.end('offline');
                 return;
             }
+
+            FetchProgress.end(failed.length > 0 ? 'partial' : 'ok');
 
             // Persist only after a successful load so a typo never replaces a
             // known-good address.
