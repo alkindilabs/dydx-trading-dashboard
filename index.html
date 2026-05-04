@@ -3555,8 +3555,22 @@ Small-N caveat: standard error widens; not a forward-Sharpe forecast.`;
                         scales: {
                             x: {
                                 type: 'time',
-                                time: { unit: 'day' },
-                                ticks: { color: 'rgba(176,161,135,0.85)', font: { family: "'JetBrains Mono', monospace", size: 10 } },
+                                time: {
+                                    tooltipFormat: 'yyyy-MM-dd',
+                                    displayFormats: {
+                                        day: 'MMM d',
+                                        week: 'MMM d',
+                                        month: 'MMM yyyy'
+                                    }
+                                },
+                                ticks: {
+                                    color: 'rgba(176,161,135,0.85)',
+                                    font: { family: "'JetBrains Mono', monospace", size: 10 },
+                                    maxRotation: 0,
+                                    autoSkip: true,
+                                    autoSkipPadding: 16,
+                                    maxTicksLimit: 12
+                                },
                                 grid: { color: 'rgba(74,62,44,0.32)' }
                             },
                             y: {
