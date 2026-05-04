@@ -2099,15 +2099,35 @@
             return value.toFixed(1) + '%';
         }
 
-        // Strict 2-decimal cap for raw numeric strings from the indexer (prices,
-        // sizes, etc.). The dYdX API returns entryPrice/exitPrice/size as
-        // arbitrary-precision strings; rendering them verbatim leaks values
-        // like "76802.55482999999999999998". Always parse + cap.
+        // Universal numeric formatter for non-currency values. Parses raw
+        // indexer strings (which can carry 14+ decimals like
+        // "76802.55482999999999999998") and renders with the same K / M
+        // abbreviation rule as formatCurrency, capped at 2 decimals — so a
+        // "91K" abbreviation never sits next to a raw "91000" elsewhere on
+        // the same page.
         function fmtNum(value) {
             if (value === null || value === undefined || value === '') return '-';
             const n = parseFloat(value);
             if (!isFinite(n)) return '-';
-            return n.toFixed(2);
+            const a = Math.abs(n);
+            const sign = n < 0 ? '-' : '';
+            if (a >= 1e6) return sign + (a / 1e6).toFixed(2) + 'M';
+            if (a >= 1e3) return sign + (a / 1e3).toFixed(2) + 'K';
+            return sign + a.toFixed(2);
+        }
+
+        // Unsigned dollar formatter for prices (entry / exit / oracle / liq).
+        // Same K / M / 2-decimal rules as formatCurrency but no leading "+/-"
+        // since prices are always non-negative — a "+$76.80K" entry-price
+        // reads weird.
+        function formatPrice(value) {
+            if (value === null || value === undefined || value === '') return '-';
+            const n = typeof value === 'number' ? value : parseFloat(value);
+            if (!isFinite(n)) return '-';
+            const a = Math.abs(n);
+            if (a >= 1e6) return '$' + (a / 1e6).toFixed(2) + 'M';
+            if (a >= 1e3) return '$' + (a / 1e3).toFixed(2) + 'K';
+            return '$' + a.toFixed(2);
         }
 
         // Generic paginator over a dYdX indexer collection endpoint. Walks
@@ -2830,7 +2850,7 @@ Sample: ${rets.length} returns over ${(adq.years*12).toFixed(1)} months (${(adq.
                 return sum + (size * entry);
             }, 0);
             updateElement('positionsActiveCount', String(activeCount));
-            updateElement('positionsActiveNotional', activeCount > 0 ? `$${activeNotional.toFixed(2)}` : '-');
+            updateElement('positionsActiveNotional', activeCount > 0 ? formatPrice(activeNotional) : '-');
 
             const totalFills = Array.isArray(fills) ? fills.length : 0;
             if (totalFills > 0) {
@@ -2871,8 +2891,8 @@ Sample: ${rets.length} returns over ${(adq.years*12).toFixed(1)} months (${(adq.
                 appendCell(tr, p.market || '-', ['mono']);
                 appendCell(tr, (p.side || '').toUpperCase(), ['mono']);
                 appendCell(tr, sizeShown, ['mono']);
-                appendCell(tr, fmtNum(p.entryPrice), ['mono']);
-                appendCell(tr, fmtNum(p.exitPrice), ['mono']);
+                appendCell(tr, formatPrice(p.entryPrice), ['mono']);
+                appendCell(tr, formatPrice(p.exitPrice), ['mono']);
                 appendCell(tr, formatCurrency(realized), ['mono', realized >= 0 ? 'profit' : 'loss']);
                 appendCell(tr, pct.toFixed(2) + '%', ['mono', pct >= 0 ? 'profit' : 'loss']);
                 appendCell(tr, durationText, ['mono']);
@@ -3053,9 +3073,10 @@ Sample: ${rets.length} returns over ${(adq.years*12).toFixed(1)} months (${(adq.
         function formatShortNumber(n) {
             if (!isFinite(n)) return '∞';
             const a = Math.abs(n);
-            if (a >= 1e6) return (n/1e6).toFixed(1) + 'M';
-            if (a >= 1e3) return (n/1e3).toFixed(1) + 'K';
-            return n.toFixed(0);
+            const sign = n < 0 ? '-' : '';
+            if (a >= 1e6) return sign + (a/1e6).toFixed(2) + 'M';
+            if (a >= 1e3) return sign + (a/1e3).toFixed(2) + 'K';
+            return sign + a.toFixed(2);
         }
 
         // Annualized per-trade Sharpe from a closed-trade list. Single helper
@@ -3275,11 +3296,11 @@ Small-N caveat: standard error widens; not a forward-Sharpe forecast.`;
                 }
                 const tr = document.createElement('tr');
                 appendCell(tr, `${market} ${side}`);
-                appendCell(tr, size ? size.toFixed(2) : '—', ['mono']);
+                appendCell(tr, size ? fmtNum(size) : '—', ['mono']);
                 appendCell(tr, lev !== null && lev !== undefined ? lev.toFixed(2) + 'x' : '—', ['mono']);
-                appendCell(tr, entry ? entry.toFixed(2) : '—', ['mono']);
-                appendCell(tr, oracle ? oracle.toFixed(2) : '—', ['mono']);
-                appendCell(tr, (liq !== null && liq !== undefined && isFinite(liq)) ? liq.toFixed(2) : '—', ['mono', scoreClass]);
+                appendCell(tr, entry ? formatPrice(entry) : '—', ['mono']);
+                appendCell(tr, oracle ? formatPrice(oracle) : '—', ['mono']);
+                appendCell(tr, (liq !== null && liq !== undefined && isFinite(liq)) ? formatPrice(liq) : '—', ['mono', scoreClass]);
                 appendCell(tr, (distancePct !== null && distancePct !== undefined) ? distancePct.toFixed(1) + '%' : '—', ['mono']);
                 appendCell(tr, scoreLabel, ['mono', scoreClass]);
                 body.appendChild(tr);
