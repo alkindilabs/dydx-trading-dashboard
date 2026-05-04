@@ -1,0 +1,35 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "dydx-trading",
+  "compatibility_date": "2025-03-07",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Deploys MUST land in the `alkindi` Cloudflare account, not a personal one.
+  // Either fill in the literal account ID below, or set CLOUDFLARE_ACCOUNT_ID
+  // in your shell before running `wrangler deploy`.
+  // "account_id": "<alkindi-account-id>",
+
+  // Pure static site — no Worker entrypoint. Cloudflare's edge serves files
+  // directly from the assets directory. The `.assetsignore` file inside the
+  // directory excludes private project files (test/, package.json, CLAUDE.md,
+  // etc.) so they never reach the public bucket.
+  "assets": {
+    "directory": "./",
+    "not_found_handling": "404-page"
+  },
+
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  }
+
+  // Custom domain — uncomment after the dydx.trading zone is added to your
+  // Cloudflare account (Dashboard -> Add a Site). Wrangler will then attach
+  // the route on `wrangler deploy`. Until then, the Worker is reachable at
+  // https://dydx-trading.<your-subdomain>.workers.dev.
+  //
+  // "routes": [
+  //   { "pattern": "dydx.trading", "custom_domain": true },
+  //   { "pattern": "www.dydx.trading", "custom_domain": true }
+  // ]
+}
