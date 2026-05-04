@@ -22,14 +22,4 @@
     "enabled": true,
     "head_sampling_rate": 1
   }
-
-  // Custom domain — uncomment after the dydx.trading zone is added to your
-  // Cloudflare account (Dashboard -> Add a Site). Wrangler will then attach
-  // the route on `wrangler deploy`. Until then, the Worker is reachable at
-  // https://dydx-trading.<your-subdomain>.workers.dev.
-  //
-  // "routes": [
-  //   { "pattern": "dydx.trading", "custom_domain": true },
-  //   { "pattern": "www.dydx.trading", "custom_domain": true }
-  // ]
 }
