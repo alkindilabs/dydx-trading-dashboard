@@ -434,7 +434,29 @@
             padding: 24px 28px 28px;
             margin-bottom: 36px;
             position: relative;
-            height: 420px;
+            height: 480px;
+        }
+        .market-legend {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 14px 22px;
+            justify-content: center;
+            margin-top: 14px;
+            font-family: var(--ff-mono);
+            font-size: 12px;
+            color: var(--ink);
+            letter-spacing: 0.04em;
+        }
+        .market-legend-item {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .market-legend-swatch {
+            width: 12px;
+            height: 12px;
+            border-radius: 2px;
+            display: inline-block;
         }
         .chart-header {
             display: flex;
@@ -800,7 +822,10 @@
                     <div class="chart-header">
                         <div class="chart-title">Trading Activity by Market</div>
                     </div>
-                    <canvas id="marketDistributionChart" class="mini-chart" style="height: 300px"></canvas>
+                    <div class="canvas-wrap" style="position: relative; height: 320px;">
+                        <canvas id="marketDistributionChart"></canvas>
+                    </div>
+                    <div id="marketDistributionLegend" class="market-legend"></div>
                 </div>
             </div>
 
@@ -2611,34 +2636,7 @@ Small-N caveat: standard error widens; not a forward-Sharpe forecast.`;
                     maintainAspectRatio: false,
                     cutout: '62%',
                     plugins: {
-                        legend: {
-                            position: 'bottom',
-                            align: 'center',
-                            labels: {
-                                color: 'rgba(239,229,210,0.92)',
-                                padding: 16,
-                                font: {
-                                    family: "'Geist', system-ui, sans-serif",
-                                    size: 12,
-                                    weight: '500'
-                                },
-                                boxWidth: 12,
-                                boxHeight: 8,
-                                generateLabels: function(chart) {
-                                    const data = chart.data;
-                                    const total = data.datasets[0].data.reduce((a, b) => a + b, 0);
-                                    return data.labels.map((label, i) => {
-                                        const value = data.datasets[0].data[i];
-                                        const percentage = ((value / total) * 100).toFixed(1);
-                                        return {
-                                            text: `${label} — ${percentage}%`,
-                                            fillStyle: data.datasets[0].backgroundColor[i],
-                                            index: i
-                                        };
-                                    });
-                                }
-                            }
-                        },
+                        legend: { display: false },
                         tooltip: {
                             backgroundColor: 'rgba(14,12,9,0.97)',
                             titleColor: 'rgba(239,229,210,0.95)',
@@ -2665,6 +2663,23 @@ Small-N caveat: standard error widens; not a forward-Sharpe forecast.`;
                     }
                 }
             });
+
+            // Render legend in plain HTML below the canvas. Chart.js native
+            // legend either clipped or rendered with low contrast on this
+            // dark background; HTML gives us full CSS control.
+            const legendEl = document.getElementById('marketDistributionLegend');
+            if (legendEl) {
+                const total = data.reduce((a, b) => a + b, 0);
+                legendEl.innerHTML = sortedMarkets.map(([market, md], i) => {
+                    const pct = total > 0 ? ((md.tradeCount / total) * 100).toFixed(1) : '0.0';
+                    return `
+                        <span class="market-legend-item">
+                            <span class="market-legend-swatch" style="background:${backgroundColors[i]}"></span>
+                            ${market} ${pct}%
+                        </span>
+                    `;
+                }).join('');
+            }
         }
 
         // Cumulative realized P&L over closed trades, with running peak and
