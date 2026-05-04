@@ -3523,6 +3523,9 @@ Small-N caveat: standard error widens; not a forward-Sharpe forecast.`;
             const peakLine = [];
             let peak = -Infinity;
             cum.forEach(v => { if (v > peak) peak = v; peakLine.push(peak); });
+            const spanMs = new Date(cums[cums.length - 1].t).getTime() - new Date(cums[0].t).getTime();
+            const spanDays = spanMs / 86400000;
+            const xAxisUnit = spanDays > 350 ? 'month' : spanDays > 50 ? 'week' : 'day';
             try {
                 if (window.pnlChart) { window.pnlChart.destroy(); }
                 window.pnlChart = new Chart(el.getContext('2d'), {
@@ -3556,6 +3559,7 @@ Small-N caveat: standard error widens; not a forward-Sharpe forecast.`;
                             x: {
                                 type: 'time',
                                 time: {
+                                    unit: xAxisUnit,
                                     tooltipFormat: 'yyyy-MM-dd',
                                     displayFormats: {
                                         day: 'MMM d',
