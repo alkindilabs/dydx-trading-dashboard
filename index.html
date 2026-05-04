@@ -17,10 +17,11 @@
             --paper-4:      #25201B;
             --ink:          #EFE5D2;
             --ink-2:        #B0A187;
-            --ink-3:        #6F6553;
-            --ink-4:        #4A4232;
-            --rule:         #2C261D;
-            --rule-strong:  #4A3E2C;
+            /* ink-3/ink-4 sized for WCAG AA (4.5:1 body, 3:1 large) on paper. */
+            --ink-3:        #978B73;
+            --ink-4:        #6F6553;
+            --rule:         #3A3225;
+            --rule-strong:  #5C4F3A;
             --gain:         #8FAA72;
             --loss:         #CB5C50;
             --warn:         #CA9555;
@@ -1539,6 +1540,7 @@
             let allPositions = [];
             allPositions = allPositions.concat(extractPositions(allData.openPositions));
             allPositions = allPositions.concat(extractPositions(allData.closedPositions));
+            allData.positions = allPositions;
 
             // Single source of truth for trade classification, drawdown, and
             // per-market P&L — computed ONCE up front and threaded through to
@@ -2610,10 +2612,11 @@ Small-N caveat: standard error widens; not a forward-Sharpe forecast.`;
                     cutout: '62%',
                     plugins: {
                         legend: {
-                            position: 'right',
+                            position: 'bottom',
+                            align: 'center',
                             labels: {
-                                color: 'rgba(239,229,210,0.9)',
-                                padding: 14,
+                                color: 'rgba(239,229,210,0.92)',
+                                padding: 16,
                                 font: {
                                     family: "'Geist', system-ui, sans-serif",
                                     size: 12,
@@ -2664,47 +2667,52 @@ Small-N caveat: standard error widens; not a forward-Sharpe forecast.`;
             });
         }
 
-        // Adjusted equity series with shaded drawdown.
-        // Caller passes the historical-pnl payload (already loaded by
-        // loadDashboard) so we don't refetch.
-        function renderCumulativePnlChart(historicalPnlPayload) {
+        // Cumulative realized P&L over closed trades, with running peak and
+        // shaded underwater region. Same trade-system series that drives
+        // the headline Max Drawdown card and Drawdown Periods table — the
+        // chart can't disagree with the cards.
+        function renderCumulativePnlChart(positions) {
             const el = document.getElementById('pnlCumulativeChart');
             if (!el) return;
+            const closed = (positions || [])
+                .filter(p => p && p.status === 'CLOSED' && p.closedAt)
+                .slice()
+                .sort((a, b) => new Date(a.closedAt) - new Date(b.closedAt));
+            if (closed.length < 2) return;
+            const labels = [];
+            const cum = [];
+            const peakLine = [];
+            let running = 0, peak = 0;
+            closed.forEach(p => {
+                running += parseFloat(p.realizedPnl || 0);
+                if (running > peak) peak = running;
+                labels.push(new Date(p.closedAt));
+                cum.push(running);
+                peakLine.push(peak);
+            });
             try {
-                const arr = (historicalPnlPayload && historicalPnlPayload.historicalPnl) || [];
-                const pairs = computeAdjustedEquityPairsFromHist(arr);
-                if (pairs.length === 0) return;
-                const labels = pairs.map(p => new Date(p.t));
-                const equityAdj = pairs.map(p => p.e);
-                let peak = -Infinity;
-                const drawdowns = equityAdj.map(v => {
-                    peak = Math.max(peak, v);
-                    return peak > 0 ? (v - peak) / peak : 0;
-                });
                 if (window.pnlChart) { window.pnlChart.destroy(); }
                 window.pnlChart = new Chart(el.getContext('2d'), {
                     type: 'line',
                     data: {
                         labels,
                         datasets: [{
-                            label: 'Equity (no cash flows)',
-                            data: equityAdj,
+                            label: 'Running Peak',
+                            data: peakLine,
+                            borderColor: 'rgba(215,172,96,0.42)',
+                            borderDash: [4, 4],
+                            borderWidth: 1,
+                            fill: false,
+                            pointRadius: 0
+                        }, {
+                            label: 'Cumulative Realized P&L',
+                            data: cum,
                             borderColor: '#D7AC60',
-                            backgroundColor: 'rgba(215,172,96,0.10)',
-                            borderWidth: 1.6,
-                            fill: true,
+                            backgroundColor: 'rgba(203,92,80,0.22)',
+                            borderWidth: 1.8,
+                            fill: '-1',
                             pointRadius: 0,
-                            tension: 0.22
-                        },{
-                            label: 'Drawdown (%)',
-                            data: drawdowns.map(d => d * 100),
-                            yAxisID: 'y1',
-                            borderColor: 'rgba(203,92,80,0.78)',
-                            backgroundColor: 'rgba(203,92,80,0.10)',
-                            borderWidth: 1.2,
-                            fill: true,
-                            pointRadius: 0,
-                            tension: 0.22
+                            tension: 0
                         }]
                     },
                     options: {
@@ -2715,31 +2723,46 @@ Small-N caveat: standard error widens; not a forward-Sharpe forecast.`;
                             x: {
                                 type: 'time',
                                 time: { unit: 'day' },
-                                ticks: { color: 'rgba(176,161,135,0.7)', font: { family: "'JetBrains Mono', monospace", size: 10 } },
+                                ticks: { color: 'rgba(176,161,135,0.85)', font: { family: "'JetBrains Mono', monospace", size: 10 } },
                                 grid: { color: 'rgba(74,62,44,0.32)' }
                             },
                             y: {
-                                ticks: { color: 'rgba(239,229,210,0.78)', font: { family: "'JetBrains Mono', monospace", size: 10 } },
+                                ticks: {
+                                    color: 'rgba(239,229,210,0.85)',
+                                    font: { family: "'JetBrains Mono', monospace", size: 10 },
+                                    callback: (v) => formatCurrency(v)
+                                },
                                 grid: { color: 'rgba(74,62,44,0.32)' }
-                            },
-                            y1: {
-                                position: 'right',
-                                ticks: { color: 'rgba(203,92,80,0.85)', font: { family: "'JetBrains Mono', monospace", size: 10 } },
-                                grid: { drawOnChartArea: false }
                             }
                         },
                         plugins: {
                             legend: { display: false },
                             tooltip: {
                                 backgroundColor: 'rgba(14,12,9,0.97)',
-                                titleColor: 'rgba(239,229,210,0.95)',
-                                bodyColor: 'rgba(176,161,135,0.95)',
+                                titleColor: 'rgba(239,229,210,0.98)',
+                                bodyColor: 'rgba(239,229,210,0.92)',
                                 borderColor: 'rgba(74,62,44,0.9)',
                                 borderWidth: 1,
                                 padding: 12,
                                 cornerRadius: 0,
                                 titleFont: { family: "'Fraunces', serif", style: 'italic', size: 13, weight: '400' },
-                                bodyFont: { family: "'JetBrains Mono', monospace", size: 11 }
+                                bodyFont: { family: "'JetBrains Mono', monospace", size: 11 },
+                                callbacks: {
+                                    title: (items) => items[0] && items[0].label
+                                        ? new Date(items[0].parsed.x).toISOString().slice(0, 10)
+                                        : '',
+                                    label: (ctx) => {
+                                        const v = ctx.parsed.y;
+                                        if (ctx.dataset.label === 'Running Peak') {
+                                            return `Peak: ${formatCurrency(v)}`;
+                                        }
+                                        const idx = ctx.dataIndex;
+                                        const dd = peakLine[idx] - cum[idx];
+                                        const lines = [`Cumulative P&L: ${formatCurrency(v)}`];
+                                        if (dd > 0) lines.push(`Drawdown: ${formatCurrency(-dd)}`);
+                                        return lines;
+                                    }
+                                }
                             }
                         }
                     }
@@ -2912,8 +2935,8 @@ Small-N caveat: standard error widens; not a forward-Sharpe forecast.`;
                 activateTab('overview');
             }
             await loadDashboard();
-            if (currentAddress && allData.historicalPnl) {
-                renderCumulativePnlChart(allData.historicalPnl);
+            if (currentAddress && allData.positions) {
+                renderCumulativePnlChart(allData.positions);
             }
         });
     </script>
