@@ -1383,13 +1383,24 @@
         // can run longer, so we permit 38–58.
         const ADDRESS_RE = /^dydx1[qpzry9x8gf2tvdw0s3jn54khce6mua7l]{38,58}$/;
         const FETCH_TIMEOUT_MS = 30000;
-        // Mirrors fetchAllHistoricalPnl's MAX_PAGES × PAGE_LIMIT cap. Used by
-        // the headline "since YYYY-MM-DD" caption to detect when paginated
-        // history was silently truncated. Update both together if pagination
-        // tunables change.
+        // Pagination tunables. The MAX_PAGES values are defensive ceilings,
+        // not artificial caps on real data: each is set ~10× a reasonable
+        // upper bound for an active dYdX trader so legitimate accounts
+        // never hit them. If hit, console.warn fires and the load banner
+        // reports truncation.
+        //   historicalPnl: 1000/page hourly → 200 pages = ~22 years
+        //   closedPositions: 100/page (indexer cap) → 500 pages = 50K trades
+        //   fills: 1000/page → 200 pages = 200K fills
+        //   fundingPayments: 1000/page → 100 pages = 100K payments
         const HIST_PAGE_LIMIT = 1000;
-        const HIST_MAX_PAGES = 24;
+        const HIST_MAX_PAGES = 200;
         const HIST_CAP = HIST_MAX_PAGES * HIST_PAGE_LIMIT;
+        const POS_PAGE_LIMIT = 100;
+        const POS_MAX_PAGES = 500;
+        const FILLS_PAGE_LIMIT = 1000;
+        const FILLS_MAX_PAGES = 200;
+        const FUNDING_PAGE_LIMIT = 1000;
+        const FUNDING_MAX_PAGES = 100;
 
         // Tunables centralized so dashboards can be tweaked without scattering
         // magic numbers across the script. See CLAUDE.md "No magic numbers".
@@ -1482,50 +1493,160 @@
             return value.toFixed(1) + '%';
         }
 
-        // Paginate /historical-pnl back to inception. dYdX caps each page at
-        // 1000 hourly samples (~42 days); accounts active longer need
-        // multiple pages so the chart, headline MDD, and Drawdown Periods
-        // table reflect the FULL trading journey (peak unrealized included),
-        // not just the last 6 weeks.
-        async function fetchAllHistoricalPnl(encodedAddress) {
-            const PAGE_LIMIT = HIST_PAGE_LIMIT;
-            const MAX_PAGES = HIST_MAX_PAGES; // safety cap (~28 months hourly)
+        // Generic paginator over a dYdX indexer collection endpoint. Walks
+        // back to inception so every metric (closed-trade ledger, fills
+        // volume, funding flow, historical-pnl drawdown) reflects the FULL
+        // trading journey rather than the latest page.
+        //
+        // Two pagination modes match indexer conventions:
+        //   'cursor' — sends `createdBeforeOrAt=<oldestSeen>` per page;
+        //              used by /historical-pnl, /perpetualPositions, /fills.
+        //              Dedup-based termination handles overlapping pages
+        //              and converges if the cursor is silently ignored.
+        //   'page'   — sends `page=N` (1-indexed); used by /fundingPayments
+        //              (does not accept createdBeforeOrAt). Stops on the
+        //              first short page (rows < pageLimit) or empty page.
+        //
+        // opts:
+        //   urlBase     — full URL up to the limit/cursor params
+        //   joiner      — '&' or '?' depending on whether urlBase has a query
+        //   dataKeys    — array of plausible response keys
+        //   keyFn       — row → unique dedup key
+        //   pageLimit   — server-side limit per page
+        //   maxPages    — defensive cap (logs warning when hit)
+        //   label       — short string used in console messages
+        //   mode        — 'cursor' (default) or 'page'
+        async function fetchAllPaginated(opts) {
+            const {
+                urlBase, joiner = '&', dataKeys, keyFn,
+                pageLimit, maxPages, label, mode = 'cursor'
+            } = opts;
             let cursor = null;
+            let pageNum = 1;
             const all = [];
             const seen = new Set();
             let firstPageError = null;
-            for (let i = 0; i < MAX_PAGES; i++) {
-                const url = cursor
-                    ? `${DYDX_API}/historical-pnl?address=${encodedAddress}&subaccountNumber=0&limit=${PAGE_LIMIT}&createdBeforeOrAt=${encodeURIComponent(cursor)}`
-                    : `${DYDX_API}/historical-pnl?address=${encodedAddress}&subaccountNumber=0&limit=${PAGE_LIMIT}`;
+            // True only if every iteration completed without breaking — i.e.
+            // the loop exited because the for-condition hit maxPages, not
+            // because the data ran out. Otherwise we'd false-positive the
+            // truncation warning whenever the final allowed page happened
+            // to be the natural last one.
+            let exhaustedCap = false;
+            for (let i = 0; i < maxPages; i++) {
+                let extraParam = '';
+                if (mode === 'cursor' && cursor) {
+                    extraParam = `&createdBeforeOrAt=${encodeURIComponent(cursor)}`;
+                } else if (mode === 'page') {
+                    extraParam = `&page=${pageNum}`;
+                }
+                const url = `${urlBase}${joiner}limit=${pageLimit}${extraParam}`;
                 let page;
                 try {
                     page = await fetchJson(url);
                 } catch (e) {
                     if (i === 0) firstPageError = e;
-                    console.warn('historical-pnl pagination stopped at page', i, e);
+                    console.warn(`[${label}] pagination stopped at page ${i}:`, e && e.message);
                     break;
                 }
-                const rows = (page && page.historicalPnl) || [];
-                if (!rows.length) break;
+                let rows = null;
+                for (const k of dataKeys) {
+                    if (page && Array.isArray(page[k])) { rows = page[k]; break; }
+                }
+                if (!rows || !rows.length) break;
                 let newCount = 0;
                 let oldest = null;
                 rows.forEach(r => {
-                    const key = r.createdAt + '|' + r.blockHeight;
-                    if (seen.has(key)) return;
+                    const key = keyFn(r);
+                    if (key == null || seen.has(key)) return;
                     seen.add(key);
                     all.push(r);
                     newCount++;
-                    if (!oldest || (r.createdAt || '') < oldest) oldest = r.createdAt;
+                    const ts = r.createdAt;
+                    if (ts && (!oldest || ts < oldest)) oldest = ts;
                 });
                 if (newCount === 0) break; // no new rows → reached inception
-                cursor = oldest; // step back to the earliest row of this page
+                if (mode === 'cursor') {
+                    if (!oldest) break;    // cursor cannot advance
+                    cursor = oldest;
+                } else {
+                    pageNum++;
+                    // A short page is the last page in offset pagination.
+                    if (rows.length < pageLimit) break;
+                }
+                // Reached only on a successful full-page advance with more
+                // possibly available. If this was the last allowed
+                // iteration, the cap is what stopped us.
+                if (i === maxPages - 1) exhaustedCap = true;
             }
-            // Propagate hard failure: if the very first page errored, this
-            // endpoint is unusable and the caller's allSettled banner should
-            // see it as rejected.
+            if (exhaustedCap) {
+                console.warn(`[${label}] hit page cap (${maxPages}); older history may be truncated`);
+            }
+            // Propagate hard failure: first-page error with zero rows is
+            // unusable; the caller's allSettled banner should see rejection.
             if (firstPageError && all.length === 0) throw firstPageError;
+            return all;
+        }
+
+        // /historical-pnl rows have no canonical id; use createdAt+blockHeight.
+        async function fetchAllHistoricalPnl(encodedAddress) {
+            const all = await fetchAllPaginated({
+                urlBase: `${DYDX_API}/historical-pnl?address=${encodedAddress}&subaccountNumber=0`,
+                joiner: '&',
+                dataKeys: ['historicalPnl'],
+                keyFn: r => `${r.createdAt}|${r.blockHeight}`,
+                pageLimit: HIST_PAGE_LIMIT,
+                maxPages: HIST_MAX_PAGES,
+                label: 'historical-pnl'
+            });
             return { historicalPnl: all };
+        }
+
+        // /perpetualPositions?status=CLOSED has no exposed id; the indexer
+        // orders by openEventId DESC, which is monotonic with createdAt, so
+        // the cursor walks back chronologically. createdAtHeight is the
+        // unique block height of the open event — sufficient for dedup.
+        async function fetchAllClosedPositions(encodedAddress) {
+            const all = await fetchAllPaginated({
+                urlBase: `${DYDX_API}/perpetualPositions?address=${encodedAddress}&subaccountNumber=0&status=CLOSED`,
+                joiner: '&',
+                dataKeys: ['positions', 'perpetualPositions'],
+                keyFn: r => `${r.createdAt}|${r.createdAtHeight || ''}|${r.market}|${r.side}|${r.entryPrice}`,
+                pageLimit: POS_PAGE_LIMIT,
+                maxPages: POS_MAX_PAGES,
+                label: 'closedPositions'
+            });
+            return { positions: all };
+        }
+
+        // /fills rows expose a UUID `id`.
+        async function fetchAllFills(encodedAddress) {
+            const all = await fetchAllPaginated({
+                urlBase: `${DYDX_API}/fills?address=${encodedAddress}&subaccountNumber=0`,
+                joiner: '&',
+                dataKeys: ['fills'],
+                keyFn: r => r.id || `${r.createdAt}|${r.market}|${r.side}|${r.size}|${r.price}`,
+                pageLimit: FILLS_PAGE_LIMIT,
+                maxPages: FILLS_MAX_PAGES,
+                label: 'fills'
+            });
+            return { fills: all };
+        }
+
+        // /fundingPayments uses 1-indexed offset pagination via `page=N`
+        // (does not accept createdBeforeOrAt). No canonical id; use a
+        // composite of all human-meaningful fields for dedup.
+        async function fetchAllFundingPayments(encodedAddress) {
+            const all = await fetchAllPaginated({
+                urlBase: `${DYDX_API}/fundingPayments?address=${encodedAddress}&subaccountNumber=0`,
+                joiner: '&',
+                dataKeys: ['fundingPayments'],
+                keyFn: r => `${r.createdAt}|${r.ticker || r.market}|${r.payment}|${r.side || ''}|${r.rate || ''}`,
+                pageLimit: FUNDING_PAGE_LIMIT,
+                maxPages: FUNDING_MAX_PAGES,
+                label: 'fundingPayments',
+                mode: 'page'
+            });
+            return { fundingPayments: all };
         }
 
         // Load real dashboard data
@@ -1564,22 +1685,32 @@
                 addressEl.title = address;
             }
 
-            const ENDPOINTS = [
-                ['subaccount',       `${DYDX_API}/addresses/${encodedAddress}/subaccountNumber/0`],
-                ['openPositions',    `${DYDX_API}/perpetualPositions?address=${encodedAddress}&subaccountNumber=0&status=OPEN&limit=100`],
-                ['closedPositions',  `${DYDX_API}/perpetualPositions?address=${encodedAddress}&subaccountNumber=0&status=CLOSED&limit=100`],
-                ['orders',           `${DYDX_API}/orders?address=${encodedAddress}&subaccountNumber=0&limit=1000`],
-                ['fills',            `${DYDX_API}/fills?address=${encodedAddress}&subaccountNumber=0&limit=1000`],
-                ['fundingPayments',  `${DYDX_API}/fundingPayments?address=${encodedAddress}&subaccountNumber=0&limit=1000`],
-                ['markets',          `${DYDX_API}/perpetualMarkets`]
+            // Single-page endpoints: openPositions are bounded (a subaccount
+            // can't hold thousands of OPEN positions concurrently), orders is
+            // a recent-only working set, subaccount is a single record,
+            // markets is a global catalog. closedPositions, fills, funding,
+            // and historical-pnl all paginate to inception so every metric
+            // reads from the FULL trading journey rather than the latest
+            // window.
+            const SINGLE_PAGE = [
+                ['subaccount',    `${DYDX_API}/addresses/${encodedAddress}/subaccountNumber/0`],
+                ['openPositions', `${DYDX_API}/perpetualPositions?address=${encodedAddress}&subaccountNumber=0&status=OPEN&limit=100`],
+                ['orders',        `${DYDX_API}/orders?address=${encodedAddress}&subaccountNumber=0&limit=1000`],
+                ['markets',       `${DYDX_API}/perpetualMarkets`]
+            ];
+            const PAGINATED = [
+                ['closedPositions', () => fetchAllClosedPositions(encodedAddress)],
+                ['fills',           () => fetchAllFills(encodedAddress)],
+                ['fundingPayments', () => fetchAllFundingPayments(encodedAddress)],
+                ['historicalPnl',   () => fetchAllHistoricalPnl(encodedAddress)]
             ];
 
             const settled = await Promise.allSettled([
-                ...ENDPOINTS.map(([, url]) => fetchJson(url)),
-                fetchAllHistoricalPnl(encodedAddress)
+                ...SINGLE_PAGE.map(([, url]) => fetchJson(url)),
+                ...PAGINATED.map(([, fn]) => fn())
             ]);
 
-            const dataKeys = ENDPOINTS.map(([k]) => k).concat(['historicalPnl']);
+            const dataKeys = SINGLE_PAGE.map(([k]) => k).concat(PAGINATED.map(([k]) => k));
             const failed = [];
             allData = {};
             settled.forEach((r, i) => {
@@ -1652,6 +1783,17 @@
             let allPositions = [];
             allPositions = allPositions.concat(extractPositions(allData.openPositions));
             allPositions = allPositions.concat(extractPositions(allData.closedPositions));
+
+            // Repair indexer-zeroed realizedPnl. dYdX's indexer is observed
+            // to return realizedPnl=0 on closed positions older than a
+            // certain date even when prices clearly moved. Without this,
+            // entire months read as scratches/zero P&L despite real trades.
+            // See risk-metrics.js: normalizeRealizedPnl.
+            const correction = window.RiskMetrics.normalizeRealizedPnl(allPositions);
+            if (correction.correctedCount > 0) {
+                console.warn(`[dydx-dashboard] Repaired indexer realizedPnl on ${correction.correctedCount} closed positions (gross magnitude: $${correction.totalCorrectedAbs.toFixed(2)}). Underlying indexer rows had realizedPnl=0 despite price divergence.`);
+            }
+
             allData.positions = allPositions;
 
             // One-time debug log so the developer can confirm whether the
