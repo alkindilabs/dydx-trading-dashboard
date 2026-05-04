@@ -8,6 +8,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght,SOFT@0,9..144,300..900,0..100;1,9..144,300..900,0..100&family=Geist:wght@300..700&family=JetBrains+Mono:wght@300..600&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js"></script>
     <style>
         :root {
             /* After-hours Editorial palette */
@@ -1283,6 +1284,7 @@
 
     <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3"></script>
     <script src="./risk-metrics.js"></script>
+    <script src="./portfolio-cache.js"></script>
     <script>
         // Live masthead date in UTC — analytics throughout the dashboard
         // bucket by UTC, so the masthead must follow the same calendar.
@@ -1476,6 +1478,7 @@
         if (addressForgetBtn) {
             addressForgetBtn.addEventListener('click', function() {
                 try { localStorage.removeItem('lastAddress'); } catch (e) {}
+                if (window.PortfolioCache) window.PortfolioCache.clear();
                 const url = new URL(window.location.href);
                 url.searchParams.delete('address');
                 window.location.href = url.toString();
@@ -1838,6 +1841,53 @@
                 addressEl.title = address;
             }
 
+            // Render the global `allData` through processData() and the
+            // cumulative-PnL chart. Used by both the cache-hydrate path
+            // (instant render before any fetch) and the post-fetch path
+            // (overwrites with fresh data). silent=true suppresses the
+            // user-facing error banner for the cache path so a poisonous
+            // cached snapshot never blocks a successful refresh that
+            // follows it.
+            function renderFromAllData(opts) {
+                const silent = !!(opts && opts.silent);
+                try {
+                    processData();
+                } catch (e) {
+                    console.error('Render error:', e);
+                    if (!silent) showLoadError(`Render error: ${e && e.message || e}`);
+                    return false;
+                }
+                if (allData.historicalPnl) {
+                    try {
+                        renderCumulativePnlChart(
+                            (allData.historicalPnl && allData.historicalPnl.historicalPnl) || []
+                        );
+                    } catch (e) {
+                        console.error('Cumulative-PnL chart render error:', e);
+                    }
+                }
+                return true;
+            }
+
+            // Stale-while-revalidate hydrate. Paint cached snapshot before
+            // any network call so reloads of a known address feel instant.
+            // The fresh-fetch path below always runs and overwrites.
+            let hadCache = false;
+            if (window.PortfolioCache) {
+                const cached = window.PortfolioCache.read(address);
+                if (cached) {
+                    allData = cached;
+                    if (renderFromAllData({ silent: true })) {
+                        hadCache = true;
+                    } else {
+                        // Cached payload no longer renders cleanly (schema
+                        // drift between releases). Drop it and continue.
+                        window.PortfolioCache.clear();
+                        allData = {};
+                    }
+                }
+            }
+
             // Single-page endpoints: openPositions are bounded (a subaccount
             // can't hold thousands of OPEN positions concurrently), orders is
             // a recent-only working set, subaccount is a single record,
@@ -1873,19 +1923,23 @@
 
             const dataKeys = SINGLE_PAGE.map(([k]) => k).concat(PAGINATED.map(([k]) => k));
             const failed = [];
-            allData = {};
+            const fresh = {};
             settled.forEach((r, i) => {
                 if (r.status === 'fulfilled') {
-                    allData[dataKeys[i]] = r.value;
+                    fresh[dataKeys[i]] = r.value;
                 } else {
-                    allData[dataKeys[i]] = null;
+                    fresh[dataKeys[i]] = null;
                     failed.push(dataKeys[i]);
                     console.warn(`Endpoint failed: ${dataKeys[i]}`, r.reason && r.reason.message);
                 }
             });
 
             if (failed.length === settled.length) {
-                showLoadError(`All endpoints failed (${failed.length}). Check network and address.`);
+                if (hadCache) {
+                    showLoadError(`Refresh failed (${failed.length}/${settled.length}). Showing cached snapshot.`);
+                } else {
+                    showLoadError(`All endpoints failed (${failed.length}). Check network and address.`);
+                }
                 FetchProgress.end('offline');
                 return;
             }
@@ -1895,11 +1949,8 @@
                 clearLoadError();
             }
 
-            try {
-                processData();
-            } catch (e) {
-                console.error('Render error:', e);
-                showLoadError(`Render error: ${e && e.message || e}`);
+            allData = fresh;
+            if (!renderFromAllData()) {
                 FetchProgress.end('offline');
                 return;
             }
@@ -1910,6 +1961,17 @@
             // known-good address.
             try { localStorage.setItem('lastAddress', address); } catch (e) {}
             if (forgetBtn) forgetBtn.style.display = '';
+
+            // Persist the full snapshot only when every endpoint succeeded,
+            // so a partial refresh can't replace a complete cache with a
+            // degraded one. We snapshot only the raw response keys so the
+            // derived `allData.positions` array (rebuilt by processData on
+            // hydrate) is not stored twice.
+            if (failed.length === 0 && window.PortfolioCache) {
+                const snapshot = {};
+                for (const k of dataKeys) snapshot[k] = allData[k];
+                window.PortfolioCache.write(address, snapshot);
+            }
         }
 
         function extractPositions(container) {
@@ -3320,7 +3382,9 @@ Small-N caveat: standard error widens; not a forward-Sharpe forecast.`;
             }
         }
 
-        // Auto-load real data on page load and restore last active tab
+        // Auto-load real data on page load and restore last active tab.
+        // loadDashboard now owns rendering the cumulative-PnL chart on both
+        // the cache-hydrate and post-fetch paths, so no extra render here.
         window.addEventListener('load', async () => {
             try {
                 const savedTab = localStorage.getItem('activeTab') || 'overview';
@@ -3329,11 +3393,6 @@ Small-N caveat: standard error widens; not a forward-Sharpe forecast.`;
                 activateTab('overview');
             }
             await loadDashboard();
-            if (currentAddress && allData.historicalPnl) {
-                renderCumulativePnlChart(
-                    (allData.historicalPnl && allData.historicalPnl.historicalPnl) || []
-                );
-            }
         });
     </script>
 </body>
