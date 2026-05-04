@@ -2132,16 +2132,13 @@
         }
 
         // Tooltip for the funding-rate cells: shows the underlying hourly rate
-        // at full precision (no decimal cap — by design for this surface only,
-        // since hourly funding rates are inherently sub-1% and the user asked
-        // to inspect raw precision on hover).
+        // as a percentage at full precision (no decimal cap — by design for
+        // this surface only, since hourly funding rates are inherently sub-1%).
         function formatHourlyDetail(rawFraction) {
             if (rawFraction === null || rawFraction === undefined || rawFraction === '') return '—';
             const n = parseFloat(rawFraction);
             if (!isFinite(n)) return '—';
-            const pct = n * 100;
-            const bps = n * 10000;
-            return `Hourly fraction: ${rawFraction}\nHourly %: ${pct}%\nHourly bps: ${bps} bps\n— × 8760 = APR shown in cell`;
+            return `Hourly: ${n * 100}%`;
         }
 
         // Unsigned dollar formatter for prices (entry / exit / oracle / liq).
