@@ -928,6 +928,55 @@
             .nameplate-kicker { align-items: flex-start; text-align: left; padding-bottom: 0; }
         }
 
+        /* ─── SLOGAN STRAPLINE ─── */
+        .nameplate-slogan {
+            grid-column: 1 / -1;
+            display: grid;
+            grid-template-columns: 1fr auto 1fr;
+            align-items: center;
+            gap: 28px;
+            margin: 26px 0 0;
+            padding-top: 22px;
+            border-top: 1px solid var(--rule);
+        }
+        .nameplate-slogan::before,
+        .nameplate-slogan::after {
+            content: '';
+            height: 1px;
+            min-width: 0;
+            background: linear-gradient(90deg, transparent, var(--rule-strong) 60%);
+        }
+        .nameplate-slogan::after {
+            background: linear-gradient(90deg, var(--rule-strong) 40%, transparent);
+        }
+        .nameplate-slogan-text {
+            font-family: var(--ff-display);
+            font-style: italic;
+            font-weight: 350;
+            font-size: clamp(18px, 2.1vw, 26px);
+            line-height: 1.35;
+            letter-spacing: -0.008em;
+            color: var(--ink);
+            font-variation-settings: 'opsz' 60, 'SOFT' 80;
+            text-align: center;
+            text-wrap: balance;
+            white-space: nowrap;
+        }
+        .nameplate-slogan-text .ornament {
+            color: var(--gold);
+            font-style: normal;
+            font-size: 0.7em;
+            margin: 0 0.55em;
+            vertical-align: 0.18em;
+            letter-spacing: 0.4em;
+        }
+        @media (max-width: 880px) {
+            .nameplate-slogan { grid-template-columns: 1fr; gap: 0; }
+            .nameplate-slogan::before,
+            .nameplate-slogan::after { display: none; }
+            .nameplate-slogan-text { white-space: normal; font-size: 18px; }
+        }
+
         /* ─── DISCLOSURE STRIP ─── */
         .disclosure-strip {
             position: relative;
@@ -1112,6 +1161,9 @@
                 <span class="kicker-mono"><span class="gold">Independent</span> · Performance analytics · Not <span class="kicker-strike">dydx.trade</span></span>
                 <span class="kicker-italic">Third-party trading performance analytics for dYdX v4 traders. Read-only public chain data.</span>
             </div>
+            <p class="nameplate-slogan" role="doc-subtitle">
+                <span class="nameplate-slogan-text">What goes unmeasured cannot be improved.</span>
+            </p>
         </header>
 
         <!-- Masthead -->
