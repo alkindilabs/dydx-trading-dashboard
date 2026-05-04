@@ -16,11 +16,11 @@
     "defi",
     "crypto"
   ],
-  "author": "dYdX Analytics Team",
+  "author": "Alkindi Labs (independent — not affiliated with dYdX Trading Inc.)",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/0xferit/dydx-trading-dashboard"
+    "url": "https://github.com/alkindilabs/dydx-trading-dashboard"
   },
   "dependencies": {},
   "devDependencies": {}
