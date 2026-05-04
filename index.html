@@ -719,27 +719,6 @@
         .risk-bar-fill.danger  { background: var(--loss); }
         .risk-bar-fill.warning { background: var(--warn); }
 
-        /* CORRELATION MATRIX */
-        .correlation-matrix {
-            display: grid;
-            grid-template-columns: repeat(5, 1fr);
-            gap: 1px;
-            background: var(--rule);
-            margin: 18px 24px 24px;
-            border: 1px solid var(--rule-strong);
-        }
-        .correlation-cell {
-            aspect-ratio: 1;
-            background: var(--paper-2);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-family: var(--ff-mono);
-            font-size: 11px;
-            color: var(--ink-2);
-            font-variant-numeric: tabular-nums;
-        }
-
         /* HEATMAP */
         .heatmap {
             display: grid;
@@ -1153,13 +1132,6 @@
                     </thead>
                     <tbody id="liquidationRiskBody"></tbody>
                 </table>
-            </div>
-
-            <div class="table-container">
-                <div class="table-header">
-                    <div class="table-title">Position Correlation Matrix</div>
-                </div>
-                <div class="correlation-matrix" id="correlationMatrix"></div>
             </div>
 
             <div class="table-container">
@@ -1589,7 +1561,6 @@
             FLIP_HOLD_HOURS: 0.25,
             ASSET_SHARPE_MIN_N: 5,
             PATTERN_MIN_N: 10,
-            CORRELATION_MIN_OVERLAP: 5,
             ALWAYS_SHOW_TICKERS: ['BTC-USD', 'ETH-USD', 'SOL-USD']
         });
 
@@ -2236,9 +2207,8 @@ Sample: ${rets.length} returns over ${(adq.years*12).toFixed(1)} months (${(adq.
             updateTimeAnalysis(allPositions);
             updateActivityHeatmap(allPositions);
             updateLiquidationTable(allPositions, marketsMap, subaccount);
-            updateLeverageUtilization(allPositions, subaccount);
+            updateLeverageUtilization(allPositions, subaccount, marketsMap);
             updateDetectedPatterns(allPositions);
-            updateCorrelationMatrix(allPositions);
 
             // Kelly criterion — pWin denominator matches Header Win Rate
             // (decisive trades only, scratches excluded). Renders N/A unless
@@ -2760,23 +2730,14 @@ Small-N caveat: standard error widens; not a forward-Sharpe forecast.`;
             body.innerHTML = '';
             const open = positions.filter(p => p.status === 'OPEN');
             if (!open.length) return;
-            const equity = subaccount ? parseFloat(subaccount.equity || 0) : 0;
             open.forEach(p => {
                 const market = p.market || '—';
-                const m = marketsMap[market] || {};
-                const size = Math.abs(parseFloat(p.size || 0));
-                const entry = parseFloat(p.entryPrice || 0);
-                const oracle = parseFloat(p.oraclePrice || m.oraclePrice || 0);
                 const side = (p.side || '').toUpperCase();
-                const notional = size * (entry || oracle || 0);
-                const lev = equity > 0 && notional > 0 ? notional / equity : null;
-                const liq = window.RiskMetrics.crossMarginLiqPrice(p, subaccount, marketsMap);
-                const distancePct = (oracle > 0 && liq !== null && isFinite(liq))
-                    ? Math.abs((oracle - liq) / oracle) * 100
-                    : null;
+                const row = window.RiskMetrics.liquidationRow(p, subaccount, marketsMap) || {};
+                const { size, entry, oracle, lev, liq, distancePct } = row;
                 let scoreClass = '';
                 let scoreLabel = '—';
-                if (distancePct !== null) {
+                if (distancePct !== null && distancePct !== undefined) {
                     if (distancePct < 10)      { scoreClass = 'loss';    scoreLabel = 'HIGH';   }
                     else if (distancePct < 20) { scoreClass = 'warning'; scoreLabel = 'MEDIUM'; }
                     else                       { scoreClass = 'profit';  scoreLabel = 'LOW';    }
@@ -2784,11 +2745,11 @@ Small-N caveat: standard error widens; not a forward-Sharpe forecast.`;
                 const tr = document.createElement('tr');
                 appendCell(tr, `${market} ${side}`);
                 appendCell(tr, size ? size.toFixed(4) : '—', ['mono']);
-                appendCell(tr, lev !== null ? lev.toFixed(2) + 'x' : '—', ['mono']);
+                appendCell(tr, lev !== null && lev !== undefined ? lev.toFixed(2) + 'x' : '—', ['mono']);
                 appendCell(tr, entry ? entry.toFixed(2) : '—', ['mono']);
                 appendCell(tr, oracle ? oracle.toFixed(2) : '—', ['mono']);
-                appendCell(tr, (liq !== null && isFinite(liq)) ? liq.toFixed(2) : '—', ['mono', scoreClass]);
-                appendCell(tr, distancePct !== null ? distancePct.toFixed(1) + '%' : '—', ['mono']);
+                appendCell(tr, (liq !== null && liq !== undefined && isFinite(liq)) ? liq.toFixed(2) : '—', ['mono', scoreClass]);
+                appendCell(tr, (distancePct !== null && distancePct !== undefined) ? distancePct.toFixed(1) + '%' : '—', ['mono']);
                 appendCell(tr, scoreLabel, ['mono', scoreClass]);
                 body.appendChild(tr);
             });
@@ -2809,16 +2770,10 @@ Small-N caveat: standard error widens; not a forward-Sharpe forecast.`;
         }
 
         // Leverage Utilization card with tier-based styling so high leverage
-        // is never rendered in profit-green by accident.
-        function updateLeverageUtilization(positions, subaccount) {
-            const open = positions.filter(p => p.status === 'OPEN');
-            const equity = subaccount ? parseFloat(subaccount.equity || 0) : 0;
-            const notional = open.reduce((s, p) => {
-                const sz = Math.abs(parseFloat(p.size || 0));
-                const px = parseFloat(p.entryPrice || p.oraclePrice || 0);
-                return s + (sz * px);
-            }, 0);
-            const lev = equity > 0 ? notional / equity : null;
+        // is never rendered in profit-green by accident. Compute lives in
+        // RiskMetrics.leverageUtilization so it can be unit-tested.
+        function updateLeverageUtilization(positions, subaccount, marketsMap) {
+            const lev = window.RiskMetrics.leverageUtilization(positions, subaccount, marketsMap);
             const el = document.getElementById('leverageUtil');
             if (el) {
                 el.textContent = lev !== null ? lev.toFixed(2) + 'x' : '—';
@@ -2904,123 +2859,6 @@ Small-N caveat: standard error widens; not a forward-Sharpe forecast.`;
                     : r.recCls === 'loss' ? 'var(--loss)'
                     : 'var(--ink-3)';
                 body.appendChild(tr);
-            });
-        }
-
-        // Position Correlation Matrix from per-market trade-return series.
-        // Builds a same-length vector per market by aligning each market's trades
-        // to a shared 1-day grid and using the (signed) per-trade return.
-        function updateCorrelationMatrix(positions) {
-            const container = document.getElementById('correlationMatrix');
-            if (!container) return;
-            container.innerHTML = '';
-            const closed = positions.filter(p => p.status === 'CLOSED' && p.entryPrice && p.exitPrice && p.closedAt);
-            const byMarket = {};
-            closed.forEach(p => {
-                const m = p.market || 'Unknown';
-                if (!byMarket[m]) byMarket[m] = [];
-                const e = parseFloat(p.entryPrice), x = parseFloat(p.exitPrice);
-                if (e > 0) {
-                    const ret = (x - e) / e * ((p.side||'').toUpperCase() === 'LONG' ? 1 : -1);
-                    if (isFinite(ret)) byMarket[m].push({ t: new Date(p.closedAt).getTime(), r: ret });
-                }
-            });
-            const markets = Object.keys(byMarket).filter(m => byMarket[m].length >= 3);
-            if (markets.length < 2) {
-                container.style.display = 'flex';
-                container.style.alignItems = 'center';
-                container.style.justifyContent = 'center';
-                container.style.padding = '32px';
-                container.style.color = 'var(--ink-3)';
-                container.style.fontFamily = "var(--ff-mono)";
-                container.style.fontSize = '11px';
-                container.style.letterSpacing = '0.18em';
-                container.style.textTransform = 'uppercase';
-                container.textContent = 'Insufficient overlap (need ≥2 markets, ≥3 trades each)';
-                return;
-            }
-            container.style.gridTemplateColumns = `repeat(${markets.length + 1}, 1fr)`;
-            // Pairwise Pearson on overlapping days only. Substituting 0 for
-            // missing-day returns biases toward 0 and produces phantom anti-
-            // correlation; pairwise overlap honors true sample size.
-            const dayKey = (t) => Math.floor(t / (24*3600*1000));
-            const perMarketByDay = {};
-            markets.forEach(m => {
-                const byDay = {};
-                byMarket[m].forEach(({t, r}) => {
-                    const k = dayKey(t);
-                    if (!byDay[k]) byDay[k] = [];
-                    byDay[k].push(r);
-                });
-                // Day → mean of that day's signed per-trade returns
-                const meanByDay = {};
-                Object.keys(byDay).forEach(k => {
-                    const arr = byDay[k];
-                    meanByDay[k] = arr.reduce((s, v) => s + v, 0) / arr.length;
-                });
-                perMarketByDay[m] = meanByDay;
-            });
-            const meanV = (v) => v.reduce((s,x)=>s+x,0) / v.length;
-            // Returns { r, n } for a market pair; r is null when overlap is
-            // below the minimum sample threshold.
-            const corrPair = (a, b) => {
-                const ma = perMarketByDay[a];
-                const mb = perMarketByDay[b];
-                const days = Object.keys(ma).filter(k => k in mb);
-                if (days.length < TUNABLES.CORRELATION_MIN_OVERLAP) return { r: null, n: days.length };
-                const av = days.map(k => ma[k]);
-                const bv = days.map(k => mb[k]);
-                const meanA = meanV(av), meanB = meanV(bv);
-                let num = 0, da = 0, db = 0;
-                for (let i = 0; i < av.length; i++) {
-                    const xa = av[i] - meanA, xb = bv[i] - meanB;
-                    num += xa * xb; da += xa * xa; db += xb * xb;
-                }
-                const denom = Math.sqrt(da * db);
-                return { r: denom > 0 ? num / denom : 0, n: days.length };
-            };
-            // Header row: blank corner + market labels
-            const corner = document.createElement('div');
-            corner.className = 'correlation-cell';
-            corner.style.background = 'var(--paper)';
-            container.appendChild(corner);
-            markets.forEach(m => {
-                const c = document.createElement('div');
-                c.className = 'correlation-cell';
-                c.style.background = 'var(--paper)';
-                c.textContent = m.replace('-USD','');
-                container.appendChild(c);
-            });
-            markets.forEach(rowM => {
-                const lbl = document.createElement('div');
-                lbl.className = 'correlation-cell';
-                lbl.style.background = 'var(--paper)';
-                lbl.textContent = rowM.replace('-USD','');
-                container.appendChild(lbl);
-                markets.forEach(colM => {
-                    const cell = document.createElement('div');
-                    cell.className = 'correlation-cell';
-                    if (rowM === colM) {
-                        cell.textContent = '1.00';
-                        cell.style.color = 'var(--gain)';
-                        cell.style.background = `rgba(143,170,114, 0.45)`;
-                    } else {
-                        const { r, n } = corrPair(rowM, colM);
-                        if (r === null) {
-                            cell.textContent = '~';
-                            cell.title = `Insufficient overlap (n=${n}; need ≥${TUNABLES.CORRELATION_MIN_OVERLAP})`;
-                            cell.style.color = 'var(--ink-3)';
-                            cell.style.background = 'var(--paper-3)';
-                        } else {
-                            cell.textContent = r.toFixed(2);
-                            cell.title = `n=${n} overlapping days`;
-                            const a = Math.min(1, Math.abs(r));
-                            cell.style.color = r >= 0 ? 'var(--gain)' : 'var(--loss)';
-                            cell.style.background = `rgba(${r >= 0 ? '143,170,114' : '203,92,80'}, ${(0.1 + 0.35 * a).toFixed(3)})`;
-                        }
-                    }
-                    container.appendChild(cell);
-                });
             });
         }
 
