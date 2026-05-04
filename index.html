@@ -1690,8 +1690,8 @@
                     <thead>
                         <tr>
                             <th>ASSET</th>
-                            <th>CURRENT</th>
-                            <th>PREDICTED</th>
+                            <th title="Current hourly funding rate, in basis points (1 bps = 0.01%)">CURRENT (BPS)</th>
+                            <th title="Predicted next-hour funding rate, in basis points">PREDICTED (BPS)</th>
                             <th>RECEIVED</th>
                             <th>PAID</th>
                             <th>NET</th>
@@ -2114,6 +2114,17 @@
             if (a >= 1e6) return sign + (a / 1e6).toFixed(2) + 'M';
             if (a >= 1e3) return sign + (a / 1e3).toFixed(2) + 'K';
             return sign + a.toFixed(2);
+        }
+
+        // Basis points formatter for sub-1% rates (funding, fees, swap rates).
+        // Funding-rate fractions like 0.00005 (= 0.005% = 0.5 bps) become "0.00%"
+        // under the 2-decimal cap, which is useless. Bps is the industry-standard
+        // unit for these magnitudes: 1 bps = 0.01% = 1 / 10000.
+        function formatBps(fraction) {
+            if (fraction === null || fraction === undefined || fraction === '') return '-';
+            const n = typeof fraction === 'number' ? fraction : parseFloat(fraction);
+            if (!isFinite(n)) return '-';
+            return (n * 10000).toFixed(2) + ' bps';
         }
 
         // Unsigned dollar formatter for prices (entry / exit / oracle / liq).
@@ -3517,11 +3528,10 @@ Small-N caveat: standard error widens; not a forward-Sharpe forecast.`;
             filtered.forEach(e => {
                 const tr = document.createElement('tr');
                 const status = e.net > 0 ? 'profit' : e.net < 0 ? 'loss' : '';
-                const currPct = (parseFloat(e.current) || 0) * 100;
-                const predPct = (parseFloat(e.predicted) || 0) * 100;
+                const currBps = (parseFloat(e.current) || 0) * 10000;
                 appendCell(tr, e.ticker);
-                appendCell(tr, currPct.toFixed(2) + '%', ['mono', currPct < 0 ? 'loss' : 'profit']);
-                appendCell(tr, predPct.toFixed(2) + '%', ['mono']);
+                appendCell(tr, formatBps(parseFloat(e.current)), ['mono', currBps < 0 ? 'loss' : 'profit']);
+                appendCell(tr, formatBps(parseFloat(e.predicted)), ['mono']);
                 appendCell(tr, formatCurrency(e.received), ['mono', 'profit']);
                 appendCell(tr, formatCurrency(-e.paid), ['mono', 'loss']);
                 appendCell(tr, formatCurrency(e.net), ['mono', status]);
