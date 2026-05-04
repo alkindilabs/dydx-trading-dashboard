@@ -4,10 +4,8 @@
   "compatibility_date": "2025-03-07",
   "compatibility_flags": ["nodejs_compat"],
 
-  // Deploys MUST land in the `alkindi` Cloudflare account, not a personal one.
-  // Either fill in the literal account ID below, or set CLOUDFLARE_ACCOUNT_ID
-  // in your shell before running `wrangler deploy`.
-  // "account_id": "<alkindi-account-id>",
+  // Pin deploys to the al-Kindi LDA Cloudflare account (NOT the personal one).
+  "account_id": "dfd3f2f5dec2da4c7f21b816548813af",
 
   // Pure static site — no Worker entrypoint. Cloudflare's edge serves files
   // directly from the assets directory. The `.assetsignore` file inside the
