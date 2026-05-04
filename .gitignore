@@ -20,6 +20,11 @@ Thumbs.db
 *.temp
 *.log
 
+# Local agent / browser-automation artifacts
+.claude/
+.playwright-mcp/
+*.png
+
 # Personal data
 *research*
 *analysis*
