@@ -1,0 +1,17 @@
+# Files in the asset directory that must NOT be uploaded to the public bucket.
+# Matches gitignore-style globs.
+.git/
+.github/
+.claude/
+node_modules/
+test/
+package.json
+package-lock.json
+CLAUDE.md
+README.md
+wrangler.jsonc
+.assetsignore
+.gitignore
+.dev.vars
+.dev.vars.*
+.wrangler/
