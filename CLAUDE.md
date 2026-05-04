@@ -49,18 +49,22 @@ A position with `status === 'CLOSED'` is bucketed by `realizedPnl`:
 Helper: `RiskMetrics.classifyClosed(positions)` returns `{ wins, losses, scratches, all, grossWin, grossLoss, totalRealized, winCount, lossCount, scratchCount, decisiveCount, closedCount }`.
 
 ### Per-trade return
-`r = realizedPnl / (sumOpen × entryPrice)` — fraction of notional deployed at entry. Used for per-trade Sharpe (fallback) AND asset-level Sharpe so the two cards never disagree. Helper: `RiskMetrics.tradeReturn(p)` (returns `null` when notional is undefined).
+`r = realizedPnl / (maxSize × entryPrice)` — fraction of max-instantaneous notional ever held during the position lifecycle. `maxSize` (when the indexer exposes it) is the honest "peak capital at risk" for scaled-in/out positions; `sumOpen` overstates exposure because it sums every entry. Falls back to `sumOpen` and then `size` when `maxSize` is absent so legacy responses still produce a number, with the caveat that scaled positions then read smaller-than-actual returns. Used for per-trade Sharpe (fallback) AND asset-level Sharpe so the two cards never disagree. Helper: `RiskMetrics.tradeReturn(p)` (returns `null` when notional is undefined).
 
 ### Per-market P&L
 `total = realized of CLOSED in that market + unrealized of OPEN in that market`. Used by the Overview chart tooltip AND the Performance-by-Asset table. Helper: `RiskMetrics.marketPnL(positions)`.
 
 ### Headline Max Drawdown
-**Always** trade-system $ DD: peak-to-trough on cumulative `realizedPnl` over closed trades, in chronological order. Same series feeds the Drawdown Periods table so the two views can never disagree. Helper: `RiskMetrics.tradeSystemDrawdown(positions)`.
+$ DD on cumulative `totalPnl` from `/historical-pnl` (realized + unrealized P&L over time, excluding net transfers). Peak-to-trough in chronological order. This series captures unrealized peaks the closed-trade ledger cannot see (e.g. a +$364K open profit that later got given back). Helper: `RiskMetrics.histPnlDrawdown(historicalPnl)`.
 
-The Drawdown Periods table enumerates every peak→trough→recovery event on this same cumulative-P&L curve via `RiskMetrics.tradeSystemDrawdownEvents(positions)`.
+Falls back to trade-system $ DD on cumulative `realizedPnl` (`RiskMetrics.tradeSystemDrawdown(positions)`) when historical-pnl is unavailable OR when it produced no positive drawdown (an empty/monotonic series). The Recovery Factor and Drawdown Periods table follow the same fallback rule so all drawdown-derived cards stay aligned.
+
+The Drawdown Periods table enumerates every peak→trough→recovery event on the same `totalPnl` curve via `RiskMetrics.histPnlDrawdownEvents(historicalPnl)` (with the same trade-system fallback). The Monthly Performance Breakdown's MAX DD column applies `histPnlDrawdown` to that month's slice, so it shares the headline's definition.
+
+The Recovery Factor card uses the matching numerator: latest `totalPnl` ÷ headline DD when on the historical-pnl path; `cls.totalRealized` ÷ trade-system DD when on the fallback path. The numerator/denominator never come from different P&L series.
 
 ### Drawdown of arbitrary equity series
-Use `RiskMetrics.validDrawdownFromEquity(equityArray)` for any other drawdown calc (monthly MDD column, Calmar denominator on TWR wealth). Returns `null` when peak ≤ 0 OR trough < 0 — these are synthetic-equity artifacts that arise when the inception-time principal proxy goes under zero (e.g. a wipe followed by a redeposit). Filtered drawdowns must render as `—`.
+Use `RiskMetrics.validDrawdownFromEquity(equityArray)` for the Calmar denominator on TWR wealth. No longer feeds the headline. Returns `null` when peak ≤ 0 OR trough < 0 — these are synthetic-equity artifacts that arise when the inception-time principal proxy goes under zero (e.g. a wipe followed by a redeposit). Filtered drawdowns must render as `—`.
 
 ### Sample-adequacy gate
 A statistical metric (Sharpe, Sortino, Calmar, VaR, CVaR, monthly Sharpe) renders `—` unless the time-weighted-return sample passes ALL three constants (defined in `risk-metrics.js`):
