@@ -2132,13 +2132,15 @@
         }
 
         // Tooltip for the funding-rate cells: shows the underlying hourly rate
-        // as a percentage at full precision (no decimal cap — by design for
-        // this surface only, since hourly funding rates are inherently sub-1%).
+        // as a percentage, rounded to 5 decimals (toFixed default = round-half-
+        // away-from-zero, i.e. round to nearest). Hourly funding rates are
+        // inherently sub-1%, so 5 decimals captures meaningful precision while
+        // still trimming floating-point garbage.
         function formatHourlyDetail(rawFraction) {
             if (rawFraction === null || rawFraction === undefined || rawFraction === '') return '—';
             const n = parseFloat(rawFraction);
             if (!isFinite(n)) return '—';
-            return `Hourly: ${n * 100}%`;
+            return `Hourly: ${(n * 100).toFixed(5)}%`;
         }
 
         // Unsigned dollar formatter for prices (entry / exit / oracle / liq).
