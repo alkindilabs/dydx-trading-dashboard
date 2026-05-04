@@ -1,9 +1,10 @@
 # Data files
-!package.json
 *.json
+!package.json
+!package-lock.json
+*.md
 !README.md
 !CLAUDE.md
-*.md
 
 # OS files
 .DS_Store
