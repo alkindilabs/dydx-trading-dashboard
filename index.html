@@ -3516,16 +3516,44 @@ Small-N caveat: standard error widens; not a forward-Sharpe forecast.`;
         function renderCumulativePnlChart(historicalPnl) {
             const el = document.getElementById('pnlCumulativeChart');
             if (!el) return;
-            const cums = window.RiskMetrics.buildCumulativeTotalPnlSeries(historicalPnl || []);
-            if (cums.length < 2) return;
-            const labels = cums.map(p => new Date(p.t));
-            const cum = cums.map(p => p.c);
-            const peakLine = [];
-            let peak = -Infinity;
-            cum.forEach(v => { if (v > peak) peak = v; peakLine.push(peak); });
-            const spanMs = new Date(cums[cums.length - 1].t).getTime() - new Date(cums[0].t).getTime();
+            const cumsRaw = window.RiskMetrics.buildCumulativeTotalPnlSeries(historicalPnl || []);
+            if (cumsRaw.length < 2) return;
+            const spanMs = new Date(cumsRaw[cumsRaw.length - 1].t).getTime() - new Date(cumsRaw[0].t).getTime();
             const spanDays = spanMs / 86400000;
             const xAxisUnit = spanDays > 350 ? 'month' : spanDays > 50 ? 'week' : 'day';
+            // Downsample to one sample per period so the chart line + cursor
+            // resolution match the chosen tick unit. End-of-bucket sample wins
+            // since the input is sorted ascending. The headline Max Drawdown
+            // card stays on the full hourly series (separate computation).
+            const bucketKey = (t) => {
+                const d = new Date(t);
+                if (xAxisUnit === 'week') {
+                    const dow = d.getUTCDay() || 7; // ISO Mon=1..Sun=7
+                    return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - (dow - 1));
+                }
+                if (xAxisUnit === 'month') {
+                    return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1);
+                }
+                return new Date(t).getTime();
+            };
+            const cums = xAxisUnit === 'day'
+                ? cumsRaw
+                : (() => {
+                    const bucketed = new Map();
+                    for (const p of cumsRaw) bucketed.set(bucketKey(p.t), p);
+                    return [...bucketed.values()];
+                })();
+            const labels = cums.map(p => new Date(p.t));
+            const cum = cums.map(p => p.c);
+            // Running peak on full data, then sampled at the displayed timestamps,
+            // so the dashed peak line stays honest about all-time peaks ever seen.
+            const fullPeakByT = new Map();
+            let _peak = -Infinity;
+            for (const p of cumsRaw) {
+                if (p.c > _peak) _peak = p.c;
+                fullPeakByT.set(p.t, _peak);
+            }
+            const peakLine = cums.map(p => fullPeakByT.get(p.t));
             try {
                 if (window.pnlChart) { window.pnlChart.destroy(); }
                 window.pnlChart = new Chart(el.getContext('2d'), {
