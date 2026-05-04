@@ -10,7 +10,7 @@ The Trading Activity chart (doughnut chart on Overview tab) shows:
 - Legend shows percentage of total trading activity
 - Hover tooltip displays:
   - Number of trades and percentage
-  - Total P&L for that market (realized of CLOSED + unrealized of OPEN — same definition as Performance-by-Asset table)
+  - Total Profit for that market (realized of CLOSED + unrealized of OPEN — same definition as Performance-by-Asset table)
   - Number of open positions
 - Shows top 5 most traded markets
 - Helps identify trading focus and diversification
@@ -64,17 +64,17 @@ Helper: `RiskMetrics.classifyClosed(positions)` returns `{ wins, losses, scratch
 ### Per-trade return
 `r = realizedPnl / (maxSize × entryPrice)` — fraction of max-instantaneous notional ever held during the position lifecycle. `maxSize` (when the indexer exposes it) is the honest "peak capital at risk" for scaled-in/out positions; `sumOpen` overstates exposure because it sums every entry. Falls back to `sumOpen` and then `size` when `maxSize` is absent so legacy responses still produce a number, with the caveat that scaled positions then read smaller-than-actual returns. Used for per-trade Sharpe (fallback) AND asset-level Sharpe so the two cards never disagree. Helper: `RiskMetrics.tradeReturn(p)` (returns `null` when notional is undefined).
 
-### Per-market P&L
+### Per-market Profit
 `total = realized of CLOSED in that market + unrealized of OPEN in that market`. Used by the Overview chart tooltip AND the Performance-by-Asset table. Helper: `RiskMetrics.marketPnL(positions)`.
 
 ### Headline Max Drawdown
-$ DD on cumulative `totalPnl` from `/historical-pnl` (realized + unrealized P&L over time, excluding net transfers). Peak-to-trough in chronological order. This series captures unrealized peaks the closed-trade ledger cannot see (e.g. a +$364K open profit that later got given back). Helper: `RiskMetrics.histPnlDrawdown(historicalPnl)`.
+$ DD on cumulative `totalPnl` from `/historical-pnl` (realized + unrealized profit over time, excluding net transfers). Peak-to-trough in chronological order. This series captures unrealized peaks the closed-trade ledger cannot see (e.g. a +$364K open profit that later got given back). Helper: `RiskMetrics.histPnlDrawdown(historicalPnl)`.
 
 Falls back to trade-system $ DD on cumulative `realizedPnl` (`RiskMetrics.tradeSystemDrawdown(positions)`) when historical-pnl is unavailable OR when it produced no positive drawdown (an empty/monotonic series). The Recovery Factor and Drawdown Periods table follow the same fallback rule so all drawdown-derived cards stay aligned.
 
 The Drawdown Periods table enumerates every peak→trough→recovery event on the same `totalPnl` curve via `RiskMetrics.histPnlDrawdownEvents(historicalPnl)` (with the same trade-system fallback). The Monthly Performance Breakdown's MAX DD column applies `histPnlDrawdown` to that month's slice, so it shares the headline's definition.
 
-The Recovery Factor card uses the matching numerator: latest `totalPnl` ÷ headline DD when on the historical-pnl path; `cls.totalRealized` ÷ trade-system DD when on the fallback path. The numerator/denominator never come from different P&L series.
+The Recovery Factor card uses the matching numerator: latest `totalPnl` ÷ headline DD when on the historical-pnl path; `cls.totalRealized` ÷ trade-system DD when on the fallback path. The numerator/denominator never come from different profit series.
 
 ### Drawdown of arbitrary equity series
 Use `RiskMetrics.validDrawdownFromEquity(equityArray)` for the Calmar denominator on TWR wealth. No longer feeds the headline. Returns `null` when peak ≤ 0 OR trough < 0 — these are synthetic-equity artifacts that arise when the inception-time principal proxy goes under zero (e.g. a wipe followed by a redeposit). Filtered drawdowns must render as `—`.
@@ -87,10 +87,10 @@ A statistical metric (Sharpe, Sortino, Calmar, VaR, CVaR, monthly Sharpe) render
 
 Helper: `RiskMetrics.assessAdequacy(returns, timestamps, histLength)` → `{ adequate, reason, ppy, years, coverage, n }`. The same gate fires for Sharpe/Sortino/Calmar AND VaR/CVaR — the dashboard never shows VaR for a sample window that's too short to support Sharpe.
 
-When the time-series gate fails, Sharpe/Sortino/Calmar fall back to `computeTradeBasedMetrics(positions)` which derives an annualized per-trade Sharpe from the realized-P&L log. VaR/CVaR have no fallback — they render `—` with the gate reason.
+When the time-series gate fails, Sharpe/Sortino/Calmar fall back to `computeTradeBasedMetrics(positions)` which derives an annualized per-trade Sharpe from the realized-profit log. VaR/CVaR have no fallback — they render `—` with the gate reason.
 
 ### Cross-margin liquidation price
-dYdX is cross-margin. Per-position liq price assumes OTHER open positions hold their current uPnL contribution — exact for single-position accounts; isolation approximation otherwise. Derivation: at liquidation, account equity equals maintenance margin requirement computed off liquidation-price notional (`MMR = |size| × P_liq × MMF`).
+dYdX is cross-margin. Per-position liq price assumes OTHER open positions hold their current unrealized profit contribution — exact for single-position accounts; isolation approximation otherwise. Derivation: at liquidation, account equity equals maintenance margin requirement computed off liquidation-price notional (`MMR = |size| × P_liq × MMF`).
 - LONG:  `P_liq = (size × oracle − equity) / (size × (1 − MMF))`
 - SHORT: `P_liq = (equity + oracle × |size|) / (|size| × (1 + MMF))`
 
@@ -107,7 +107,7 @@ Two display-side helpers wrap the formula so the Risk-tab Leverage card and the 
 When semantics of any helper change, update `risk-metrics.js`, the calling sites, this section, AND the test in the same commit.
 
 ### Sign convention
-**Losses always render as negative dollars.** Helper: `formatCurrency(value)` with negative input. Avg Loss / Trough cum P&L / Worst columns must pass `-Math.abs(loss)` so the displayed sign matches the visual loss styling.
+**Losses always render as negative dollars.** Helper: `formatCurrency(value)` with negative input. Avg Loss / Trough cum Profit / Worst columns must pass `-Math.abs(loss)` so the displayed sign matches the visual loss styling.
 
 ## Future Improvements
 - Add more detailed error messages

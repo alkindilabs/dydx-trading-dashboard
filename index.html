@@ -428,7 +428,7 @@
             overflow: hidden;
         }
         .metric-card--hero::before {
-            content: 'Total Profit & Loss';
+            content: 'Total Profit';
             position: absolute;
             top: 22px;
             left: 28px;
@@ -893,7 +893,7 @@
             <!-- Primary Metrics -->
             <div class="metrics-grid">
                 <div class="metric-card metric-card--hero">
-                    <div class="metric-label">Total P&amp;L</div>
+                    <div class="metric-label">Total Profit</div>
                     <div class="metric-value mono" id="totalPnL">-</div>
                     <div class="metric-change mono" id="totalPnLChange">Loading...</div>
                     <svg class="metric-sparkline" viewBox="0 0 50 20">
@@ -931,7 +931,7 @@
             <div class="overview-split">
                 <div class="chart-container">
                     <div class="chart-header">
-                        <div class="chart-title">Cumulative P&amp;L with Drawdown Periods</div>
+                        <div class="chart-title">Cumulative Profit with Drawdown Periods</div>
                     </div>
                     <canvas id="pnlCumulativeChart" class="mini-chart" style="height: 300px"></canvas>
                 </div>
@@ -1056,7 +1056,7 @@
                     <thead>
                         <tr>
                             <th>MONTH</th>
-                            <th>P&amp;L</th>
+                            <th>PROFIT</th>
                             <th>WIN RATE</th>
                             <th>TRADES</th>
                             <th>AVG WIN</th>
@@ -1078,10 +1078,10 @@
                     <thead>
                         <tr>
                             <th>ASSET</th>
-                            <th>P&amp;L</th>
+                            <th>PROFIT</th>
                             <th>TRADES</th>
                             <th>WIN RATE</th>
-                            <th>AVG P&amp;L</th>
+                            <th>AVG PROFIT</th>
                             <th>BEST</th>
                             <th>WORST</th>
                             <th>SHARPE</th>
@@ -1146,8 +1146,8 @@
                             <th>DEPTH ($)</th>
                             <th>DURATION</th>
                             <th>RECOVERY</th>
-                            <th>PEAK CUM. P&amp;L</th>
-                            <th>TROUGH CUM. P&amp;L</th>
+                            <th>PEAK CUM. PROFIT</th>
+                            <th>TROUGH CUM. PROFIT</th>
                         </tr>
                     </thead>
                     <tbody id="drawdownPeriodsBody"></tbody>
@@ -1183,8 +1183,8 @@
                             <th title="Max-instantaneous notional, not lifetime cumulative">SIZE</th>
                             <th>ENTRY</th>
                             <th>EXIT</th>
-                            <th>P&amp;L</th>
-                            <th>P&amp;L %</th>
+                            <th>PROFIT</th>
+                            <th>PROFIT %</th>
                             <th>DURATION</th>
                             <th>FUNDING</th>
                         </tr>
@@ -1222,7 +1222,7 @@
                             <th>PATTERN</th>
                             <th>FREQUENCY</th>
                             <th>SUCCESS RATE</th>
-                            <th>AVG P&amp;L</th>
+                            <th>AVG PROFIT</th>
                             <th>RECOMMENDATION</th>
                         </tr>
                     </thead>
@@ -2176,8 +2176,8 @@
                 updateDrawdownPeriods(allPositions, histArr);
 
                 if (!histArr.length) {
-                    setRatioNA('Failed to load historical PnL');
-                    setVarNA('Failed to load historical PnL');
+                    setRatioNA('Failed to load historical profit');
+                    setVarNA('Failed to load historical profit');
                     updatePerformanceTables(allPositions, [], marketAgg);
                     return;
                 }
@@ -2825,7 +2825,7 @@ Small-N caveat: standard error widens; not a forward-Sharpe forecast.`;
                 noteTd.style.textAlign = 'center';
                 noteTd.style.fontStyle = 'italic';
                 noteTd.style.color = 'var(--ink-3)';
-                noteTd.textContent = 'Multi-position cross-margin: liquidation prices assume other positions hold their current uPnL. Approximation.';
+                noteTd.textContent = 'Multi-position cross-margin: liquidation prices assume other positions hold their current unrealized profit. Approximation.';
                 noteTr.appendChild(noteTd);
                 body.appendChild(noteTr);
             }
@@ -3104,7 +3104,7 @@ Small-N caveat: standard error widens; not a forward-Sharpe forecast.`;
                                         `Closed Positions: ${md.tradeCount}`
                                     ];
                                     if (md.openCount) lines.push(`Open Positions: ${md.openCount}`);
-                                    lines.push(`Total P&L: ${formatCurrency(md.totalPnL)}`);
+                                    lines.push(`Total Profit: ${formatCurrency(md.totalPnL)}`);
                                     return lines;
                                 }
                             }
@@ -3167,7 +3167,7 @@ Small-N caveat: standard error widens; not a forward-Sharpe forecast.`;
                             fill: false,
                             pointRadius: 0
                         }, {
-                            label: 'Cumulative Realized P&L',
+                            label: 'Cumulative Realized Profit',
                             data: cum,
                             borderColor: '#D7AC60',
                             backgroundColor: 'rgba(203,92,80,0.22)',
@@ -3220,7 +3220,7 @@ Small-N caveat: standard error widens; not a forward-Sharpe forecast.`;
                                         }
                                         const idx = ctx.dataIndex;
                                         const dd = peakLine[idx] - cum[idx];
-                                        const lines = [`Cumulative P&L: ${formatCurrency(v)}`];
+                                        const lines = [`Cumulative Profit: ${formatCurrency(v)}`];
                                         if (dd > 0) lines.push(`Drawdown: ${formatCurrency(-dd)}`);
                                         return lines;
                                     }
