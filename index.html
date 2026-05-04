@@ -706,11 +706,120 @@
             .two-column, .three-column { grid-template-columns: 1fr; }
         }
 
-        /* OVERVIEW: hero equity curve + narrower activity row */
-        .chart-container--narrow {
-            max-width: clamp(420px, 58%, 780px);
-        }
+        /* OVERVIEW: hero equity curve */
         .chart-container--hero { margin-bottom: 32px; }
+
+        /* OVERVIEW: editorial section break (asterism between hero + broadsheet) */
+        .overview-section-break {
+            display: grid;
+            grid-template-columns: 1fr auto 1fr;
+            align-items: center;
+            gap: 26px;
+            margin: 28px 0 26px;
+            pointer-events: none;
+        }
+        .osb-rule {
+            height: 1px;
+            min-width: 0;
+            background: linear-gradient(90deg, transparent, var(--rule-strong) 60%);
+        }
+        .osb-rule--right {
+            background: linear-gradient(90deg, var(--rule-strong) 40%, transparent);
+        }
+        .osb-mark {
+            font-family: var(--ff-display);
+            font-style: italic;
+            font-weight: 400;
+            font-size: 22px;
+            color: var(--gold);
+            line-height: 1;
+            font-variation-settings: 'opsz' 60;
+            user-select: none;
+        }
+
+        /* OVERVIEW: 3-up broadsheet (Activity / Statistics / Time) */
+        .broadsheet {
+            display: grid;
+            grid-template-columns: 1.1fr 1fr 1fr;
+            gap: 0;
+            margin-bottom: 36px;
+            border-top: 1px solid var(--rule-strong);
+            border-bottom: 1px solid var(--rule-strong);
+            background: linear-gradient(180deg, rgba(215,172,96,0.025), transparent 50%);
+        }
+        .broadsheet-col {
+            padding: 28px 30px;
+            border-right: 1px solid var(--rule);
+            position: relative;
+            min-width: 0;
+        }
+        .broadsheet-col:last-child { border-right: 0; }
+        .broadsheet-head {
+            display: flex;
+            align-items: baseline;
+            gap: 14px;
+            padding-bottom: 14px;
+            margin-bottom: 18px;
+            border-bottom: 1px solid var(--rule);
+        }
+        .broadsheet-eyebrow {
+            font-family: var(--ff-display);
+            font-style: italic;
+            font-weight: 400;
+            font-size: 22px;
+            color: var(--gold);
+            letter-spacing: 0;
+            line-height: 1;
+            font-variation-settings: 'opsz' 60, 'SOFT' 80;
+            flex-shrink: 0;
+        }
+        .broadsheet-title {
+            font-family: var(--ff-display);
+            font-style: italic;
+            font-weight: 400;
+            font-size: 19px;
+            line-height: 1.15;
+            color: var(--ink);
+            letter-spacing: -0.012em;
+            font-variation-settings: 'opsz' 48, 'SOFT' 80;
+            margin: 0;
+        }
+        .broadsheet-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .broadsheet-table tr { border-bottom: 1px dotted var(--rule); }
+        .broadsheet-table tr:last-child { border-bottom: 0; }
+        .broadsheet-table td {
+            padding: 11px 0;
+            font-size: 13px;
+            color: var(--ink-2);
+            letter-spacing: 0.01em;
+            border: 0;
+        }
+        .broadsheet-table td:last-child {
+            text-align: right;
+            color: var(--ink);
+            font-size: 14px;
+        }
+        .broadsheet-table tr:hover td { background: transparent; }
+        .broadsheet-col .canvas-wrap { margin-bottom: 14px; }
+        @media (max-width: 1100px) {
+            .broadsheet { grid-template-columns: 1fr 1fr; }
+            .broadsheet-col:nth-child(2) { border-right: 0; }
+            .broadsheet-col:nth-child(3) {
+                grid-column: 1 / -1;
+                border-top: 1px solid var(--rule);
+            }
+        }
+        @media (max-width: 700px) {
+            .broadsheet { grid-template-columns: 1fr; }
+            .broadsheet-col {
+                border-right: 0;
+                border-bottom: 1px solid var(--rule);
+            }
+            .broadsheet-col:last-child { border-bottom: 0; }
+        }
 
         /* RISK BAR */
         .risk-bar {
@@ -1272,75 +1381,52 @@
                 <canvas id="pnlCumulativeChart" class="mini-chart" style="height: 380px"></canvas>
             </div>
 
-            <!-- Trading activity by market — own row, narrower -->
-            <div class="chart-container chart-container--narrow">
-                <div class="chart-header">
-                    <div class="chart-title">Trading Activity by Market</div>
-                </div>
-                <div class="canvas-wrap" style="position: relative; height: 320px;">
-                    <canvas id="marketDistributionChart"></canvas>
-                </div>
-                <div id="marketDistributionLegend" class="market-legend"></div>
+            <!-- Editorial section break -->
+            <div class="overview-section-break" aria-hidden="true">
+                <span class="osb-rule"></span>
+                <span class="osb-mark">⁂</span>
+                <span class="osb-rule osb-rule--right"></span>
             </div>
 
-            <!-- Quick Stats Grid -->
-            <div class="two-column">
-                <div class="table-container">
-                    <div class="table-header">
-                        <div class="table-title">Trading Statistics</div>
+            <!-- 3-up broadsheet: activity, statistics, time -->
+            <section class="broadsheet" aria-label="Activity, statistics and time analysis">
+                <article class="broadsheet-col">
+                    <header class="broadsheet-head">
+                        <span class="broadsheet-eyebrow">I.</span>
+                        <h3 class="broadsheet-title">Trading Activity by Market</h3>
+                    </header>
+                    <div class="canvas-wrap" style="position: relative; height: 280px;">
+                        <canvas id="marketDistributionChart"></canvas>
                     </div>
-                    <table>
-                        <tr>
-                            <td>Average Win</td>
-                            <td class="mono profit" id="avgWin">-</td>
-                        </tr>
-                        <tr>
-                            <td>Average Loss</td>
-                            <td class="mono loss" id="avgLoss">-</td>
-                        </tr>
-                        <tr>
-                            <td>Risk/Reward Ratio</td>
-                            <td class="mono" id="riskReward">-</td>
-                        </tr>
-                        <tr>
-                            <td>Trade Expectancy</td>
-                            <td class="mono profit" id="expectancy">-</td>
-                        </tr>
-                        <tr>
-                            <td id="recoveryFactorLabel">Recovery Factor</td>
-                            <td class="mono" id="recoveryFactor">-</td>
-                        </tr>
+                    <div id="marketDistributionLegend" class="market-legend"></div>
+                </article>
+                <article class="broadsheet-col">
+                    <header class="broadsheet-head">
+                        <span class="broadsheet-eyebrow">II.</span>
+                        <h3 class="broadsheet-title">Trading Statistics</h3>
+                    </header>
+                    <table class="broadsheet-table">
+                        <tr><td>Average Win</td><td class="mono profit" id="avgWin">-</td></tr>
+                        <tr><td>Average Loss</td><td class="mono loss" id="avgLoss">-</td></tr>
+                        <tr><td>Risk/Reward Ratio</td><td class="mono" id="riskReward">-</td></tr>
+                        <tr><td>Trade Expectancy</td><td class="mono profit" id="expectancy">-</td></tr>
+                        <tr><td id="recoveryFactorLabel">Recovery Factor</td><td class="mono" id="recoveryFactor">-</td></tr>
                     </table>
-                </div>
-
-                <div class="table-container">
-                    <div class="table-header">
-                        <div class="table-title">Time Analysis</div>
-                    </div>
-                    <table>
-                        <tr>
-                            <td>Avg Hold Time (Win)</td>
-                            <td class="mono" id="avgHoldWin">—</td>
-                        </tr>
-                        <tr>
-                            <td>Avg Hold Time (Loss)</td>
-                            <td class="mono" id="avgHoldLoss">—</td>
-                        </tr>
-                        <tr>
-                            <td>Best Trading Hour</td>
-                            <td class="mono" id="bestHour">—</td>
-                        </tr>
-                        <tr>
-                            <td>Worst Trading Hour</td>
-                            <td class="mono" id="worstHour">—</td>
-                        </tr>
-                        <tr>
-                            <td>Most Active Day</td>
-                            <td class="mono" id="mostActiveDay">—</td>
-                        </tr>
+                </article>
+                <article class="broadsheet-col">
+                    <header class="broadsheet-head">
+                        <span class="broadsheet-eyebrow">III.</span>
+                        <h3 class="broadsheet-title">Time Analysis</h3>
+                    </header>
+                    <table class="broadsheet-table">
+                        <tr><td>Avg Hold Time (Win)</td><td class="mono" id="avgHoldWin">—</td></tr>
+                        <tr><td>Avg Hold Time (Loss)</td><td class="mono" id="avgHoldLoss">—</td></tr>
+                        <tr><td>Best Trading Hour</td><td class="mono" id="bestHour">—</td></tr>
+                        <tr><td>Worst Trading Hour</td><td class="mono" id="worstHour">—</td></tr>
+                        <tr><td>Most Active Day</td><td class="mono" id="mostActiveDay">—</td></tr>
                     </table>
-                </div>
-            </div>
+                </article>
+            </section>
         </div>
 
         <!-- Performance Tab -->
