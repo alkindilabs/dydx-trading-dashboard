@@ -1474,6 +1474,46 @@
             });
         }
 
+        // Paginate /historical-pnl back to inception. dYdX caps each page at
+        // 1000 hourly samples (~42 days); accounts active longer need
+        // multiple pages so the chart, headline MDD, and Drawdown Periods
+        // table reflect the FULL trading journey (peak unrealized included),
+        // not just the last 6 weeks.
+        async function fetchAllHistoricalPnl(address) {
+            const PAGE_LIMIT = 1000;
+            const MAX_PAGES = 24; // safety cap (~28 months hourly)
+            let cursor = null;
+            const all = [];
+            const seen = new Set();
+            for (let i = 0; i < MAX_PAGES; i++) {
+                const url = cursor
+                    ? `${DYDX_API}/historical-pnl?address=${address}&subaccountNumber=0&limit=${PAGE_LIMIT}&createdBeforeOrAt=${encodeURIComponent(cursor)}`
+                    : `${DYDX_API}/historical-pnl?address=${address}&subaccountNumber=0&limit=${PAGE_LIMIT}`;
+                let page;
+                try {
+                    page = await fetchJson(url);
+                } catch (e) {
+                    console.warn('historical-pnl pagination stopped at page', i, e);
+                    break;
+                }
+                const rows = (page && page.historicalPnl) || [];
+                if (!rows.length) break;
+                let newCount = 0;
+                let oldest = null;
+                rows.forEach(r => {
+                    const key = r.createdAt + '|' + r.blockHeight;
+                    if (seen.has(key)) return;
+                    seen.add(key);
+                    all.push(r);
+                    newCount++;
+                    if (!oldest || (r.createdAt || '') < oldest) oldest = r.createdAt;
+                });
+                if (newCount === 0) break; // no new rows → reached inception
+                cursor = oldest; // step back to the earliest row of this page
+            }
+            return { historicalPnl: all };
+        }
+
         // Load real dashboard data
         async function loadDashboard() {
             const urlParams = new URLSearchParams(window.location.search);
@@ -1508,7 +1548,7 @@
                     fetchJson(`${DYDX_API}/fills?address=${address}&subaccountNumber=0&limit=1000`),
                     fetchJson(`${DYDX_API}/fundingPayments?address=${address}&subaccountNumber=0&limit=1000`),
                     fetchJson(`${DYDX_API}/perpetualMarkets`),
-                    fetchJson(`${DYDX_API}/historical-pnl?address=${address}&subaccountNumber=0&limit=1000`)
+                    fetchAllHistoricalPnl(address)
                 ]);
 
                 allData = {
@@ -1572,10 +1612,20 @@
             // every renderer/table. No downstream code recomputes these so
             // the same trade is never bucketed two ways across cards.
             const cls = window.RiskMetrics.classifyClosed(allPositions);
-            const tsd = window.RiskMetrics.tradeSystemDrawdown(allPositions);
             const marketAgg = window.RiskMetrics.marketPnL(allPositions);
             const marketsMap = extractMarketsMap(allData.markets);
             const histArr = (allData.historicalPnl && allData.historicalPnl.historicalPnl) || [];
+            // Drawdown source: historical-pnl totalPnl is the canonical
+            // realized+unrealized cumulative trading P&L per timestamp. It
+            // captures unrealized peaks the closed-trade ledger cannot see
+            // (e.g. a +$364K open profit that later got given back). Falls
+            // back to the trade-system ledger only when historical-pnl is
+            // unavailable.
+            const histDD = window.RiskMetrics.histPnlDrawdown(histArr);
+            const tsd = histDD.dollarDrawdown > 0
+                ? histDD
+                : window.RiskMetrics.tradeSystemDrawdown(allPositions);
+            const drawdownSource = histDD.dollarDrawdown > 0 ? 'hist' : 'trade';
 
             const totalUnrealizedPnL = allPositions
                 .filter(p => p.status === 'OPEN')
@@ -1637,13 +1687,16 @@
             const avgWin = wins > 0 ? totalWinAmount / wins : 0;
             const avgLoss = losses > 0 ? totalLossAmount / losses : 0;
 
-            // Headline Max Drawdown: trade-system $ drawdown of cumulative
-            // realizedPnl. Same series feeds the Drawdown Periods table so
-            // the headline can never disagree with the table.
+            // Headline Max Drawdown: peak-to-trough of cumulative trading
+            // P&L (totalPnl from historical-pnl). Same series drives the
+            // Drawdown Periods table and chart so they cannot disagree.
             if (tsd.dollarDrawdown > 0) {
                 updateElement('maxDrawdown', formatCurrency(-tsd.dollarDrawdown));
-                updateElement('maxDrawdownDetail',
-                    `Trade-system peak-to-trough · n=${tsd.n} closed`);
+                const peakDate = tsd.peakAt ? tsd.peakAt.slice(0, 10) : null;
+                const detail = drawdownSource === 'hist'
+                    ? `Peak ${formatCurrency(tsd.peakValue)} (${peakDate}) → trough ${formatCurrency(tsd.troughValue)}`
+                    : `Trade-system peak-to-trough · n=${tsd.n} closed`;
+                updateElement('maxDrawdownDetail', detail);
             } else {
                 updateElement('maxDrawdown', '—');
                 updateElement('maxDrawdownDetail', cls.closedCount > 0
@@ -1682,7 +1735,7 @@
                 const rets = window.RiskMetrics.computeTimeWeightedReturnsFromHist(histArr);
                 const series = histArr.slice().sort((a,b) => (a.createdAt||'').localeCompare(b.createdAt||''));
                 const timestamps = series.map(p => p.createdAt).filter(Boolean);
-                updateDrawdownPeriods(allPositions);
+                updateDrawdownPeriods(allPositions, histArr);
 
                 const adq = window.RiskMetrics.assessAdequacy(rets, timestamps, histArr.length);
                 const equityNow = subaccount ? parseFloat(subaccount.equity || 0) : 0;
@@ -2504,14 +2557,19 @@ Small-N caveat: standard error widens; not a forward-Sharpe forecast.`;
             updateMetric('expectedShortfall', formatCurrency(cvar95Usd), cvar95Usd >= 0);
         }
 
-        // Drawdown Periods table: same trade-system event series that drives
-        // the headline Max Drawdown card. Top row is always the headline MDD
-        // event so the two views can never disagree.
-        function updateDrawdownPeriods(positions) {
+        // Drawdown Periods table: enumerate every peak-to-trough event on
+        // the cumulative trading-P&L curve (totalPnl from historical-pnl).
+        // Top row is always the headline MDD event so the two views can
+        // never disagree. Falls back to the closed-trade ledger only when
+        // historical-pnl is empty.
+        function updateDrawdownPeriods(positions, historicalPnl) {
             const body = document.getElementById('drawdownPeriodsBody');
             if (!body) return;
             body.innerHTML = '';
-            const events = window.RiskMetrics.tradeSystemDrawdownEvents(positions || []);
+            const histEvents = window.RiskMetrics.histPnlDrawdownEvents(historicalPnl || []);
+            const events = histEvents.length
+                ? histEvents
+                : window.RiskMetrics.tradeSystemDrawdownEvents(positions || []);
             events.sort((a, b) => b.depthAbs - a.depthAbs);
             const top = events.slice(0, 5);
             const fmtDate = (iso) => new Date(iso).toISOString().slice(0, 10);
@@ -2682,29 +2740,22 @@ Small-N caveat: standard error widens; not a forward-Sharpe forecast.`;
             }
         }
 
-        // Cumulative realized P&L over closed trades, with running peak and
-        // shaded underwater region. Same trade-system series that drives
-        // the headline Max Drawdown card and Drawdown Periods table — the
-        // chart can't disagree with the cards.
-        function renderCumulativePnlChart(positions) {
+        // Cumulative trading P&L (totalPnl from historical-pnl) over time,
+        // with running peak and shaded underwater region. Same series that
+        // drives the headline Max Drawdown card and Drawdown Periods table
+        // — the chart can't disagree with the cards. Captures unrealized
+        // peaks (e.g. +$364K open profit later given back) which the
+        // closed-trade ledger cannot see.
+        function renderCumulativePnlChart(historicalPnl) {
             const el = document.getElementById('pnlCumulativeChart');
             if (!el) return;
-            const closed = (positions || [])
-                .filter(p => p && p.status === 'CLOSED' && p.closedAt)
-                .slice()
-                .sort((a, b) => new Date(a.closedAt) - new Date(b.closedAt));
-            if (closed.length < 2) return;
-            const labels = [];
-            const cum = [];
+            const cums = window.RiskMetrics.buildCumulativeTotalPnlSeries(historicalPnl || []);
+            if (cums.length < 2) return;
+            const labels = cums.map(p => new Date(p.t));
+            const cum = cums.map(p => p.c);
             const peakLine = [];
-            let running = 0, peak = 0;
-            closed.forEach(p => {
-                running += parseFloat(p.realizedPnl || 0);
-                if (running > peak) peak = running;
-                labels.push(new Date(p.closedAt));
-                cum.push(running);
-                peakLine.push(peak);
-            });
+            let peak = -Infinity;
+            cum.forEach(v => { if (v > peak) peak = v; peakLine.push(peak); });
             try {
                 if (window.pnlChart) { window.pnlChart.destroy(); }
                 window.pnlChart = new Chart(el.getContext('2d'), {
@@ -2950,8 +3001,10 @@ Small-N caveat: standard error widens; not a forward-Sharpe forecast.`;
                 activateTab('overview');
             }
             await loadDashboard();
-            if (currentAddress && allData.positions) {
-                renderCumulativePnlChart(allData.positions);
+            if (currentAddress && allData.historicalPnl) {
+                renderCumulativePnlChart(
+                    (allData.historicalPnl && allData.historicalPnl.historicalPnl) || []
+                );
             }
         });
     </script>
