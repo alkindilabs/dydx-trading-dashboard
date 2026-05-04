@@ -6,7 +6,11 @@
   "scripts": {
     "start": "python3 -m http.server 8000",
     "dev": "python3 -m http.server 8000",
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "cf:dev": "wrangler dev",
+    "cf:deploy": "wrangler deploy",
+    "cf:tail": "wrangler tail",
+    "cf:whoami": "wrangler whoami"
   },
   "keywords": [
     "dydx",
@@ -23,5 +27,7 @@
     "url": "https://github.com/alkindilabs/dydx-trading-dashboard"
   },
   "dependencies": {},
-  "devDependencies": {}
+  "devDependencies": {
+    "wrangler": "^3.91.0"
+  }
 }

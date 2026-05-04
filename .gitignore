@@ -29,3 +29,9 @@ Thumbs.db
 *research*
 *analysis*
 /tmp/
+
+# Cloudflare / wrangler
+node_modules/
+.wrangler/
+.dev.vars
+.dev.vars.*
