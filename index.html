@@ -496,6 +496,153 @@
             display: none;
         }
 
+        /* Funding rate-of-return hero — annualized return on time-weighted notional */
+        .funding-hero {
+            background:
+                radial-gradient(720px 240px at 0% 100%, rgba(215,172,96,0.045), transparent 60%),
+                linear-gradient(135deg, var(--paper-2) 0%, var(--paper-3) 100%);
+            border: 1px solid var(--rule-strong);
+            padding: 30px 32px 28px;
+            margin-bottom: 28px;
+            position: relative;
+            overflow: hidden;
+        }
+        .funding-hero__head {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 16px;
+            margin-bottom: 26px;
+            flex-wrap: wrap;
+        }
+        .funding-hero__eyebrow {
+            font-family: var(--ff-mono);
+            font-size: 10px;
+            letter-spacing: 0.24em;
+            text-transform: uppercase;
+            color: var(--ink-3);
+        }
+        .funding-hero__eyebrow::before {
+            content: '';
+            display: inline-block;
+            width: 14px;
+            height: 1px;
+            background: var(--gold);
+            vertical-align: 5px;
+            margin-right: 12px;
+        }
+        .funding-hero__window {
+            display: inline-flex;
+            border: 1px solid var(--rule-strong);
+            background: var(--paper-2);
+        }
+        .funding-hero__pill {
+            background: transparent;
+            color: var(--ink-3);
+            border: 0;
+            border-left: 1px solid var(--rule);
+            padding: 7px 14px;
+            font-family: var(--ff-mono);
+            font-size: 10px;
+            letter-spacing: 0.22em;
+            text-transform: uppercase;
+            cursor: pointer;
+            transition: color 0.18s, background 0.18s;
+        }
+        .funding-hero__pill:first-child { border-left: 0; }
+        .funding-hero__pill:hover { color: var(--ink); background: var(--paper-3); }
+        .funding-hero__pill.active {
+            color: var(--paper);
+            background: var(--gold);
+        }
+        .funding-hero__body {
+            display: grid;
+            grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+            gap: 36px;
+            align-items: end;
+        }
+        .funding-hero__rule {
+            width: 32px;
+            height: 1px;
+            background: var(--gold);
+            margin-bottom: 16px;
+        }
+        .funding-hero__apr {
+            font-family: var(--ff-display);
+            font-feature-settings: 'tnum' 1, 'lnum' 1, 'ss01' 1;
+            font-variation-settings: 'opsz' 144, 'SOFT' 100;
+            font-style: italic;
+            font-weight: 380;
+            font-size: clamp(58px, 8.5vw, 120px);
+            line-height: 0.88;
+            letter-spacing: -0.035em;
+            color: var(--ink);
+        }
+        .funding-hero__apr.profit { color: var(--gain); }
+        .funding-hero__apr.loss   { color: var(--loss); }
+        .funding-hero__apr-suffix {
+            font-family: var(--ff-mono);
+            font-size: 10px;
+            letter-spacing: 0.24em;
+            text-transform: uppercase;
+            color: var(--ink-3);
+            margin-top: 14px;
+            margin-bottom: 18px;
+        }
+        .funding-hero__caption {
+            font-family: var(--ff-mono);
+            font-size: 12px;
+            color: var(--ink-2);
+            line-height: 1.6;
+            max-width: 42ch;
+        }
+        .funding-hero__breakdown {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 12px;
+            border-left: 1px solid var(--rule-strong);
+            padding-left: 32px;
+            margin: 0;
+        }
+        .funding-hero__breakdown > div {
+            display: grid;
+            grid-template-columns: 150px 1fr;
+            align-items: baseline;
+            gap: 16px;
+            margin: 0;
+        }
+        .funding-hero__breakdown dt {
+            font-family: var(--ff-mono);
+            font-size: 9.5px;
+            letter-spacing: 0.22em;
+            text-transform: uppercase;
+            color: var(--ink-3);
+        }
+        .funding-hero__breakdown dd {
+            font-family: var(--ff-mono);
+            font-size: 13px;
+            color: var(--ink);
+            font-variant-numeric: tabular-nums;
+            margin: 0;
+        }
+        @media (max-width: 1100px) {
+            .funding-hero__body {
+                grid-template-columns: 1fr;
+                gap: 28px;
+                align-items: start;
+            }
+            .funding-hero__breakdown {
+                border-left: 0;
+                border-top: 1px solid var(--rule-strong);
+                padding-left: 0;
+                padding-top: 22px;
+            }
+        }
+        @media (max-width: 720px) {
+            .funding-hero { padding: 24px; }
+            .funding-hero__breakdown > div { grid-template-columns: 110px 1fr; }
+        }
+
         /* standard metric */
         .metric-label {
             font-family: var(--ff-mono);
@@ -1664,16 +1811,43 @@
 
         <!-- Market Structure Tab -->
         <div class="tab-content" id="market">
+            <section class="funding-hero" id="fundingHero" aria-label="Funding rate of return">
+                <header class="funding-hero__head">
+                    <span class="funding-hero__eyebrow">Funding rate of return</span>
+                    <div class="funding-hero__window" role="tablist" aria-label="Funding window">
+                        <button type="button" class="funding-hero__pill" data-window="7"   role="tab">7D</button>
+                        <button type="button" class="funding-hero__pill active" data-window="30"  role="tab">30D</button>
+                        <button type="button" class="funding-hero__pill" data-window="90"  role="tab">90D</button>
+                        <button type="button" class="funding-hero__pill" data-window="all" role="tab">All</button>
+                    </div>
+                </header>
+                <div class="funding-hero__body">
+                    <div>
+                        <div class="funding-hero__rule"></div>
+                        <div class="funding-hero__apr" id="fundingApr">—</div>
+                        <div class="funding-hero__apr-suffix">APR on deployed capital</div>
+                        <div class="funding-hero__caption" id="fundingCaption">—</div>
+                    </div>
+                    <dl class="funding-hero__breakdown">
+                        <div><dt>Period</dt><dd id="fundingPeriod">—</dd></div>
+                        <div><dt>Avg notional</dt><dd id="fundingAvgNotional">—</dd></div>
+                        <div><dt>Hours deployed</dt><dd id="fundingHoursDeployed">—</dd></div>
+                        <div><dt>Implied hourly</dt><dd id="fundingHourlyRate">—</dd></div>
+                        <div><dt>Capital turns</dt><dd id="fundingCapitalTurns">—</dd></div>
+                    </dl>
+                </div>
+            </section>
+
             <div class="metrics-grid">
                 <div class="metric-card">
                     <div class="metric-label">Funding Captured</div>
                     <div class="metric-value mono profit" id="fundingCaptured">-</div>
-                    <div class="metric-change mono">Last 30 days</div>
+                    <div class="metric-change mono" id="fundingCapturedWindow">Last 30 days</div>
                 </div>
                 <div class="metric-card">
                     <div class="metric-label">Funding Paid</div>
                     <div class="metric-value mono loss" id="fundingPaid">-</div>
-                    <div class="metric-change mono">Last 30 days</div>
+                    <div class="metric-change mono" id="fundingPaidWindow">Last 30 days</div>
                 </div>
                 <div class="metric-card">
                     <div class="metric-label">Net Funding</div>
@@ -2805,27 +2979,12 @@ Sample: ${rets.length} returns over ${(adq.years*12).toFixed(1)} months (${(adq.
                 updateElement('kellyCriterion', isFinite(k) ? (k * 100).toFixed(1) + '%' : 'N/A');
             })();
 
-            // Funding metrics (Market Structure tab) — last 30 days, $-only.
-            // We do NOT divide by current equity: that ratio is a 30-day flow
-            // over a point-in-time denominator and is meaningless when equity
-            // changed materially over the window.
+            // Funding views (Market Structure tab): hero APR + 3 KPI cards + per-asset table
+            // share a single window selector. Hero divides by time-weighted notional (the
+            // honest denominator for an hourly-settled funding flow); the KPI cards stay
+            // $-only because a flow-vs-equity ratio is meaningless across changing equity.
             const payments = (allData.fundingPayments && (allData.fundingPayments.fundingPayments || [])) || [];
-            const cutoff = Date.now() - (30 * 24 * 3600 * 1000);
-            let received = 0;
-            let paid = 0;
-            payments.forEach(p => {
-                const ts = new Date(p.createdAt).getTime();
-                if (isNaN(ts) || ts < cutoff) return;
-                const amt = parseFloat(p.payment || 0);
-                if (amt > 0) received += amt; else paid += Math.abs(amt);
-            });
-            const net = received - paid;
-            updateElement('fundingCaptured', formatCurrency(received));
-            updateElement('fundingPaid', formatCurrency(-paid));
-            updateElement('fundingNet', formatCurrency(net));
-            updateElement('fundingNetPct', 'Last 30 days');
-
-            updateFundingAnalysis(marketsMap, payments);
+            renderFundingViews(payments, marketsMap);
         }
 
         function safeText(v) {
@@ -3506,13 +3665,181 @@ Small-N caveat: standard error widens; not a forward-Sharpe forecast.`;
             });
         }
 
+        // ──────────────────────────────────────────────────────────────────
+        // Funding window: shared selector for hero panel + KPI cards + table.
+        // Persisted in localStorage so the user's window preference survives
+        // reloads and re-renders. Default is 30 days to match prior behavior.
+        // ──────────────────────────────────────────────────────────────────
+        const FUNDING_WINDOW_KEY = 'fundingWindow';
+        const HOURS_PER_YEAR = 8760;
+
+        function getFundingWindowDays() {
+            try {
+                const v = localStorage.getItem(FUNDING_WINDOW_KEY);
+                if (v === '7' || v === '30' || v === '90' || v === 'all') return v;
+            } catch (e) {}
+            return '30';
+        }
+
+        function getFundingCutoff() {
+            const w = getFundingWindowDays();
+            return w === 'all' ? 0 : Date.now() - parseInt(w, 10) * 24 * 3600 * 1000;
+        }
+
+        function getFundingWindowLabel() {
+            const w = getFundingWindowDays();
+            return w === 'all' ? 'All time' : `Last ${w} days`;
+        }
+
+        function fmtNotional(value) {
+            if (value === null || value === undefined || isNaN(value) || !isFinite(value)) return '—';
+            const abs = Math.abs(value);
+            const sign = value < 0 ? '-' : '';
+            if (abs >= 1e9) return `${sign}$${(abs / 1e9).toFixed(2)}B`;
+            if (abs >= 1e6) return `${sign}$${(abs / 1e6).toFixed(2)}M`;
+            if (abs >= 1e3) return `${sign}$${(abs / 1e3).toFixed(2)}K`;
+            return `${sign}$${abs.toFixed(2)}`;
+        }
+
+        function fmtSignedPct(value, decimals) {
+            if (value === null || value === undefined || isNaN(value) || !isFinite(value)) return '—';
+            const d = (decimals === undefined) ? 2 : decimals;
+            const sign = value > 0 ? '+' : value < 0 ? '−' : '';
+            return `${sign}${Math.abs(value).toFixed(d)}%`;
+        }
+
+        function fmtDateShort(ts) {
+            return new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        }
+
+        // dYdX v4 settles funding hourly; each row carries the position size and oracle
+        // price at settlement. Sum |size × price| over rows = notional-hours of exposure.
+        // APR = (Σ payment / Σ notional-hours) × 8760. Closed-position gaps produce no
+        // rows, so hours_deployed counts only the time the trader was actually exposed.
+        function computeFundingHero(payments) {
+            const cutoff = getFundingCutoff();
+            const inWin = (payments || []).filter(p => {
+                const ts = new Date(p.createdAt || p.effectiveAt).getTime();
+                return !isNaN(ts) && ts >= cutoff;
+            });
+            if (!inWin.length) return null;
+
+            inWin.sort((a, b) => {
+                const ta = new Date(a.createdAt || a.effectiveAt).getTime();
+                const tb = new Date(b.createdAt || b.effectiveAt).getTime();
+                return ta - tb;
+            });
+            const periodStart = new Date(inWin[0].createdAt || inWin[0].effectiveAt).getTime();
+            const periodEnd = new Date(inWin[inWin.length - 1].createdAt || inWin[inWin.length - 1].effectiveAt).getTime();
+
+            let received = 0, paid = 0, notionalHours = 0, hoursDeployed = 0;
+            inWin.forEach(p => {
+                const amt = parseFloat(p.payment) || 0;
+                const size = Math.abs(parseFloat(p.size ?? p.positionSize) || 0);
+                const price = parseFloat(p.oraclePrice ?? p.price) || 0;
+                const notional = size * price;
+                if (amt > 0) received += amt; else paid += Math.abs(amt);
+                if (notional > 0) {
+                    notionalHours += notional;
+                    hoursDeployed += 1;
+                }
+            });
+            if (notionalHours <= 0 || hoursDeployed <= 0) return null;
+
+            const net = received - paid;
+            const avgNotional = notionalHours / hoursDeployed;
+            const hourlyRate = net / notionalHours;
+            const apr = hourlyRate * HOURS_PER_YEAR;
+
+            const windowKey = getFundingWindowDays();
+            const windowHours = windowKey === 'all'
+                ? Math.max(1, (Date.now() - periodStart) / 3600000)
+                : parseInt(windowKey, 10) * 24;
+            const capitalTurns = (avgNotional > 0) ? notionalHours / (avgNotional * windowHours) : 0;
+
+            return { apr, net, received, paid, avgNotional, hoursDeployed,
+                     notionalHours, hourlyRate, periodStart, periodEnd,
+                     windowHours, capitalTurns };
+        }
+
+        function renderFundingHero(metrics) {
+            const apr = document.getElementById('fundingApr');
+            if (!apr) return;
+            if (!metrics) {
+                ['fundingApr', 'fundingCaption', 'fundingPeriod', 'fundingAvgNotional',
+                 'fundingHoursDeployed', 'fundingHourlyRate', 'fundingCapitalTurns']
+                    .forEach(id => updateElement(id, '—'));
+                apr.classList.remove('profit', 'loss');
+                return;
+            }
+
+            apr.textContent = fmtSignedPct(metrics.apr * 100, 2);
+            apr.classList.toggle('profit', metrics.apr > 0);
+            apr.classList.toggle('loss', metrics.apr < 0);
+
+            updateElement('fundingCaption',
+                `${formatCurrency(metrics.net)} net on ${fmtNotional(metrics.notionalHours)} notional·hours`);
+            updateElement('fundingPeriod',
+                `${fmtDateShort(metrics.periodStart)} → ${fmtDateShort(metrics.periodEnd)}`);
+            updateElement('fundingAvgNotional', fmtNotional(metrics.avgNotional));
+            updateElement('fundingHoursDeployed',
+                `${metrics.hoursDeployed} / ${Math.round(metrics.windowHours)} h`);
+            updateElement('fundingHourlyRate', fmtSignedPct(metrics.hourlyRate * 100, 5));
+            updateElement('fundingCapitalTurns',
+                isFinite(metrics.capitalTurns) ? `${metrics.capitalTurns.toFixed(2)}×` : '—');
+        }
+
+        function renderFundingKpiCards(payments) {
+            const cutoff = getFundingCutoff();
+            let received = 0, paid = 0;
+            (payments || []).forEach(p => {
+                const ts = new Date(p.createdAt || p.effectiveAt).getTime();
+                if (isNaN(ts) || ts < cutoff) return;
+                const amt = parseFloat(p.payment) || 0;
+                if (amt > 0) received += amt; else paid += Math.abs(amt);
+            });
+            const net = received - paid;
+            const windowLabel = getFundingWindowLabel();
+            updateElement('fundingCaptured', formatCurrency(received));
+            updateElement('fundingPaid', formatCurrency(-paid));
+            updateElement('fundingNet', formatCurrency(net));
+            updateElement('fundingCapturedWindow', windowLabel);
+            updateElement('fundingPaidWindow', windowLabel);
+            updateElement('fundingNetPct', windowLabel);
+        }
+
+        // Single entry point: re-paint hero, KPI cards, and per-asset table from one window.
+        function renderFundingViews(payments, marketsMap) {
+            renderFundingHero(computeFundingHero(payments));
+            renderFundingKpiCards(payments);
+            updateFundingAnalysis(marketsMap, payments);
+        }
+
+        function initFundingWindowToggle() {
+            const pills = document.querySelectorAll('.funding-hero__pill');
+            if (!pills.length) return;
+            const active = getFundingWindowDays();
+            pills.forEach(p => p.classList.toggle('active', p.dataset.window === active));
+            pills.forEach(p => {
+                p.addEventListener('click', () => {
+                    try { localStorage.setItem(FUNDING_WINDOW_KEY, p.dataset.window); } catch (e) {}
+                    pills.forEach(x => x.classList.toggle('active', x === p));
+                    if (typeof allData !== 'undefined' && allData) {
+                        const payments = (allData.fundingPayments && (allData.fundingPayments.fundingPayments || [])) || [];
+                        const marketsMap = extractMarketsMap(allData.markets);
+                        renderFundingViews(payments, marketsMap);
+                    }
+                });
+            });
+        }
+
         function updateFundingAnalysis(marketsMap, fundingPayments) {
             const body = document.getElementById('fundingAnalysisBody');
             if (!body) return;
             body.innerHTML = '';
 
             const byMarket = {};
-            const cutoff = Date.now() - (30 * 24 * 3600 * 1000);
+            const cutoff = getFundingCutoff();
             (fundingPayments || []).forEach(p => {
                 const ts = new Date(p.createdAt).getTime();
                 if (isNaN(ts) || ts < cutoff) return;
@@ -3970,6 +4297,7 @@ Small-N caveat: standard error widens; not a forward-Sharpe forecast.`;
             } catch (e) {
                 activateTab('overview');
             }
+            initFundingWindowToggle();
             await loadDashboard();
         });
     </script>
