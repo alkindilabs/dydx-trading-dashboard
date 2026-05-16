@@ -305,6 +305,105 @@ test('marketPnL with no funding fields behaves like realized + unrealized only',
 });
 
 // ---------------------------------------------------------------------------
+// feesTotal + marketFees + marketPnL feesMap fold-in. dYdX `fill.fee` is
+// positive when the user paid (taker / most maker), negative for maker
+// rebates. The headline subtracts the sum so rebates ADD to profit.
+// ---------------------------------------------------------------------------
+
+test('feesTotal: positive fees paid, negative rebates received, NaN-safe', () => {
+    const fills = [
+        { fee: '0.50' },   // taker fee paid
+        { fee: '1.25' },   // another paid fee
+        { fee: '-0.10' },  // maker rebate
+        { fee: 'NaN'   },  // unparseable → 0
+        { },               // missing → 0
+        null               // null → 0
+    ];
+    assert.ok(close(RM.feesTotal(fills), 1.65));
+});
+
+test('feesTotal: empty / null input → 0', () => {
+    assert.equal(RM.feesTotal([]), 0);
+    assert.equal(RM.feesTotal(null), 0);
+});
+
+test('marketFees: bucket by fill.market, NaN values dropped, missing market → "Unknown"', () => {
+    const fills = [
+        { market: 'ETH-USD', fee: '1'    },
+        { market: 'ETH-USD', fee: '2'    },
+        { market: 'BTC-USD', fee: '0.5'  },
+        { market: 'BTC-USD', fee: '-0.2' }, // rebate
+        {                    fee: '0.05' }, // missing market → 'Unknown'
+        { market: 'SOL-USD', fee: 'NaN'  }, // unparseable → dropped
+    ];
+    const m = RM.marketFees(fills);
+    assert.ok(close(m['ETH-USD'], 3));
+    assert.ok(close(m['BTC-USD'], 0.3));
+    assert.ok(close(m['Unknown'], 0.05));
+    assert.equal(m['SOL-USD'], undefined);
+});
+
+test('marketPnL with feesMap subtracts fees from per-market total', () => {
+    const positions = [
+        { market: 'ETH-USD', status: 'CLOSED', realizedPnl: '100', netFunding: '5'   },
+        { market: 'BTC-USD', status: 'OPEN',   unrealizedPnl: '50', netFunding: '-2' },
+    ];
+    const fees = { 'ETH-USD': 7.5, 'BTC-USD': -1.5 }; // rebate on BTC-USD
+    const m = RM.marketPnL(positions, fees);
+    assert.ok(close(m['ETH-USD'].fees, 7.5));
+    // 100 + 0 + 5 − 7.5 = 97.5
+    assert.ok(close(m['ETH-USD'].total, 97.5));
+    assert.ok(close(m['BTC-USD'].fees, -1.5));
+    // 0 + 50 − 2 − (−1.5) = 49.5
+    assert.ok(close(m['BTC-USD'].total, 49.5));
+});
+
+test('marketPnL feesMap entry for a market with no positions creates a fees-only slot', () => {
+    const positions = [
+        { market: 'ETH-USD', status: 'CLOSED', realizedPnl: '100' },
+    ];
+    const fees = { 'SOL-USD': 3 }; // fee on a market with no positions in this slice
+    const m = RM.marketPnL(positions, fees);
+    assert.ok(close(m['SOL-USD'].fees, 3));
+    assert.ok(close(m['SOL-USD'].total, -3));
+    assert.equal(m['SOL-USD'].closedCount, 0);
+    assert.equal(m['SOL-USD'].openCount, 0);
+});
+
+// ---------------------------------------------------------------------------
+// histPnlMonthly — pins that monthly Δ totalPnl deltas chain across months
+// and that empty months emit hasData=false (callers must render "—").
+// ---------------------------------------------------------------------------
+
+test('histPnlMonthly: monthly deltas chain across months, sum to latest totalPnl', () => {
+    const hist = [
+        { createdAt: '2025-01-15T00:00:00Z', totalPnl: '100' },
+        { createdAt: '2025-01-31T00:00:00Z', totalPnl: '200' },
+        { createdAt: '2025-02-15T00:00:00Z', totalPnl: '150' },
+        { createdAt: '2025-02-28T00:00:00Z', totalPnl: '500' },
+        { createdAt: '2025-03-15T00:00:00Z', totalPnl: '450' },
+    ];
+    const m = RM.histPnlMonthly(hist);
+    // January: lastInMonth(200) − 0 (first month) = 200
+    assert.ok(m['January 2025'].hasData);
+    assert.ok(close(m['January 2025'].delta, 200));
+    // February: lastInMonth(500) − lastOfPriorMonth(200) = 300
+    assert.ok(m['February 2025'].hasData);
+    assert.ok(close(m['February 2025'].delta, 300));
+    // March: lastInMonth(450) − lastOfPriorMonth(500) = −50
+    assert.ok(m['March 2025'].hasData);
+    assert.ok(close(m['March 2025'].delta, -50));
+    // Reconciliation: Σ deltas == latest totalPnl
+    const total = Object.values(m).reduce((s, v) => s + v.delta, 0);
+    assert.ok(close(total, 450));
+});
+
+test('histPnlMonthly: empty / null input → {}', () => {
+    assert.deepEqual(RM.histPnlMonthly([]), {});
+    assert.deepEqual(RM.histPnlMonthly(null), {});
+});
+
+// ---------------------------------------------------------------------------
 // Drawdown family.
 // ---------------------------------------------------------------------------
 

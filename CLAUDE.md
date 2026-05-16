@@ -10,7 +10,7 @@ The Trading Activity chart (doughnut chart on Overview tab) shows:
 - Legend shows percentage of total trading activity
 - Hover tooltip displays:
   - Number of trades and percentage
-  - Total Profit for that market (realized of CLOSED + unrealized of OPEN + netFunding across every position in the market — same definition as Performance-by-Asset table)
+  - Profit for that market labeled "Profit (incl. funding − fees)" = realized of CLOSED + unrealized of OPEN + netFunding − fees across every fill in the market (same definition as Performance-by-Asset PROFIT column AND the Total Profit headline)
   - Number of open positions
 - Shows top 5 most traded markets
 - Helps identify trading focus and diversification
@@ -65,10 +65,24 @@ Helper: `RiskMetrics.classifyClosed(positions)` returns `{ wins, losses, scratch
 `r = realizedPnl / (maxSize × entryPrice)` — fraction of max-instantaneous notional ever held during the position lifecycle. `maxSize` (when the indexer exposes it) is the honest "peak capital at risk" for scaled-in/out positions; `sumOpen` overstates exposure because it sums every entry. Falls back to `sumOpen` and then `size` when `maxSize` is absent so legacy responses still produce a number, with the caveat that scaled positions then read smaller-than-actual returns. Used for per-trade Sharpe (fallback) AND asset-level Sharpe so the two cards never disagree. Helper: `RiskMetrics.tradeReturn(p)` (returns `null` when notional is undefined).
 
 ### Total Profit (headline)
-`totalPnL = Σ realizedPnl over CLOSED positions + Σ unrealizedPnl over OPEN positions + Σ netFunding over every position`. dYdX v4 keeps `netFunding` as its own field on perpetualPositions, distinct from `realizedPnl` / `unrealizedPnl`, so it must be added back in or the headline disagrees with the equity-based `/historical-pnl` `totalPnl` curve. The Total Profit hero card surfaces the split as a ledger: TRADING (realized + unrealized) and FUNDING (netFunding). Helper: `RiskMetrics.netFundingTotal(positions)` returns the funding component; classification (`classifyClosed`) still keys off `realizedPnl` alone so win-rate / profit-factor stay tied to trade-decision quality, not financing.
+`totalPnL = Σ realizedPnl over CLOSED positions + Σ unrealizedPnl over OPEN positions + Σ netFunding over every position − Σ fees over every fill`. dYdX v4 keeps `realizedPnl`, `netFunding`, and `fill.fee` on separate fields/streams, so each must be folded in or the headline disagrees with the equity-based `/historical-pnl` `totalPnl` curve (which is `equity − transfers` and therefore implicitly captures funding AND fees). The Total Profit hero card surfaces the split as a three-cell ledger:
+
+- **TRADING** = realized of CLOSED + unrealized of OPEN
+- **FUNDING** = `netFundingTotal(positions)` — positive contribution when received, negative when paid
+- **FEES** = `−feesTotal(fills)` — displayed as a *signed contribution to profit*. dYdX `fill.fee` is positive when the user paid (taker / most maker fills) and negative for maker rebates, so the cell renders the paid amount as a negative dollar value (red) and rebates as positive (green)
+
+Headline math: `TRADING + FUNDING + FEES_contribution`. Helpers:
+- `RiskMetrics.netFundingTotal(positions)` — funding component
+- `RiskMetrics.feesTotal(fills)` — sum of `fill.fee` (positive = paid)
+- `RiskMetrics.marketFees(fills)` — `{ [market]: feesPaid }` map for the per-asset table
+
+Classification (`classifyClosed`) still keys off `realizedPnl` alone so Win Rate / Profit Factor / Avg Win / Avg Loss / Risk:Reward / Expectancy stay tied to trade-decision quality, not financing or fee structure.
 
 ### Per-market Profit
-`total = realized of CLOSED in that market + unrealized of OPEN in that market + netFunding across every position in that market`. Used by the Overview chart tooltip AND the Performance-by-Asset table. Helper: `RiskMetrics.marketPnL(positions)` (returns `{ realizedClosed, unrealizedOpen, netFunding, total, closedCount, openCount }`).
+`total = realized of CLOSED in that market + unrealized of OPEN in that market + netFunding across every position in that market − fees on fills in that market`. Used by the Overview chart tooltip AND the Performance-by-Asset table. Helper: `RiskMetrics.marketPnL(positions, feesMap?)` (returns `{ realizedClosed, unrealizedOpen, netFunding, fees, total, closedCount, openCount }`). `feesMap` is optional and must follow the same `{ [market]: feesPaid }` shape that `marketFees` produces; omitting it keeps the prior behavior, so callers without `/fills` data still get a number.
+
+### Monthly Performance Breakdown — PNL column
+`PNL = lastOfMonth.totalPnl − lastOfPriorMonth.totalPnl` from `/historical-pnl`. Same series as headline drawdown and MAX DD on the row, so the column is dimensionally consistent with every other monthly column. Helper: `RiskMetrics.histPnlMonthly(historicalPnl)` returns `{ [monthKey]: { delta, hasData } }`. Months with no `/historical-pnl` rows render `—` (no-metric > wrong-metric). The earliest observed month gets `delta = firstRow.totalPnl − 0`, which slightly overstates that first month when `/historical-pnl` was paginated-capped; the existing `historyCapped` banner already discloses that case. Win Rate / Avg Win / Avg Loss / Profit Factor in the same row stay on `realizedPnl` because they are trade-quality metrics.
 
 ### Headline Max Drawdown
 $ DD on cumulative `totalPnl` from `/historical-pnl` (realized + unrealized profit over time, excluding net transfers). Peak-to-trough in chronological order. This series captures unrealized peaks the closed-trade ledger cannot see (e.g. a +$364K open profit that later got given back). Helper: `RiskMetrics.histPnlDrawdown(historicalPnl)`.
@@ -111,6 +125,15 @@ When semantics of any helper change, update `risk-metrics.js`, the calling sites
 
 ### Sign convention
 **Losses always render as negative dollars.** Helper: `formatCurrency(value)` with negative input. Avg Loss / Trough cum Profit / Worst columns must pass `-Math.abs(loss)` so the displayed sign matches the visual loss styling.
+
+### Status badge (FRESH / FETCHING / FRESH · PARTIAL / OFFLINE)
+The masthead badge is a **snapshot freshness indicator**, NOT a streaming signal. There is no websocket. States are toggled by `FetchProgress` in `index.html`:
+- **FRESH** — last fetch returned every endpoint successfully
+- **FETCHING** — a fetch is in flight (gold pulse, faster cadence)
+- **FRESH · PARTIAL** — fetch completed but some endpoints failed; the dashboard renders with degraded data
+- **OFFLINE** — every endpoint failed
+
+The pulsing dot is purely decorative; data is static between fetches. The badge owns a fixed `min-width: 160px` (sized for "FRESH · PARTIAL") so swapping text never reflows the masthead — verified by the breadcrumb-height / right-rail-width invariant introduced in commit `abb0f0c`.
 
 ## Future Improvements
 - Add more detailed error messages
