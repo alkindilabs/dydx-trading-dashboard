@@ -455,20 +455,28 @@
   }
 
   // Per-market P&L. Single definition: realized of CLOSED + unrealized of
-  // OPEN + netFunding from every position in that market. dYdX v4 keeps
-  // netFunding as its own field on perpetualPositions, distinct from
-  // realizedPnl/unrealizedPnl; without folding it in, the "Total Profit"
-  // family disagrees with the equity-based historical-pnl curve.
+  // OPEN + netFunding from every position in that market − trading fees
+  // charged on fills in that market. dYdX v4 keeps realizedPnl, netFunding,
+  // and fees on separate fields/streams; without folding all three in, the
+  // "Total Profit" family disagrees with the equity-based historical-pnl
+  // curve (which is equity − transfers and therefore implicitly includes
+  // funding and fees).
+  //
+  // `feesMap` is optional: when provided, it must be a `{ [market]: number }`
+  // map of fees PAID (positive = USD paid, negative = maker rebate received,
+  // matching the dYdX `fill.fee` convention). Omitting the argument keeps
+  // the prior behavior so callers that have no /fills handle remain valid.
+  //
   // Used by Overview chart tooltip AND Performance-by-Asset table so the
   // same market never reads two different P&L numbers.
-  function marketPnL(positions) {
+  function marketPnL(positions, feesMap) {
     const byMarket = {};
     (positions || []).forEach(p => {
       if (!p) return;
       const m = p.market || 'Unknown';
       if (!byMarket[m]) {
         byMarket[m] = {
-          realizedClosed: 0, unrealizedOpen: 0, netFunding: 0, total: 0,
+          realizedClosed: 0, unrealizedOpen: 0, netFunding: 0, fees: 0, total: 0,
           closedCount: 0, openCount: 0
         };
       }
@@ -482,8 +490,21 @@
       }
       slot.netFunding += parseFloat(p.netFunding || 0);
     });
+    if (feesMap) {
+      Object.keys(feesMap).forEach(m => {
+        const v = parseFloat(feesMap[m]);
+        if (!isNumber(v)) return;
+        if (!byMarket[m]) {
+          byMarket[m] = {
+            realizedClosed: 0, unrealizedOpen: 0, netFunding: 0, fees: 0, total: 0,
+            closedCount: 0, openCount: 0
+          };
+        }
+        byMarket[m].fees += v;
+      });
+    }
     Object.values(byMarket).forEach(s => {
-      s.total = s.realizedClosed + s.unrealizedOpen + s.netFunding;
+      s.total = s.realizedClosed + s.unrealizedOpen + s.netFunding - s.fees;
     });
     return byMarket;
   }
@@ -499,6 +520,76 @@
       const v = parseFloat(p.netFunding);
       return isNumber(v) ? s + v : s;
     }, 0);
+  }
+
+  // Sum of trading fees across every fill. dYdX v4 indexer convention:
+  // `fill.fee` is a string USD amount where POSITIVE = paid by the user
+  // (taker fees and most maker fills) and NEGATIVE = maker rebate received.
+  // The caller subtracts this from profit so rebates ADD to the bottom
+  // line. NaN-safe; returns 0 on empty input. The complement to
+  // netFundingTotal in the equity-based reconciliation:
+  //   totalPnl ≈ realized + unrealized + netFunding − fees + …
+  function feesTotal(fills) {
+    return (fills || []).reduce((s, f) => {
+      if (!f) return s;
+      const v = parseFloat(f.fee);
+      return isNumber(v) ? s + v : s;
+    }, 0);
+  }
+
+  // Per-market fees map keyed by `fill.market`. Same NaN-safety and same
+  // dYdX positive-paid sign convention as feesTotal. Returns
+  // { [market]: feesPaid }. Fed into marketPnL(positions, feesMap) so the
+  // per-asset table and chart tooltip reconcile to the headline.
+  function marketFees(fills) {
+    const out = {};
+    (fills || []).forEach(f => {
+      if (!f) return;
+      const v = parseFloat(f.fee);
+      if (!isNumber(v)) return;
+      const m = f.market || 'Unknown';
+      out[m] = (out[m] || 0) + v;
+    });
+    return out;
+  }
+
+  // Monthly Δ totalPnl from /historical-pnl rows. Returns
+  // { [monthKey]: { delta, hasData } } where monthKey is the same
+  // `month long, year numeric` formatting the Monthly Performance
+  // Breakdown already uses, `delta` is `lastOfMonth.totalPnl −
+  // lastOfPriorMonth.totalPnl`, and `hasData=false` when the month
+  // contributed no rows (the caller renders "—" per the no-metric-better-
+  // than-wrong-metric rule). The earliest observed month receives
+  // `delta = firstRow.totalPnl − 0`, which slightly overstates that
+  // first-month contribution when /historical-pnl was paginated-capped;
+  // the existing `historyCapped` banner already discloses that case.
+  function histPnlMonthly(historicalPnl) {
+    if (!Array.isArray(historicalPnl) || historicalPnl.length === 0) return {};
+    const sorted = historicalPnl
+      .slice()
+      .sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
+    const monthLastValue = new Map();
+    const monthOrder = [];
+    for (const row of sorted) {
+      const d = new Date(row.createdAt);
+      if (isNaN(d)) continue;
+      const key = d.toLocaleString('en-US', { month: 'long', year: 'numeric' });
+      if (!monthLastValue.has(key)) monthOrder.push(key);
+      const v = parseFloat(row.totalPnl);
+      if (isNumber(v)) monthLastValue.set(key, v);
+    }
+    const out = {};
+    let prev = 0;
+    for (const key of monthOrder) {
+      const last = monthLastValue.get(key);
+      if (typeof last !== 'number') {
+        out[key] = { delta: 0, hasData: false };
+        continue;
+      }
+      out[key] = { delta: last - prev, hasData: true };
+      prev = last;
+    }
+    return out;
   }
 
   // Per-position liquidation price under cross-margin assuming OTHER open
@@ -592,6 +683,9 @@
     buildCumulativeTotalPnlSeries,
     marketPnL,
     netFundingTotal,
+    feesTotal,
+    marketFees,
+    histPnlMonthly,
     crossMarginLiqPrice,
     leverageUtilization,
     liquidationRow,
