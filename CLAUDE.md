@@ -65,21 +65,27 @@ Helper: `RiskMetrics.classifyClosed(positions)` returns `{ wins, losses, scratch
 `r = realizedPnl / (maxSize × entryPrice)` — fraction of max-instantaneous notional ever held during the position lifecycle. `maxSize` (when the indexer exposes it) is the honest "peak capital at risk" for scaled-in/out positions; `sumOpen` overstates exposure because it sums every entry. Falls back to `sumOpen` and then `size` when `maxSize` is absent so legacy responses still produce a number, with the caveat that scaled positions then read smaller-than-actual returns. Used for per-trade Sharpe (fallback) AND asset-level Sharpe so the two cards never disagree. Helper: `RiskMetrics.tradeReturn(p)` (returns `null` when notional is undefined).
 
 ### Total Profit (headline)
-`totalPnL = Σ realizedPnl over CLOSED positions + Σ unrealizedPnl over OPEN positions + Σ netFunding over every position − Σ fees over every fill`. dYdX v4 keeps `realizedPnl`, `netFunding`, and `fill.fee` on separate fields/streams, so each must be folded in or the headline disagrees with the equity-based `/historical-pnl` `totalPnl` curve (which is `equity − transfers` and therefore implicitly captures funding AND fees). The Total Profit hero card surfaces the split as a three-cell ledger:
+`totalPnL = FIFO realized over /fills + Σ unrealizedPnl over OPEN positions + Σ netFunding over every position − Σ fees over every fill`. Realized is computed **bottom-up from /fills via FIFO inventory walk** (`computeRealizedFromFills`), NOT from `/perpetualPositions.realizedPnl`. The indexer field has observed accounting gaps — it undercounts lifetime realized on heavy-scaling accounts by tens of percent (verified against equity-truth via `/historical-pnl totalPnl`). FIFO over the raw fill records reconciles to the equity-based curve within float-rounding. The Total Profit hero card surfaces the split as a three-cell ledger:
 
-- **TRADING** = realized of CLOSED + unrealized of OPEN
+- **TRADING** = `computeRealizedFromFills(fills).total + Σ unrealizedPnl of OPEN positions`
 - **FUNDING** = `netFundingTotal(positions)` — positive contribution when received, negative when paid
 - **FEES** = `−feesTotal(fills)` — displayed as a *signed contribution to profit*. dYdX `fill.fee` is positive when the user paid (taker / most maker fills) and negative for maker rebates, so the cell renders the paid amount as a negative dollar value (red) and rebates as positive (green)
 
 Headline math: `TRADING + FUNDING + FEES_contribution`. Helpers:
+- `RiskMetrics.computeRealizedFromFills(fills)` — `{ total, byMarket }` from FIFO inventory walk; handles position flips atomically (closes current lots, opens fresh opposite-side inventory at the flip-fill price for residual size)
 - `RiskMetrics.netFundingTotal(positions)` — funding component
 - `RiskMetrics.feesTotal(fills)` — sum of `fill.fee` (positive = paid)
 - `RiskMetrics.marketFees(fills)` — `{ [market]: feesPaid }` map for the per-asset table
 
-Classification (`classifyClosed`) still keys off `realizedPnl` alone so Win Rate / Profit Factor / Avg Win / Avg Loss / Risk:Reward / Expectancy stay tied to trade-decision quality, not financing or fee structure.
+A reconciliation guard fires (`console.error`) when `|headline − /historical-pnl latestTotalPnl| > max($1, |latestTotalPnl|×1%)`. The guard never trips on accounts with complete `/fills` to inception; if it fires, the structured payload (trading / funding / fees / equityBased / gap / row counts) tells the operator which stream to inspect.
+
+Classification (`classifyClosed`) still keys off the indexer's `realizedPnl` for Win Rate / Profit Factor / Avg Win / Avg Loss / Risk:Reward / Expectancy. Those metrics are trade-quality summaries where per-position attribution matters more than absolute precision — they're not lifetime-profit estimates.
 
 ### Per-market Profit
-`total = realized of CLOSED in that market + unrealized of OPEN in that market + netFunding across every position in that market − fees on fills in that market`. Used by the Overview chart tooltip AND the Performance-by-Asset table. Helper: `RiskMetrics.marketPnL(positions, feesMap?)` (returns `{ realizedClosed, unrealizedOpen, netFunding, fees, total, closedCount, openCount }`). `feesMap` is optional and must follow the same `{ [market]: feesPaid }` shape that `marketFees` produces; omitting it keeps the prior behavior, so callers without `/fills` data still get a number.
+`total = realized (FIFO from /fills) + unrealized of OPEN in that market + netFunding across every position in that market − fees on fills in that market`. Used by the Overview chart tooltip AND the Performance-by-Asset table. Helper: `RiskMetrics.marketPnL(positions, feesMap?, realizedByMarket?)` (returns `{ realizedClosed, unrealizedOpen, netFunding, fees, total, closedCount, openCount }`).
+
+- `feesMap` is optional `{ [market]: feesPaid }` (positive = paid). Omitting keeps prior behavior.
+- `realizedByMarket` is optional `{ [market]: realized }` from `computeRealizedFromFills(...).byMarket`. When provided, it OVERRIDES the sum of per-position `realizedPnl` field as the source for `slot.realizedClosed`. Omitting falls back to the indexer-based sum (legacy behavior; lossy on scaled accounts).
 
 ### Monthly Performance Breakdown — PNL column
 `PNL = lastOfMonth.totalPnl − lastOfPriorMonth.totalPnl` from `/historical-pnl`. Same series as headline drawdown and MAX DD on the row, so the column is dimensionally consistent with every other monthly column. Helper: `RiskMetrics.histPnlMonthly(historicalPnl)` returns `{ [monthKey]: { delta, hasData } }`. Months with no `/historical-pnl` rows render `—` (no-metric > wrong-metric). The earliest observed month gets `delta = firstRow.totalPnl − 0`, which slightly overstates that first month when `/historical-pnl` was paginated-capped; the existing `historyCapped` banner already discloses that case. Win Rate / Avg Win / Avg Loss / Profit Factor in the same row stay on `realizedPnl` because they are trade-quality metrics.
