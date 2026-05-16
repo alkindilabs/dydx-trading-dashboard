@@ -10,7 +10,7 @@ The Trading Activity chart (doughnut chart on Overview tab) shows:
 - Legend shows percentage of total trading activity
 - Hover tooltip displays:
   - Number of trades and percentage
-  - Total Profit for that market (realized of CLOSED + unrealized of OPEN — same definition as Performance-by-Asset table)
+  - Total Profit for that market (realized of CLOSED + unrealized of OPEN + netFunding across every position in the market — same definition as Performance-by-Asset table)
   - Number of open positions
 - Shows top 5 most traded markets
 - Helps identify trading focus and diversification
@@ -64,8 +64,11 @@ Helper: `RiskMetrics.classifyClosed(positions)` returns `{ wins, losses, scratch
 ### Per-trade return
 `r = realizedPnl / (maxSize × entryPrice)` — fraction of max-instantaneous notional ever held during the position lifecycle. `maxSize` (when the indexer exposes it) is the honest "peak capital at risk" for scaled-in/out positions; `sumOpen` overstates exposure because it sums every entry. Falls back to `sumOpen` and then `size` when `maxSize` is absent so legacy responses still produce a number, with the caveat that scaled positions then read smaller-than-actual returns. Used for per-trade Sharpe (fallback) AND asset-level Sharpe so the two cards never disagree. Helper: `RiskMetrics.tradeReturn(p)` (returns `null` when notional is undefined).
 
+### Total Profit (headline)
+`totalPnL = Σ realizedPnl over CLOSED positions + Σ unrealizedPnl over OPEN positions + Σ netFunding over every position`. dYdX v4 keeps `netFunding` as its own field on perpetualPositions, distinct from `realizedPnl` / `unrealizedPnl`, so it must be added back in or the headline disagrees with the equity-based `/historical-pnl` `totalPnl` curve. The Total Profit hero card surfaces the split as a ledger: TRADING (realized + unrealized) and FUNDING (netFunding). Helper: `RiskMetrics.netFundingTotal(positions)` returns the funding component; classification (`classifyClosed`) still keys off `realizedPnl` alone so win-rate / profit-factor stay tied to trade-decision quality, not financing.
+
 ### Per-market Profit
-`total = realized of CLOSED in that market + unrealized of OPEN in that market`. Used by the Overview chart tooltip AND the Performance-by-Asset table. Helper: `RiskMetrics.marketPnL(positions)`.
+`total = realized of CLOSED in that market + unrealized of OPEN in that market + netFunding across every position in that market`. Used by the Overview chart tooltip AND the Performance-by-Asset table. Helper: `RiskMetrics.marketPnL(positions)` (returns `{ realizedClosed, unrealizedOpen, netFunding, total, closedCount, openCount }`).
 
 ### Headline Max Drawdown
 $ DD on cumulative `totalPnl` from `/historical-pnl` (realized + unrealized profit over time, excluding net transfers). Peak-to-trough in chronological order. This series captures unrealized peaks the closed-trade ledger cannot see (e.g. a +$364K open profit that later got given back). Helper: `RiskMetrics.histPnlDrawdown(historicalPnl)`.
