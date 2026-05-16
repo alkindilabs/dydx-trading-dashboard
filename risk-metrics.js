@@ -454,34 +454,43 @@
     return scanDrawdownEvents(cums).events;
   }
 
-  // Per-market P&L. Single definition: realized of CLOSED + unrealized of
-  // OPEN + netFunding from every position in that market − trading fees
-  // charged on fills in that market. dYdX v4 keeps realizedPnl, netFunding,
-  // and fees on separate fields/streams; without folding all three in, the
-  // "Total Profit" family disagrees with the equity-based historical-pnl
-  // curve (which is equity − transfers and therefore implicitly includes
-  // funding and fees).
+  // Per-market P&L. Single definition: realized + unrealized of OPEN +
+  // netFunding − fees, all bucketed per market. dYdX v4 keeps each of
+  // these components on separate fields/streams; without folding all of
+  // them in, the "Total Profit" family disagrees with the equity-based
+  // /historical-pnl totalPnl curve (which is equity − transfers and
+  // therefore implicitly captures funding AND fees).
   //
-  // `feesMap` is optional: when provided, it must be a `{ [market]: number }`
-  // map of fees PAID (positive = USD paid, negative = maker rebate received,
-  // matching the dYdX `fill.fee` convention). Omitting the argument keeps
-  // the prior behavior so callers that have no /fills handle remain valid.
+  // Realized source: when `realizedByMarket` is provided (the FIFO-from-
+  // fills map produced by computeRealizedFromFills), it OVERRIDES the
+  // sum of /perpetualPositions.realizedPnl. FIFO is authoritative because
+  // the indexer's per-position realizedPnl field has observed accounting
+  // gaps on heavy-scaling accounts. Omitting the override preserves the
+  // legacy behavior for callers without /fills data.
+  //
+  // `feesMap` is optional: `{ [market]: feesPaid }` where positive = USD
+  // paid (taker / most maker), negative = maker rebate (dYdX fill.fee
+  // convention). Subtracted from total so rebates ADD to the bottom line.
   //
   // Used by Overview chart tooltip AND Performance-by-Asset table so the
   // same market never reads two different P&L numbers.
-  function marketPnL(positions, feesMap) {
+  function marketPnL(positions, feesMap, realizedByMarket) {
     const byMarket = {};
-    (positions || []).forEach(p => {
-      if (!p) return;
-      const m = p.market || 'Unknown';
+    function ensureSlot(m) {
       if (!byMarket[m]) {
         byMarket[m] = {
           realizedClosed: 0, unrealizedOpen: 0, netFunding: 0, fees: 0, total: 0,
           closedCount: 0, openCount: 0
         };
       }
-      const slot = byMarket[m];
+      return byMarket[m];
+    }
+    (positions || []).forEach(p => {
+      if (!p) return;
+      const slot = ensureSlot(p.market || 'Unknown');
       if (p.status === 'CLOSED') {
+        // Sum the indexer field only as a fallback for when realizedByMarket
+        // is absent; it gets overwritten below when the FIFO map is supplied.
         slot.realizedClosed += parseFloat(p.realizedPnl || 0);
         slot.closedCount += 1;
       } else if (p.status === 'OPEN') {
@@ -490,17 +499,19 @@
       }
       slot.netFunding += parseFloat(p.netFunding || 0);
     });
+    if (realizedByMarket) {
+      Object.keys(byMarket).forEach(m => { byMarket[m].realizedClosed = 0; });
+      Object.keys(realizedByMarket).forEach(m => {
+        const v = parseFloat(realizedByMarket[m]);
+        if (!isNumber(v)) return;
+        ensureSlot(m).realizedClosed = v;
+      });
+    }
     if (feesMap) {
       Object.keys(feesMap).forEach(m => {
         const v = parseFloat(feesMap[m]);
         if (!isNumber(v)) return;
-        if (!byMarket[m]) {
-          byMarket[m] = {
-            realizedClosed: 0, unrealizedOpen: 0, netFunding: 0, fees: 0, total: 0,
-            closedCount: 0, openCount: 0
-          };
-        }
-        byMarket[m].fees += v;
+        ensureSlot(m).fees += v;
       });
     }
     Object.values(byMarket).forEach(s => {
@@ -520,6 +531,111 @@
       const v = parseFloat(p.netFunding);
       return isNumber(v) ? s + v : s;
     }, 0);
+  }
+
+  // FIFO realized P&L computed bottom-up from /fills. Walks each market's
+  // fills chronologically, maintaining a signed inventory of open lots;
+  // realizes profit/loss whenever a fill reduces the existing position.
+  //
+  // Why this over /perpetualPositions.realizedPnl: the indexer's per-
+  // position `realizedPnl` field has observed accounting gaps — it
+  // undercounts lifetime realized for accounts that scale in/out heavily
+  // (verified against equity-truth via /historical-pnl totalPnl). FIFO
+  // over the raw fill records reconciles to the equity-based number
+  // within float-rounding, with no dependence on the indexer-computed
+  // realizedPnl field.
+  //
+  // Cost-basis convention: FIFO (first-in, first-out). For a position
+  // that returns to zero size, the LIFETIME realized total is invariant
+  // to convention (FIFO / LIFO / HIFO all sum to the same number); only
+  // per-trade attribution differs. FIFO is the transparent default.
+  //
+  // Handles position flips (long → through zero → short in a single
+  // fill) by closing all current inventory at the fill price, then
+  // opening fresh opposite-side inventory at the same price for the
+  // residual size.
+  //
+  // Returns { total, byMarket } where byMarket maps market → realized.
+  // Markets with only OPEN inventory (no closing fills yet) emit 0 —
+  // their unrealized P&L still comes from /perpetualPositions.unrealizedPnl
+  // mark-to-market.
+  //
+  // Tie-breaking for same-block fills: primary sort `createdAt`,
+  // secondary `createdAtHeight`, tertiary `id` (UUID string compare).
+  // dYdX sequences fills deterministically within a block; this matches
+  // their order so realized accrues in chain-time sequence.
+  function computeRealizedFromFills(fills) {
+    if (!Array.isArray(fills) || fills.length === 0) {
+      return { total: 0, byMarket: {} };
+    }
+    const buckets = {};
+    for (const f of fills) {
+      if (!f) continue;
+      const m = f.market || 'Unknown';
+      if (!buckets[m]) buckets[m] = [];
+      buckets[m].push(f);
+    }
+    let total = 0;
+    const byMarket = {};
+    Object.entries(buckets).forEach(([market, mfills]) => {
+      mfills.sort((a, b) => {
+        const ta = a.createdAt || '';
+        const tb = b.createdAt || '';
+        if (ta !== tb) return ta < tb ? -1 : 1;
+        const ha = parseInt(a.createdAtHeight || '0', 10);
+        const hb = parseInt(b.createdAtHeight || '0', 10);
+        if (ha !== hb) return ha - hb;
+        const ia = a.id || '';
+        const ib = b.id || '';
+        return ia < ib ? -1 : ia > ib ? 1 : 0;
+      });
+      const inventory = []; // [{ size, price }] FIFO order, always positive size
+      let netSize = 0;     // signed: positive = LONG, negative = SHORT
+      let realized = 0;
+      for (const f of mfills) {
+        const sz = Math.abs(parseFloat(f.size));
+        const px = parseFloat(f.price);
+        if (!isNumber(sz) || sz <= 0 || !isNumber(px)) continue;
+        const side = (f.side || '').toUpperCase();
+        if (side !== 'BUY' && side !== 'SELL') continue;
+        const signed = side === 'BUY' ? sz : -sz;
+        const extending =
+          netSize === 0 ||
+          (netSize > 0 && signed > 0) ||
+          (netSize < 0 && signed < 0);
+        if (extending) {
+          inventory.push({ size: sz, price: px });
+          netSize += signed;
+          continue;
+        }
+        // Reducing — consume FIFO lots. The sign of the EXISTING position
+        // (netSize before this fill) determines the P&L formula: long
+        // closed by a sell → (sellPrice − costBasis) × matched; short
+        // closed by a buy → (costBasis − buyPrice) × matched.
+        const closingLong = netSize > 0;
+        let remaining = sz;
+        while (remaining > 0 && inventory.length > 0) {
+          const lot = inventory[0];
+          const matched = Math.min(remaining, lot.size);
+          const pnl = closingLong
+            ? (px - lot.price) * matched
+            : (lot.price - px) * matched;
+          realized += pnl;
+          lot.size -= matched;
+          remaining -= matched;
+          if (lot.size <= 1e-12) inventory.shift();
+        }
+        netSize += signed;
+        // Flip residual opens fresh inventory in the new direction at
+        // the same fill price — the chain treats a flip atomically.
+        if (remaining > 1e-12) {
+          inventory.push({ size: remaining, price: px });
+        }
+      }
+      byMarket[market] = realized;
+      total += realized;
+    });
+    return { total, byMarket };
   }
 
   // Sum of trading fees across every fill. dYdX v4 indexer convention:
@@ -685,6 +801,7 @@
     netFundingTotal,
     feesTotal,
     marketFees,
+    computeRealizedFromFills,
     histPnlMonthly,
     crossMarginLiqPrice,
     leverageUtilization,

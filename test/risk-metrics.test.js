@@ -371,6 +371,128 @@ test('marketPnL feesMap entry for a market with no positions creates a fees-only
 });
 
 // ---------------------------------------------------------------------------
+// computeRealizedFromFills — FIFO inventory walk over /fills. Authoritative
+// for the headline because dYdX's /perpetualPositions.realizedPnl
+// undercounts on heavy-scaling accounts (empirically reconciles to
+// /historical-pnl totalPnl within float-rounding).
+// ---------------------------------------------------------------------------
+
+test('computeRealizedFromFills empty / null → { total: 0, byMarket: {} }', () => {
+    assert.deepEqual(RM.computeRealizedFromFills([]),   { total: 0, byMarket: {} });
+    assert.deepEqual(RM.computeRealizedFromFills(null), { total: 0, byMarket: {} });
+});
+
+test('computeRealizedFromFills single open fill yields zero realized', () => {
+    const fills = [
+        { market: 'BTC-USD', createdAt: '2025-01-01T00:00:00Z', side: 'BUY', size: '1', price: '100' }
+    ];
+    const r = RM.computeRealizedFromFills(fills);
+    assert.equal(r.total, 0);
+    assert.equal(r.byMarket['BTC-USD'], 0);
+});
+
+test('computeRealizedFromFills simple long cycle: buy @100, sell @150 → +50', () => {
+    const fills = [
+        { market: 'BTC-USD', createdAt: '2025-01-01T00:00:00Z', side: 'BUY',  size: '1', price: '100' },
+        { market: 'BTC-USD', createdAt: '2025-01-02T00:00:00Z', side: 'SELL', size: '1', price: '150' }
+    ];
+    const r = RM.computeRealizedFromFills(fills);
+    assert.ok(close(r.total, 50));
+    assert.ok(close(r.byMarket['BTC-USD'], 50));
+});
+
+test('computeRealizedFromFills simple short cycle: sell @200, buy @150 → +50', () => {
+    const fills = [
+        { market: 'ETH-USD', createdAt: '2025-01-01T00:00:00Z', side: 'SELL', size: '1', price: '200' },
+        { market: 'ETH-USD', createdAt: '2025-01-02T00:00:00Z', side: 'BUY',  size: '1', price: '150' }
+    ];
+    const r = RM.computeRealizedFromFills(fills);
+    assert.ok(close(r.total, 50));
+});
+
+test('computeRealizedFromFills scaled long with FIFO matching', () => {
+    // Buy 1@100, Buy 1@200, Sell 1@300, Sell 1@50
+    // FIFO: first sell matches first buy → (300-100)*1 = +200
+    //       second sell matches second buy → (50-200)*1 = -150
+    //       Total = +50
+    const fills = [
+        { market: 'BTC-USD', createdAt: '2025-01-01T00:00:00Z', side: 'BUY',  size: '1', price: '100' },
+        { market: 'BTC-USD', createdAt: '2025-01-02T00:00:00Z', side: 'BUY',  size: '1', price: '200' },
+        { market: 'BTC-USD', createdAt: '2025-01-03T00:00:00Z', side: 'SELL', size: '1', price: '300' },
+        { market: 'BTC-USD', createdAt: '2025-01-04T00:00:00Z', side: 'SELL', size: '1', price: '50'  }
+    ];
+    const r = RM.computeRealizedFromFills(fills);
+    assert.ok(close(r.total, 50));
+});
+
+test('computeRealizedFromFills position flip closes long and opens short atomically', () => {
+    // Buy 1@100, then Sell 3@150:
+    //   • Sells 1 matched against buy → (150-100)*1 = +50 realized
+    //   • Excess 2 units flip into SHORT inventory at $150
+    // Then Buy 2@120 closes short:
+    //   • (150-120)*2 = +60 realized
+    // Total realized = +110
+    const fills = [
+        { market: 'BTC-USD', createdAt: '2025-01-01T00:00:00Z', side: 'BUY',  size: '1', price: '100' },
+        { market: 'BTC-USD', createdAt: '2025-01-02T00:00:00Z', side: 'SELL', size: '3', price: '150' },
+        { market: 'BTC-USD', createdAt: '2025-01-03T00:00:00Z', side: 'BUY',  size: '2', price: '120' }
+    ];
+    const r = RM.computeRealizedFromFills(fills);
+    assert.ok(close(r.total, 110));
+});
+
+test('computeRealizedFromFills buckets per market independently', () => {
+    const fills = [
+        { market: 'BTC-USD', createdAt: '2025-01-01T00:00:00Z', side: 'BUY',  size: '1', price: '100' },
+        { market: 'ETH-USD', createdAt: '2025-01-01T00:00:00Z', side: 'BUY',  size: '1', price: '50'  },
+        { market: 'BTC-USD', createdAt: '2025-01-02T00:00:00Z', side: 'SELL', size: '1', price: '120' },
+        { market: 'ETH-USD', createdAt: '2025-01-02T00:00:00Z', side: 'SELL', size: '1', price: '40'  }
+    ];
+    const r = RM.computeRealizedFromFills(fills);
+    assert.ok(close(r.byMarket['BTC-USD'], 20));
+    assert.ok(close(r.byMarket['ETH-USD'], -10));
+    assert.ok(close(r.total, 10));
+});
+
+test('computeRealizedFromFills open inventory at end is excluded from realized', () => {
+    // Buy 2@100, Sell 1@150 → realized +50; 1 unit still open
+    const fills = [
+        { market: 'BTC-USD', createdAt: '2025-01-01T00:00:00Z', side: 'BUY',  size: '2', price: '100' },
+        { market: 'BTC-USD', createdAt: '2025-01-02T00:00:00Z', side: 'SELL', size: '1', price: '150' }
+    ];
+    const r = RM.computeRealizedFromFills(fills);
+    assert.ok(close(r.total, 50)); // closed portion only
+});
+
+test('computeRealizedFromFills tie-breaks same-createdAt by createdAtHeight then id', () => {
+    // Two fills at same createdAt but different heights — height 100 first.
+    const fills = [
+        { market: 'BTC-USD', createdAt: '2025-01-01T00:00:00Z', createdAtHeight: '100', id: 'a', side: 'BUY',  size: '1', price: '100' },
+        { market: 'BTC-USD', createdAt: '2025-01-01T00:00:00Z', createdAtHeight: '101', id: 'b', side: 'SELL', size: '1', price: '120' }
+    ];
+    const r = RM.computeRealizedFromFills(fills);
+    assert.ok(close(r.total, 20));
+});
+
+test('marketPnL respects realizedByMarket override (FIFO source)', () => {
+    const positions = [
+        { market: 'ETH-USD', status: 'CLOSED', realizedPnl: '100', netFunding: '5'   },
+        { market: 'BTC-USD', status: 'OPEN',   unrealizedPnl: '50', netFunding: '-2' },
+    ];
+    const fees = { 'ETH-USD': 3 };
+    // FIFO map asserts ETH realized = 200 (overrides indexer's 100)
+    const fifo = { 'ETH-USD': 200 };
+    const m = RM.marketPnL(positions, fees, fifo);
+    assert.ok(close(m['ETH-USD'].realizedClosed, 200));
+    // 200 + 0 + 5 − 3 = 202
+    assert.ok(close(m['ETH-USD'].total, 202));
+    // BTC has no FIFO entry: realizedClosed cleared (override applies to all
+    // existing slots), unrealized + funding survive.
+    assert.equal(m['BTC-USD'].realizedClosed, 0);
+    assert.ok(close(m['BTC-USD'].total, 48));
+});
+
+// ---------------------------------------------------------------------------
 // histPnlMonthly — pins that monthly Δ totalPnl deltas chain across months
 // and that empty months emit hasData=false (callers must render "—").
 // ---------------------------------------------------------------------------

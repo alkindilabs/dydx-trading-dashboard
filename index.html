@@ -2946,15 +2946,19 @@
             // every renderer/table. No downstream code recomputes these so
             // the same trade is never bucketed two ways across cards.
             //
-            // fillsArr is pulled here (not just later for the positions tab)
-            // because Total Profit needs fee-aware reconciliation with the
-            // equity-based /historical-pnl totalPnl curve, and marketPnL
-            // accepts a feesMap so the per-asset PROFIT column reads the
-            // same composition as the headline.
+            // Realized P&L comes from FIFO over /fills, not the indexer's
+            // /perpetualPositions.realizedPnl field. That field undercounts
+            // lifetime realized on heavy-scaling accounts (verified against
+            // equity-truth via /historical-pnl totalPnl); FIFO over raw
+            // fills reconciles to the equity-based number within rounding.
+            // Classifier still keys off realizedPnl for win-rate / profit-
+            // factor since those are trade-quality metrics and the per-
+            // position values are useful even when imperfect.
             const cls = window.RiskMetrics.classifyClosed(allPositions);
             const fillsArr = (allData.fills && (allData.fills.fills || allData.fills.data || allData.fills)) || [];
             const feesByMarket = window.RiskMetrics.marketFees(fillsArr);
-            const marketAgg = window.RiskMetrics.marketPnL(allPositions, feesByMarket);
+            const realizedFifo = window.RiskMetrics.computeRealizedFromFills(fillsArr);
+            const marketAgg = window.RiskMetrics.marketPnL(allPositions, feesByMarket, realizedFifo.byMarket);
             const marketsMap = extractMarketsMap(allData.markets);
             const histArr = (allData.historicalPnl && allData.historicalPnl.historicalPnl) || [];
             // Drawdown source: historical-pnl totalPnl is the canonical
@@ -2972,7 +2976,9 @@
             const totalUnrealizedPnL = allPositions
                 .filter(p => p.status === 'OPEN')
                 .reduce((s, p) => s + parseFloat(p.unrealizedPnl || 0), 0);
-            const totalRealizedPnL = cls.totalRealized;
+            // FIFO from fills, not classifier's cls.totalRealized — see
+            // comment block above on why the indexer field is unreliable.
+            const totalRealizedPnL = realizedFifo.total;
             const totalNetFunding = window.RiskMetrics.netFundingTotal(allPositions);
             const totalFees = window.RiskMetrics.feesTotal(fillsArr);
             const totalTradingPnL = totalUnrealizedPnL + totalRealizedPnL;
@@ -2980,17 +2986,18 @@
 
             // Reconciliation guard. Two independent paths must arrive at the
             // same lifetime profit:
-            //   • component-based: realized + unrealized + netFunding − fees
-            //     (what we sum from /perpetualPositions + /fundingPayments +
-            //     /fills above).
-            //   • equity-based: latest totalPnl row from /historical-pnl, which
-            //     the indexer computes as equity − net transfers.
-            // A material gap means one stream is incomplete (silent indexer
-            // truncation, stale localStorage cache schema, an inverted sign
-            // somewhere) and the user is reading a wrong headline. Tolerance is
-            // 1% of the equity-based reference floored at $1, so tiny accounts
-            // still surface absolute-dollar drift while huge accounts don't
-            // false-positive on rounding from the per-row dollar precision.
+            //   • component-based: FIFO realized over /fills + unrealized of
+            //     OPEN positions + netFunding − fees.
+            //   • equity-based: latest totalPnl row from /historical-pnl,
+            //     which the indexer computes as equity − net transfers.
+            // Empirically these reconcile within float-rounding when /fills
+            // is complete to inception. A material gap signals one of:
+            // /fills paginated short of inception, dYdX added an equity flow
+            // we're not summing yet, or a sign got inverted somewhere. Logs
+            // a structured payload so the operator can localize the leak.
+            // Tolerance is 1% of the equity-based reference floored at $1
+            // — tiny accounts still surface absolute-dollar drift, huge
+            // accounts don't false-positive on per-row dollar rounding.
             const sortedHist = histArr.slice().sort((a,b) => (a.createdAt||'').localeCompare(b.createdAt||''));
             const latestEquityPnl = sortedHist.length
                 ? parseFloat(sortedHist.at(-1).totalPnl || 0)
@@ -3001,12 +3008,11 @@
                 if (Math.abs(gap) > tolerance) {
                     console.error(
                         `[dydx-dashboard] Total Profit reconciliation FAILED — ` +
-                        `the headline disagrees with /historical-pnl by ${formatCurrency(gap)}. ` +
-                        `Headline (realized+unrealized+funding−fees) = ${formatCurrency(totalPnL)}; ` +
+                        `headline disagrees with /historical-pnl by ${formatCurrency(gap)}. ` +
+                        `Headline (FIFO realized + unrealized + funding − fees) = ${formatCurrency(totalPnL)}; ` +
                         `/historical-pnl latest totalPnl = ${formatCurrency(latestEquityPnl)}. ` +
-                        `Likely cause: indexer pagination truncated /fills, /perpetualPositions, ` +
-                        `or /fundingPayments before reaching inception. Treat the headline as a ` +
-                        `lower bound; the cumulative-PnL chart endpoint reflects the equity-based truth.`,
+                        `Likely cause: /fills paginated short of inception, or an equity flow ` +
+                        `(insurance fund, ADL, rewards) not exposed per-event by the indexer.`,
                         {
                             headline: totalPnL,
                             trading: totalTradingPnL,
