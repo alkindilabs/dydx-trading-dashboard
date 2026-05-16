@@ -1884,6 +1884,10 @@
                         <polyline points="0,15 10,12 20,10 30,8 40,5 50,3" fill="none" stroke="var(--gain)" stroke-width="1"/>
                     </svg>
                 </div>
+                <!-- Row 1: edge primitives. WR / PF / R:R are algebraically
+                     linked (PF = WR × R:R / (1 − WR)) — same triangle the
+                     phase diagram solves. Grouping them visually echoes
+                     that math before the eye reaches the risk row below. -->
                 <div class="metric-card">
                     <div class="metric-label">Win Rate</div>
                     <div class="metric-value mono" id="winRate">-</div>
@@ -1894,6 +1898,15 @@
                     <div class="metric-value mono" id="profitFactor">-</div>
                     <div class="metric-change mono" id="profitFactorDetail">-</div>
                 </div>
+                <div class="metric-card" title="Avg winning trade ÷ avg losing trade. Equals (profit factor × (1 − win rate) / win rate) — the same Implied R:R surfaced on the phase diagram.">
+                    <div class="metric-label">Risk:Reward</div>
+                    <div class="metric-value mono" id="riskRewardHero">-</div>
+                    <div class="metric-change mono" id="riskRewardHeroDetail">avg win / avg loss</div>
+                </div>
+                <!-- Row 2: risk-adjusted return + absolute drawdown. Sharpe
+                     and Sortino share the same time-weighted-return sample;
+                     Max Drawdown anchors the row with the worst observed
+                     equity-loss event. -->
                 <div class="metric-card">
                     <div class="metric-label">Sharpe Ratio</div>
                     <div class="metric-value mono" id="sharpeRatio">-</div>
@@ -3570,7 +3583,16 @@ Sample: ${rets.length} returns over ${(adq.years*12).toFixed(1)} months (${(adq.
             // sign convention matches the visual loss styling.
             updateElement('avgWin', wins > 0 ? formatCurrency(avgWin) : 'N/A');
             updateElement('avgLoss', losses > 0 ? formatCurrency(-avgLoss) : 'N/A');
-            updateElement('riskReward', avgLoss > 0 ? `${(avgWin/avgLoss).toFixed(2)}:1` : '—');
+            const rrText = avgLoss > 0 ? `${(avgWin/avgLoss).toFixed(2)} : 1` : '—';
+            updateElement('riskReward', rrText);
+            // Headline-grid version of the same number. Phase diagram derives
+            // the same value via PF × (1 − WR) / WR; surfacing as a top-level
+            // card lets the user scan it without leaving the metric row.
+            updateElement('riskRewardHero', rrText);
+            if (avgLoss > 0) {
+                const heroDetail = document.getElementById('riskRewardHeroDetail');
+                if (heroDetail) heroDetail.textContent = `${formatCurrency(avgWin)} / ${formatCurrency(avgLoss)}`;
+            }
             // Expectancy: average realized P&L per decisive (non-scratch) trade.
             // Excludes unrealized — that's portfolio P&L, not a per-trade outcome.
             // Same denominator as Header Win Rate so the cards stay consistent.
