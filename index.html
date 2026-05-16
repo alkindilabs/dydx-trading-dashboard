@@ -2806,6 +2806,12 @@
             // window.
             const SINGLE_PAGE = [
                 ['subaccount',    `${DYDX_API}/addresses/${encodedAddress}/subaccountNumber/0`],
+                // Enumerate every subaccount on this address. Dashboard
+                // analyses sub=0 only; if the user opened isolated-margin
+                // positions in a child sub (≥128 per dYdX convention)
+                // they would be invisible to every per-stream calculation.
+                // Used by the per-fetch isolated-margin guard in processData.
+                ['addressSubaccounts', `${DYDX_API}/addresses/${encodedAddress}`],
                 ['openPositions', `${DYDX_API}/perpetualPositions?address=${encodedAddress}&subaccountNumber=0&status=OPEN&limit=100`],
                 ['orders',        `${DYDX_API}/orders?address=${encodedAddress}&subaccountNumber=0&limit=1000`],
                 ['markets',       `${DYDX_API}/perpetualMarkets`]
@@ -3002,17 +3008,49 @@
             const latestEquityPnl = sortedHist.length
                 ? parseFloat(sortedHist.at(-1).totalPnl || 0)
                 : null;
+            // Isolated-margin guard. Dashboard analyses subaccount 0; users
+            // who trade in child subaccounts (≥128 per dYdX convention) keep
+            // separate equity, fills, and PnL ledgers per sub. The
+            // reconciliation guard against sub-0's totalPnl would not catch
+            // their isolated trading because sub=0 doesn't see those fills.
+            // /addresses/{address} enumerates every subaccount; flagging any
+            // non-zero child surfaces the blind spot before the user trusts
+            // a partial number.
+            const subList = (allData.addressSubaccounts && allData.addressSubaccounts.subaccounts) || [];
+            const activeChildren = window.RiskMetrics.activeChildSubaccounts(subList);
+            if (activeChildren.length > 0) {
+                console.warn(
+                    `[dydx-dashboard] Active child subaccounts detected — headline reflects ` +
+                    `subaccount 0 only. Isolated-margin positions in subs ` +
+                    `${activeChildren.map(s => s.subaccountNumber).join(', ')} ` +
+                    `are NOT included.`,
+                    {
+                        activeChildren: activeChildren.map(s => ({
+                            sub: s.subaccountNumber,
+                            equity: s.equity,
+                            openCount: s.openPerpetualPositions
+                                ? Object.keys(s.openPerpetualPositions).length : 0
+                        }))
+                    }
+                );
+            }
+
             if (latestEquityPnl !== null && isFinite(latestEquityPnl)) {
                 const gap = totalPnL - latestEquityPnl;
                 const tolerance = Math.max(1, Math.abs(latestEquityPnl) * 0.01);
                 if (Math.abs(gap) > tolerance) {
+                    const childHint = activeChildren.length > 0
+                        ? ` Active child subaccounts also present (${activeChildren.map(s => s.subaccountNumber).join(', ')}); ` +
+                          `cross-subaccount transfers can shift sub-0 totalPnl independently of sub-0 fills, ` +
+                          `inflating this gap.`
+                        : '';
                     console.error(
                         `[dydx-dashboard] Total Profit reconciliation FAILED — ` +
                         `headline disagrees with /historical-pnl by ${formatCurrency(gap)}. ` +
                         `Headline (FIFO realized + unrealized + funding − fees) = ${formatCurrency(totalPnL)}; ` +
                         `/historical-pnl latest totalPnl = ${formatCurrency(latestEquityPnl)}. ` +
                         `Likely cause: /fills paginated short of inception, or an equity flow ` +
-                        `(insurance fund, ADL, rewards) not exposed per-event by the indexer.`,
+                        `(insurance fund, ADL, rewards) not exposed per-event by the indexer.` + childHint,
                         {
                             headline: totalPnL,
                             trading: totalTradingPnL,
@@ -3021,6 +3059,7 @@
                             equityBased: latestEquityPnl,
                             gap,
                             tolerance,
+                            activeChildSubaccounts: activeChildren.map(s => s.subaccountNumber),
                             counts: {
                                 positions: allPositions.length,
                                 openPositions: allPositions.filter(p => p.status === 'OPEN').length,
