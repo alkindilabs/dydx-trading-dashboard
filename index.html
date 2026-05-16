@@ -431,45 +431,45 @@
         /* HERO metric — magazine-style spread */
         .metric-card--hero {
             grid-column: span 12;
-            padding: 32px 28px 28px;
+            padding: 60px 36px 32px;
             background:
-                radial-gradient(600px 200px at 0% 100%, rgba(215,172,96,0.04), transparent 60%),
+                radial-gradient(720px 260px at 0% 100%, rgba(215,172,96,0.05), transparent 60%),
                 linear-gradient(135deg, var(--paper-2) 0%, var(--paper-3) 100%);
             display: grid;
             grid-template-columns: minmax(0, 1fr) auto;
             grid-template-areas:
                 "value  change"
                 "ledger change";
-            row-gap: 18px;
-            column-gap: 24px;
+            row-gap: 32px;
+            column-gap: 48px;
             align-items: end;
-            min-height: 220px;
+            min-height: 260px;
             position: relative;
             overflow: hidden;
         }
         .metric-card--hero::before {
             content: 'Total Profit';
             position: absolute;
-            top: 22px;
-            left: 28px;
+            top: 26px;
+            left: 36px;
             font-family: var(--ff-display);
             font-style: italic;
             font-weight: 350;
-            font-size: 14px;
-            letter-spacing: 0.02em;
+            font-size: 15px;
+            letter-spacing: 0.04em;
             color: var(--ink-3);
         }
         .metric-card--hero::after {
             /* serif § ornament */
             content: '§';
             position: absolute;
-            right: 28px;
+            right: 36px;
             top: 22px;
             font-family: var(--ff-display);
             font-style: italic;
             color: var(--gold);
-            font-size: 18px;
-            opacity: 0.65;
+            font-size: 20px;
+            opacity: 0.7;
         }
         .metric-card--hero .metric-label { display: none; }
         .metric-card--hero .metric-value {
@@ -478,9 +478,9 @@
             font-feature-settings: 'tnum' 1, 'lnum' 1, 'ss01' 1;
             font-variation-settings: 'opsz' 144, 'SOFT' 100;
             font-weight: 380;
-            font-size: clamp(60px, 9vw, 128px);
-            line-height: 0.86;
-            letter-spacing: -0.04em;
+            font-size: clamp(56px, 8.5vw, 120px);
+            line-height: 0.92;
+            letter-spacing: -0.035em;
             color: var(--ink);
             margin: 0;
             align-self: end;
@@ -489,30 +489,32 @@
             grid-area: change;
             font-family: var(--ff-mono);
             font-size: 10px;
-            letter-spacing: 0.22em;
+            letter-spacing: 0.26em;
             text-transform: uppercase;
             color: var(--ink-3);
             align-self: end;
             text-align: right;
             border-left: 1px solid var(--rule-strong);
-            padding-left: 18px;
-            min-width: 130px;
+            padding: 6px 0 6px 22px;
+            min-width: 110px;
+            line-height: 1.4;
         }
         .metric-card--hero .metric-sparkline {
             display: none;
         }
 
         /* Hero ledger — editorial composition strip under the headline.
-           Two narrow columns of tracked-caps eyebrows + tabular mono figures,
-           divided by a gold hairline that picks up the § ornament's accent. */
+           Tracked-caps eyebrows with mono figures sized to read as primary
+           data, not annotation. Each row carries its own gold tick so the
+           composition echoes the § ornament at top-right. */
         .hero-ledger {
             grid-area: ledger;
             align-self: end;
             display: grid;
             grid-template-columns: repeat(2, minmax(0, max-content));
-            column-gap: 28px;
+            column-gap: 64px;
             margin: 0;
-            padding-top: 14px;
+            padding-top: 20px;
             border-top: 1px solid var(--rule-strong);
             position: relative;
             max-width: 100%;
@@ -522,34 +524,51 @@
             position: absolute;
             top: -1px;
             left: 0;
-            width: 38px;
+            width: 64px;
             height: 1px;
             background: var(--gold);
         }
         .hero-ledger__row {
             display: grid;
             grid-template-rows: auto auto;
-            row-gap: 4px;
-            padding-right: 28px;
-            border-right: 1px solid var(--rule);
+            row-gap: 8px;
             min-width: 0;
+            position: relative;
         }
-        .hero-ledger__row:last-child {
-            padding-right: 0;
-            border-right: 0;
+        .hero-ledger__row + .hero-ledger__row::before {
+            content: '';
+            position: absolute;
+            left: -32px;
+            top: 4px;
+            bottom: 4px;
+            width: 1px;
+            background: var(--rule);
         }
         .hero-ledger dt {
             font-family: var(--ff-mono);
-            font-size: 9.5px;
-            letter-spacing: 0.24em;
+            font-size: 10px;
+            letter-spacing: 0.28em;
             text-transform: uppercase;
             color: var(--ink-3);
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .hero-ledger dt::before {
+            content: '';
+            width: 6px;
+            height: 6px;
+            border: 1px solid var(--gold);
+            transform: rotate(45deg);
+            flex: none;
+            opacity: 0.85;
         }
         .hero-ledger dd {
             font-family: var(--ff-mono);
             font-feature-settings: 'tnum' 1, 'lnum' 1;
-            font-size: 15px;
-            letter-spacing: 0.01em;
+            font-size: 26px;
+            line-height: 1;
+            letter-spacing: -0.005em;
             color: var(--ink-2);
             white-space: nowrap;
         }
@@ -557,26 +576,36 @@
         .hero-ledger dd.loss   { color: var(--loss); }
         .hero-ledger dd.zero   { color: var(--ink-3); }
 
+        @media (max-width: 1100px) {
+            .metric-card--hero { padding: 56px 28px 28px; }
+            .hero-ledger { column-gap: 48px; }
+            .hero-ledger__row + .hero-ledger__row::before { left: -24px; }
+            .hero-ledger dd { font-size: 22px; }
+        }
         @media (max-width: 720px) {
             .metric-card--hero {
+                padding: 56px 24px 24px;
                 grid-template-columns: 1fr;
                 grid-template-areas:
                     "value"
                     "ledger"
                     "change";
-                row-gap: 16px;
+                row-gap: 24px;
+                min-height: 0;
             }
             .metric-card--hero .metric-change {
                 border-left: 0;
                 border-top: 1px solid var(--rule-strong);
-                padding-left: 0;
-                padding-top: 14px;
+                padding: 14px 0 0 0;
                 text-align: left;
                 min-width: 0;
             }
             .hero-ledger {
                 grid-template-columns: repeat(2, 1fr);
+                column-gap: 32px;
             }
+            .hero-ledger__row + .hero-ledger__row::before { left: -16px; }
+            .hero-ledger dd { font-size: 20px; }
         }
 
         /* Funding rate-of-return hero — annualized return on time-weighted notional */
