@@ -164,6 +164,9 @@
             color: var(--ink);
             font-variation-settings: 'opsz' 96, 'SOFT' 60;
             text-rendering: geometricPrecision;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
 
         .header-right {
@@ -226,6 +229,7 @@
         .status-badge {
             display: inline-flex;
             align-items: center;
+            justify-content: center;
             gap: 7px;
             padding: 6px 11px 6px 9px;
             font-family: var(--ff-mono);
@@ -235,6 +239,11 @@
             border: 1px solid var(--rule-strong);
             background: var(--paper-2);
             color: var(--ink-2);
+            /* Stable footprint for all states: LIVE / FETCHING / LIVE PARTIAL /
+               OFFLINE. Sized for the widest text ("LIVE · PARTIAL") so the
+               right rail never reflows the headline mid-fetch. */
+            min-width: 152px;
+            box-sizing: border-box;
         }
         .status-badge.live {
             color: var(--gain);
@@ -315,21 +324,32 @@
             to   { background-position: -120% 0; }
         }
 
-        /* endpoint progress caption — small editorial mono cap */
+        /* endpoint progress caption — small editorial mono cap.
+           Pinned absolutely to the masthead's bottom edge so its dynamic
+           text width cannot feed back into the grid and force the headline
+           to wrap. visibility-toggled so its box reserves no flow space
+           when idle. */
         .fetch-caption {
+            position: absolute;
+            right: 0;
+            bottom: -20px;
             font-family: var(--ff-mono);
             font-size: 9.5px;
             letter-spacing: 0.22em;
             text-transform: uppercase;
             color: var(--ink-3);
-            display: none;
+            display: inline-flex;
             align-items: baseline;
             gap: 9px;
-            flex-basis: 100%;
-            justify-content: flex-end;
-            margin-top: 4px;
+            white-space: nowrap;
+            visibility: hidden;
+            pointer-events: none;
+            z-index: 3;
         }
-        .fetch-caption.active { display: flex; }
+        .fetch-caption.active {
+            visibility: visible;
+            pointer-events: auto;
+        }
         .fetch-caption .gold { color: var(--gold); }
         .fetch-caption .sep  { color: var(--ink-4); }
         .fetch-caption .dots::after {
