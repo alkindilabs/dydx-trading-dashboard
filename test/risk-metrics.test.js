@@ -255,6 +255,56 @@ test('classifyClosed empty input', () => {
 });
 
 // ---------------------------------------------------------------------------
+// netFundingTotal + marketPnL funding fold-in. Pins that the Total Profit
+// headline and the Per-market Profit family agree with the equity-based
+// historical-pnl curve by including netFunding alongside realized/unrealized.
+// ---------------------------------------------------------------------------
+
+test('netFundingTotal sums netFunding across OPEN and CLOSED positions', () => {
+    const positions = [
+        { status: 'CLOSED', netFunding: '12.5'  },
+        { status: 'CLOSED', netFunding: '-4'    },
+        { status: 'OPEN',   netFunding: '3.25'  },
+        { status: 'OPEN'                         }, // missing → treated as 0
+        { status: 'CLOSED', netFunding: 'NaN'   }, // unparseable → 0
+    ];
+    assert.ok(close(RM.netFundingTotal(positions), 11.75));
+});
+
+test('netFundingTotal empty / null input → 0', () => {
+    assert.equal(RM.netFundingTotal([]), 0);
+    assert.equal(RM.netFundingTotal(null), 0);
+});
+
+test('marketPnL folds netFunding into total alongside realized + unrealized', () => {
+    const positions = [
+        { market: 'ETH-USD', status: 'CLOSED', realizedPnl: '100', netFunding: '5'   },
+        { market: 'ETH-USD', status: 'CLOSED', realizedPnl: '-30', netFunding: '-2'  },
+        { market: 'ETH-USD', status: 'OPEN',   unrealizedPnl: '50', netFunding: '1.5' },
+        { market: 'BTC-USD', status: 'CLOSED', realizedPnl: '200', netFunding: '-7'  },
+    ];
+    const m = RM.marketPnL(positions);
+    assert.ok(close(m['ETH-USD'].realizedClosed, 70));
+    assert.ok(close(m['ETH-USD'].unrealizedOpen, 50));
+    assert.ok(close(m['ETH-USD'].netFunding, 4.5));
+    assert.ok(close(m['ETH-USD'].total, 124.5));
+    assert.equal(m['ETH-USD'].closedCount, 2);
+    assert.equal(m['ETH-USD'].openCount, 1);
+    assert.ok(close(m['BTC-USD'].netFunding, -7));
+    assert.ok(close(m['BTC-USD'].total, 193));
+});
+
+test('marketPnL with no funding fields behaves like realized + unrealized only', () => {
+    const positions = [
+        { market: 'SOL-USD', status: 'CLOSED', realizedPnl: '10' },
+        { market: 'SOL-USD', status: 'OPEN',   unrealizedPnl: '5' },
+    ];
+    const m = RM.marketPnL(positions);
+    assert.equal(m['SOL-USD'].netFunding, 0);
+    assert.ok(close(m['SOL-USD'].total, 15));
+});
+
+// ---------------------------------------------------------------------------
 // Drawdown family.
 // ---------------------------------------------------------------------------
 

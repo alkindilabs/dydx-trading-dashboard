@@ -455,8 +455,12 @@
   }
 
   // Per-market P&L. Single definition: realized of CLOSED + unrealized of
-  // OPEN. Used by Overview chart tooltip AND Performance-by-Asset table so
-  // the same market never reads two different P&L numbers.
+  // OPEN + netFunding from every position in that market. dYdX v4 keeps
+  // netFunding as its own field on perpetualPositions, distinct from
+  // realizedPnl/unrealizedPnl; without folding it in, the "Total Profit"
+  // family disagrees with the equity-based historical-pnl curve.
+  // Used by Overview chart tooltip AND Performance-by-Asset table so the
+  // same market never reads two different P&L numbers.
   function marketPnL(positions) {
     const byMarket = {};
     (positions || []).forEach(p => {
@@ -464,7 +468,7 @@
       const m = p.market || 'Unknown';
       if (!byMarket[m]) {
         byMarket[m] = {
-          realizedClosed: 0, unrealizedOpen: 0, total: 0,
+          realizedClosed: 0, unrealizedOpen: 0, netFunding: 0, total: 0,
           closedCount: 0, openCount: 0
         };
       }
@@ -476,11 +480,25 @@
         slot.unrealizedOpen += parseFloat(p.unrealizedPnl || 0);
         slot.openCount += 1;
       }
+      slot.netFunding += parseFloat(p.netFunding || 0);
     });
     Object.values(byMarket).forEach(s => {
-      s.total = s.realizedClosed + s.unrealizedOpen;
+      s.total = s.realizedClosed + s.unrealizedOpen + s.netFunding;
     });
     return byMarket;
+  }
+
+  // Sum of netFunding across every position (CLOSED + OPEN). Used by the
+  // Total Profit headline so realized + unrealized + funding agrees with
+  // /historical-pnl totalPnl (which is equity-based and already includes
+  // funding). Unparseable values (missing field, 'NaN', '') contribute 0
+  // rather than poisoning the sum. Returns 0 on empty input.
+  function netFundingTotal(positions) {
+    return (positions || []).reduce((s, p) => {
+      if (!p) return s;
+      const v = parseFloat(p.netFunding);
+      return isNumber(v) ? s + v : s;
+    }, 0);
   }
 
   // Per-position liquidation price under cross-margin assuming OTHER open
@@ -573,6 +591,7 @@
     histPnlDrawdownEvents,
     buildCumulativeTotalPnlSeries,
     marketPnL,
+    netFundingTotal,
     crossMarginLiqPrice,
     leverageUtilization,
     liquidationRow,
