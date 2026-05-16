@@ -533,6 +533,28 @@
     }, 0);
   }
 
+  // Active child subaccount detector. Returns the subset of subaccounts
+  // (≥ 1, where dYdX convention places isolated-margin subs at 128 and
+  // 256) that currently have any state worth surfacing — non-zero equity,
+  // open positions, or asset balances. Dashboard analyses sub=0; any
+  // child with activity is a blind spot the operator must be warned
+  // about so headline isn't trusted as the account's full picture.
+  // Empty input → empty array.
+  function activeChildSubaccounts(subaccounts) {
+    if (!Array.isArray(subaccounts)) return [];
+    return subaccounts.filter(s => {
+      if (!s || s.subaccountNumber === 0 || s.subaccountNumber == null) return false;
+      const eq = parseFloat(s.equity || 0);
+      if (isNumber(eq) && eq !== 0) return true;
+      const open = s.openPerpetualPositions && typeof s.openPerpetualPositions === 'object'
+        && Object.keys(s.openPerpetualPositions).length > 0;
+      if (open) return true;
+      const assets = Array.isArray(s.assetPositions) && s.assetPositions.length > 0;
+      if (assets) return true;
+      return false;
+    });
+  }
+
   // FIFO realized P&L computed bottom-up from /fills. Walks each market's
   // fills chronologically, maintaining a signed inventory of open lots;
   // realizes profit/loss whenever a fill reduces the existing position.
@@ -802,6 +824,7 @@
     feesTotal,
     marketFees,
     computeRealizedFromFills,
+    activeChildSubaccounts,
     histPnlMonthly,
     crossMarginLiqPrice,
     leverageUtilization,

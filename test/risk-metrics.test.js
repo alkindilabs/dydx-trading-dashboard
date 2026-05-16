@@ -371,6 +371,57 @@ test('marketPnL feesMap entry for a market with no positions creates a fees-only
 });
 
 // ---------------------------------------------------------------------------
+// activeChildSubaccounts — detects isolated-margin blind spots. Dashboard
+// analyses sub=0 only; any child sub with state must be surfaced.
+// ---------------------------------------------------------------------------
+
+test('activeChildSubaccounts empty / non-array → []', () => {
+    assert.deepEqual(RM.activeChildSubaccounts([]), []);
+    assert.deepEqual(RM.activeChildSubaccounts(null), []);
+    assert.deepEqual(RM.activeChildSubaccounts(undefined), []);
+});
+
+test('activeChildSubaccounts ignores sub=0 even with state', () => {
+    const subs = [
+        { subaccountNumber: 0, equity: '10000', openPerpetualPositions: { 'ETH-USD': {} } }
+    ];
+    assert.equal(RM.activeChildSubaccounts(subs).length, 0);
+});
+
+test('activeChildSubaccounts flags child with non-zero equity', () => {
+    const subs = [
+        { subaccountNumber: 0,   equity: '0' },
+        { subaccountNumber: 128, equity: '500' }
+    ];
+    const out = RM.activeChildSubaccounts(subs);
+    assert.equal(out.length, 1);
+    assert.equal(out[0].subaccountNumber, 128);
+});
+
+test('activeChildSubaccounts flags child with open positions even at zero equity', () => {
+    const subs = [
+        { subaccountNumber: 128, equity: '0', openPerpetualPositions: { 'BTC-USD': { size: '1' } } }
+    ];
+    assert.equal(RM.activeChildSubaccounts(subs).length, 1);
+});
+
+test('activeChildSubaccounts flags child with asset positions', () => {
+    const subs = [
+        { subaccountNumber: 256, equity: '0', assetPositions: [{ symbol: 'USDC' }] }
+    ];
+    assert.equal(RM.activeChildSubaccounts(subs).length, 1);
+});
+
+test('activeChildSubaccounts skips zero-everywhere children', () => {
+    const subs = [
+        { subaccountNumber: 0,   equity: '0' },
+        { subaccountNumber: 128, equity: '0', openPerpetualPositions: {}, assetPositions: [] },
+        { subaccountNumber: 256, equity: '0' }
+    ];
+    assert.equal(RM.activeChildSubaccounts(subs).length, 0);
+});
+
+// ---------------------------------------------------------------------------
 // computeRealizedFromFills — FIFO inventory walk over /fills. Authoritative
 // for the headline because dYdX's /perpetualPositions.realizedPnl
 // undercounts on heavy-scaling accounts (empirically reconciles to
