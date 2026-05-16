@@ -77,7 +77,9 @@ Headline math: `TRADING + FUNDING + FEES_contribution`. Helpers:
 - `RiskMetrics.feesTotal(fills)` — sum of `fill.fee` (positive = paid)
 - `RiskMetrics.marketFees(fills)` — `{ [market]: feesPaid }` map for the per-asset table
 
-A reconciliation guard fires (`console.error`) when `|headline − /historical-pnl latestTotalPnl| > max($1, |latestTotalPnl|×1%)`. The guard never trips on accounts with complete `/fills` to inception; if it fires, the structured payload (trading / funding / fees / equityBased / gap / row counts) tells the operator which stream to inspect.
+A reconciliation guard fires (`console.error`) when `|headline − /historical-pnl latestTotalPnl| > max($1, |latestTotalPnl|×1%)`. The guard never trips on accounts with complete `/fills` to inception; if it fires, the structured payload (trading / funding / fees / equityBased / gap / row counts / activeChildSubaccounts) tells the operator which stream to inspect.
+
+A second per-fetch guard surfaces **isolated-margin blind spots**. dYdX v4 supports up to 128k subaccounts per address; isolated-margin positions live in children (≥128 per convention). The dashboard analyses sub=0 only, so a child sub with non-zero equity, open positions, or asset balances is invisible to every per-stream calculation. On every load, `/addresses/{address}` enumerates every subaccount; `RiskMetrics.activeChildSubaccounts(subs)` returns the children with state. When non-empty, `console.warn` fires with the affected sub numbers so the operator knows the headline is partial. The error path's `childHint` references the same list so a `_reconciliation FAILED_` payload mentions isolated margin as a likely contributor.
 
 Classification (`classifyClosed`) still keys off the indexer's `realizedPnl` for Win Rate / Profit Factor / Avg Win / Avg Loss / Risk:Reward / Expectancy. Those metrics are trade-quality summaries where per-position attribution matters more than absolute precision — they're not lifetime-profit estimates.
 
