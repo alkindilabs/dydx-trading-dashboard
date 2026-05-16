@@ -239,25 +239,25 @@
             border: 1px solid var(--rule-strong);
             background: var(--paper-2);
             color: var(--ink-2);
-            /* Stable footprint for all states: LIVE / FETCHING / LIVE PARTIAL /
-               OFFLINE. Sized for the widest text ("LIVE · PARTIAL") so the
+            /* Stable footprint for all states: FRESH / FETCHING / FRESH PARTIAL /
+               OFFLINE. Sized for the widest text ("FRESH · PARTIAL") so the
                right rail never reflows the headline mid-fetch. */
-            min-width: 152px;
+            min-width: 160px;
             box-sizing: border-box;
         }
-        .status-badge.live {
+        .status-badge.fresh {
             color: var(--gain);
             background: linear-gradient(180deg, rgba(143,170,114,0.07), rgba(143,170,114,0.02));
             border-color: rgba(143,170,114,0.35);
         }
-        .status-badge.live::before,
+        .status-badge.fresh::before,
         .status-badge.fetching::before,
         .status-badge.offline::before {
             content: '';
             width: 6px; height: 6px; border-radius: 50%;
             flex-shrink: 0;
         }
-        .status-badge.live::before {
+        .status-badge.fresh::before {
             background: var(--gain);
             animation: pulse 2.4s infinite;
         }
@@ -531,8 +531,8 @@
             grid-area: ledger;
             align-self: end;
             display: grid;
-            grid-template-columns: repeat(2, minmax(0, max-content));
-            column-gap: 64px;
+            grid-template-columns: repeat(3, minmax(0, max-content));
+            column-gap: 56px;
             margin: 0;
             padding-top: 20px;
             border-top: 1px solid var(--rule-strong);
@@ -558,7 +558,7 @@
         .hero-ledger__row + .hero-ledger__row::before {
             content: '';
             position: absolute;
-            left: -32px;
+            left: -28px;
             top: 4px;
             bottom: 4px;
             width: 1px;
@@ -598,8 +598,8 @@
 
         @media (max-width: 1100px) {
             .metric-card--hero { padding: 56px 28px 28px; }
-            .hero-ledger { column-gap: 48px; }
-            .hero-ledger__row + .hero-ledger__row::before { left: -24px; }
+            .hero-ledger { column-gap: 40px; }
+            .hero-ledger__row + .hero-ledger__row::before { left: -20px; }
             .hero-ledger dd { font-size: 22px; }
         }
         @media (max-width: 720px) {
@@ -621,11 +621,11 @@
                 min-width: 0;
             }
             .hero-ledger {
-                grid-template-columns: repeat(2, 1fr);
-                column-gap: 32px;
+                grid-template-columns: repeat(3, 1fr);
+                column-gap: 20px;
             }
-            .hero-ledger__row + .hero-ledger__row::before { left: -16px; }
-            .hero-ledger dd { font-size: 20px; }
+            .hero-ledger__row + .hero-ledger__row::before { left: -10px; }
+            .hero-ledger dd { font-size: 18px; }
         }
 
         /* Funding rate-of-return hero — annualized return on time-weighted notional */
@@ -1563,7 +1563,7 @@
                 <div class="breadcrumb" id="breadcrumb">dYdX Trading Analytics</div>
             </div>
             <div class="header-right">
-                <span id="statusBadge" class="status-badge live">LIVE</span>
+                <span id="statusBadge" class="status-badge fresh" title="Snapshot-freshness indicator. FRESH = last fetch returned every endpoint. Not a streaming/websocket signal.">FRESH</span>
                 <div class="address-controls">
                     <input id="addressInput"
                            class="address-input mono"
@@ -1628,6 +1628,10 @@
                         <div class="hero-ledger__row">
                             <dt>Funding</dt>
                             <dd class="mono" id="totalPnLFunding">—</dd>
+                        </div>
+                        <div class="hero-ledger__row">
+                            <dt>Fees</dt>
+                            <dd class="mono" id="totalPnLFees">—</dd>
                         </div>
                     </dl>
                     <div class="metric-change mono" id="totalPnLChange">Loading...</div>
@@ -1790,10 +1794,12 @@
                     <thead>
                         <tr>
                             <th>ASSET</th>
-                            <th>PROFIT</th>
+                            <th title="realized + unrealized + funding − fees for this market — matches the Total Profit headline composition">PROFIT</th>
+                            <th title="Net funding received (positive) or paid (negative) across every position in this market.">FUNDING</th>
+                            <th title="Trading fees paid (taker + maker) on this market's fills. Maker rebates show as positive dollars.">FEES</th>
                             <th>TRADES</th>
                             <th>WIN RATE</th>
-                            <th>AVG PROFIT</th>
+                            <th title="Realized P&L per decisive closed trade in this market — trade-quality metric, excludes funding and fees by design.">AVG PROFIT</th>
                             <th>BEST</th>
                             <th>WORST</th>
                             <th>SHARPE</th>
@@ -2166,7 +2172,7 @@
                 done  = 0;
                 active = true;
                 if (badge) {
-                    badge.classList.remove('live', 'offline');
+                    badge.classList.remove('fresh', 'offline');
                     badge.classList.add('fetching');
                     badge.textContent = 'FETCHING';
                 }
@@ -2191,13 +2197,13 @@
                 if (!badge) return;
                 badge.classList.remove('fetching');
                 if (state === 'offline') {
-                    badge.classList.remove('live');
+                    badge.classList.remove('fresh');
                     badge.classList.add('offline');
                     badge.textContent = 'OFFLINE';
                 } else {
                     badge.classList.remove('offline');
-                    badge.classList.add('live');
-                    badge.textContent = state === 'partial' ? 'LIVE · PARTIAL' : 'LIVE';
+                    badge.classList.add('fresh');
+                    badge.textContent = state === 'partial' ? 'FRESH · PARTIAL' : 'FRESH';
                 }
             }
             return { begin, update, taskDone, end };
@@ -2868,8 +2874,16 @@
             // per-market P&L — computed ONCE up front and threaded through to
             // every renderer/table. No downstream code recomputes these so
             // the same trade is never bucketed two ways across cards.
+            //
+            // fillsArr is pulled here (not just later for the positions tab)
+            // because Total Profit needs fee-aware reconciliation with the
+            // equity-based /historical-pnl totalPnl curve, and marketPnL
+            // accepts a feesMap so the per-asset PROFIT column reads the
+            // same composition as the headline.
             const cls = window.RiskMetrics.classifyClosed(allPositions);
-            const marketAgg = window.RiskMetrics.marketPnL(allPositions);
+            const fillsArr = (allData.fills && (allData.fills.fills || allData.fills.data || allData.fills)) || [];
+            const feesByMarket = window.RiskMetrics.marketFees(fillsArr);
+            const marketAgg = window.RiskMetrics.marketPnL(allPositions, feesByMarket);
             const marketsMap = extractMarketsMap(allData.markets);
             const histArr = (allData.historicalPnl && allData.historicalPnl.historicalPnl) || [];
             // Drawdown source: historical-pnl totalPnl is the canonical
@@ -2889,8 +2903,9 @@
                 .reduce((s, p) => s + parseFloat(p.unrealizedPnl || 0), 0);
             const totalRealizedPnL = cls.totalRealized;
             const totalNetFunding = window.RiskMetrics.netFundingTotal(allPositions);
+            const totalFees = window.RiskMetrics.feesTotal(fillsArr);
             const totalTradingPnL = totalUnrealizedPnL + totalRealizedPnL;
-            const totalPnL = totalTradingPnL + totalNetFunding;
+            const totalPnL = totalTradingPnL + totalNetFunding - totalFees;
 
             const marketDistribution = {};
             Object.entries(marketAgg).forEach(([m, v]) => {
@@ -2903,7 +2918,7 @@
             createMarketDistributionChart(marketDistribution);
 
             updateMetric('totalPnL', formatCurrency(totalPnL), totalPnL >= 0);
-            renderTotalProfitBreakdown(totalTradingPnL, totalNetFunding);
+            renderTotalProfitBreakdown(totalTradingPnL, totalNetFunding, totalFees);
             document.getElementById('totalPnLChange').textContent = 'All Time';
 
             if (cls.decisiveCount > 0) {
@@ -3098,7 +3113,6 @@ Sample: ${rets.length} returns over ${(adq.years*12).toFixed(1)} months (${(adq.
                     ? fmtRatio(recoveryNumer / tsd.dollarDrawdown)
                     : 'N/A');
 
-            const fillsArr = (allData.fills && (allData.fills.fills || allData.fills.data || allData.fills)) || [];
             updatePositionsTabFromData(allPositions, fillsArr, subaccount);
             updatePerformanceMetrics(allPositions, cls);
             updateTimeAnalysis(allPositions);
@@ -3167,15 +3181,22 @@ Sample: ${rets.length} returns over ${(adq.years*12).toFixed(1)} months (${(adq.
             }
         }
 
-        // Paint the two-cell ledger under the Total Profit headline. Each
+        // Paint the three-cell ledger under the Total Profit headline. Each
         // cell carries its own profit/loss/zero color so the composition is
         // legible at a glance without re-reading the headline. The class
         // 'zero' takes precedence to keep $0 visually neutral.
-        function renderTotalProfitBreakdown(trading, funding) {
+        //
+        // FEES uses dYdX's positive-paid convention: positive `feesPaid`
+        // means the user paid the venue (a cost). The cell displays the
+        // signed cost so a positive `feesPaid` renders as a negative
+        // dollar amount in red. Maker rebates (negative `feesPaid`) render
+        // as a positive dollar amount in green.
+        function renderTotalProfitBreakdown(trading, funding, feesPaid) {
             const fmt = (v) => formatCurrency(v);
             const sign = (v) => v > 0 ? 'profit' : (v < 0 ? 'loss' : 'zero');
             const t = document.getElementById('totalPnLTrading');
             const f = document.getElementById('totalPnLFunding');
+            const feesEl = document.getElementById('totalPnLFees');
             if (t) {
                 t.textContent = fmt(trading);
                 t.className = `mono ${sign(trading)}`;
@@ -3183,6 +3204,11 @@ Sample: ${rets.length} returns over ${(adq.years*12).toFixed(1)} months (${(adq.
             if (f) {
                 f.textContent = fmt(funding);
                 f.className = `mono ${sign(funding)}`;
+            }
+            if (feesEl) {
+                const feesContribution = -feesPaid;
+                feesEl.textContent = fmt(feesContribution);
+                feesEl.className = `mono ${sign(feesContribution)}`;
             }
         }
 
@@ -4113,7 +4139,7 @@ Small-N caveat: standard error widens; not a forward-Sharpe forecast.`;
                                         `Closed Positions: ${md.tradeCount}`
                                     ];
                                     if (md.openCount) lines.push(`Open Positions: ${md.openCount}`);
-                                    lines.push(`Total Profit: ${formatCurrency(md.totalPnL)}`);
+                                    lines.push(`Profit (incl. funding − fees): ${formatCurrency(md.totalPnL)}`);
                                     return lines;
                                 }
                             }
@@ -4306,7 +4332,12 @@ Small-N caveat: standard error widens; not a forward-Sharpe forecast.`;
         function updatePerformanceTables(positions, historicalPnl = [], marketAggIn = null) {
             // Bucket closed trades by month using the same classifier rules
             // as the header so monthly win-rate denominators match the header
-            // win-rate denominator (decisive trades only).
+            // win-rate denominator (decisive trades only). The PNL column for
+            // each month comes from /historical-pnl deltas (totalPnl_lastInMonth
+            // − totalPnl_lastInPriorMonth) so it shares its definition with
+            // the headline, MAX DD and Sharpe on the same row. The classifier
+            // sums below are still computed off realizedPnl because Avg Win /
+            // Avg Loss / Profit Factor are trade-quality metrics by design.
             const monthly = {};
             positions.filter(p => p.status === 'CLOSED').forEach(p => {
                 const d = new Date(p.closedAt || p.createdAt);
@@ -4314,14 +4345,12 @@ Small-N caveat: standard error widens; not a forward-Sharpe forecast.`;
                 const key = d.toLocaleString('en-US', { month: 'long', year: 'numeric' });
                 if (!monthly[key]) {
                     monthly[key] = {
-                        pnl: 0,
                         closedCount: 0, decisiveCount: 0,
                         wins: 0, losses: 0,
                         winSum: 0, lossSum: 0
                     };
                 }
                 const pnl = parseFloat(p.realizedPnl || 0);
-                monthly[key].pnl += pnl;
                 monthly[key].closedCount += 1;
                 if (pnl > 0) {
                     monthly[key].wins += 1;
@@ -4347,6 +4376,19 @@ Small-N caveat: standard error widens; not a forward-Sharpe forecast.`;
                     byMonthHist[key].push(pt);
                 });
             }
+            const monthlyHistDeltas = window.RiskMetrics.histPnlMonthly(hist);
+            // Include months observed in /historical-pnl even when no
+            // positions closed in that month — funding-only months should
+            // still appear in the table so totals reconcile.
+            Object.keys(monthlyHistDeltas).forEach(key => {
+                if (!monthly[key]) {
+                    monthly[key] = {
+                        closedCount: 0, decisiveCount: 0,
+                        wins: 0, losses: 0,
+                        winSum: 0, lossSum: 0
+                    };
+                }
+            });
             const bodyM = document.getElementById('monthlyPerformanceBody');
             if (bodyM) {
                 bodyM.innerHTML = '';
@@ -4386,8 +4428,19 @@ Small-N caveat: standard error widens; not a forward-Sharpe forecast.`;
                         const tradesCol = m.closedCount === m.decisiveCount
                             ? String(m.closedCount)
                             : `${m.decisiveCount} (+${m.closedCount - m.decisiveCount})`;
+                        // PNL column = Δ totalPnl for this month from
+                        // /historical-pnl. Same definition as headline +
+                        // MAX DD + Sharpe; "—" when historical-pnl had no
+                        // sample in this month (no-metric > wrong-metric).
+                        const histEntry = monthlyHistDeltas[label];
+                        const pnlCellTxt = histEntry && histEntry.hasData
+                            ? formatCurrency(histEntry.delta)
+                            : '—';
+                        const pnlCellCls = histEntry && histEntry.hasData
+                            ? (histEntry.delta >= 0 ? 'profit' : 'loss')
+                            : '';
                         appendCell(tr, label);
-                        appendCell(tr, formatCurrency(m.pnl), ['mono', m.pnl >= 0 ? 'profit' : 'loss']);
+                        appendCell(tr, pnlCellTxt, ['mono', pnlCellCls]);
                         appendCell(tr, winRate.toFixed(1) + '%', ['mono']);
                         appendCell(tr, tradesCol, ['mono']);
                         appendCell(tr, formatCurrency(avgWin), ['mono', avgWin >= 0 ? 'profit' : 'loss']);
@@ -4437,9 +4490,17 @@ Small-N caveat: standard error widens; not a forward-Sharpe forecast.`;
                         const tradesCol = assetCls.closedCount === assetCls.decisiveCount
                             ? String(assetCls.closedCount)
                             : `${assetCls.decisiveCount} (+${assetCls.scratchCount})`;
+                        // FUNDING / FEES use the same signed-contribution
+                        // convention as the hero ledger: positive funding =
+                        // received, positive fees = paid (rendered as a
+                        // negative contribution to profit).
+                        const fundingCol = slot.netFunding || 0;
+                        const feesContribution = -(slot.fees || 0);
                         const tr = document.createElement('tr');
                         appendCell(tr, ticker);
                         appendCell(tr, formatCurrency(slot.total), ['mono', slot.total >= 0 ? 'profit' : 'loss']);
+                        appendCell(tr, formatCurrency(fundingCol), ['mono', fundingCol > 0 ? 'profit' : (fundingCol < 0 ? 'loss' : '')]);
+                        appendCell(tr, formatCurrency(feesContribution), ['mono', feesContribution > 0 ? 'profit' : (feesContribution < 0 ? 'loss' : '')]);
                         appendCell(tr, tradesCol, ['mono']);
                         appendCell(tr, winRate.toFixed(1) + '%', ['mono']);
                         appendCell(tr, formatCurrency(avgPnL), ['mono', avgPnL >= 0 ? 'profit' : 'loss']);
