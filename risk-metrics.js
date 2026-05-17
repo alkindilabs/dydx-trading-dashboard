@@ -197,8 +197,11 @@
   }
 
   // Classify closed positions into wins / losses / scratches by realizedPnl
-  // sign. Scratches (realizedPnl == 0) are tracked separately and excluded
-  // from win-rate-style ratios.
+  // sign. Scratches (realizedPnl == 0) are excluded from win-rate-style
+  // ratios. Derived fields (winRate, profitFactor, avgWin, avgLoss,
+  // expectancy) are computed once here so consumers cannot adopt different
+  // definitions in different panels. Each is null when its denominator is
+  // zero — surface as '—' per the no-metric-better-than-wrong-metric rule.
   function classifyClosed(positions) {
     const closed = (positions || []).filter(p => p && p.status === 'CLOSED');
     const wins = [], losses = [], scratches = [];
@@ -210,16 +213,45 @@
       else if (r < 0) { losses.push(p);   grossLoss += Math.abs(r); }
       else            { scratches.push(p); }
     });
+    const winCount = wins.length;
+    const lossCount = losses.length;
+    const decisiveCount = winCount + lossCount;
+    const totalRealized = grossWin - grossLoss;
     return {
       wins, losses, scratches, all: closed,
       grossWin, grossLoss,
-      totalRealized: grossWin - grossLoss,
-      winCount: wins.length,
-      lossCount: losses.length,
+      totalRealized,
+      winCount,
+      lossCount,
       scratchCount: scratches.length,
-      decisiveCount: wins.length + losses.length, // non-scratch
-      closedCount: closed.length
+      decisiveCount,
+      closedCount: closed.length,
+      winRate:      decisiveCount > 0 ? (winCount / decisiveCount) * 100 : null,
+      profitFactor: grossLoss > 0     ? grossWin / grossLoss            : null,
+      avgWin:       winCount > 0      ? grossWin / winCount              : null,
+      avgLoss:      lossCount > 0     ? grossLoss / lossCount            : null,
+      expectancy:   decisiveCount > 0 ? totalRealized / decisiveCount    : null
     };
+  }
+
+  // Bucket closed positions by closedAt month, then run classifyClosed per
+  // bucket. Returns { [monthKey]: Classification } where monthKey matches
+  // the "Month long, year numeric" format the Monthly Performance Breakdown
+  // table uses. Months with zero closed positions are omitted — caller
+  // merges them in from histPnlMonthly when funding-only months matter.
+  function classifyByMonth(positions) {
+    const byMonth = {};
+    (positions || []).forEach(p => {
+      if (!p || p.status !== 'CLOSED') return;
+      const d = new Date(p.closedAt || p.createdAt);
+      if (isNaN(d)) return;
+      const key = d.toLocaleString('en-US', { month: 'long', year: 'numeric' });
+      if (!byMonth[key]) byMonth[key] = [];
+      byMonth[key].push(p);
+    });
+    const out = {};
+    Object.keys(byMonth).forEach(k => { out[k] = classifyClosed(byMonth[k]); });
+    return out;
   }
 
   // Per-trade fractional return on max-instantaneous notional.
@@ -862,6 +894,7 @@
     computeAnnualizedFromReturns,
     computeAnnualizedFromHistoricalPnl,
     classifyClosed,
+    classifyByMonth,
     normalizeRealizedPnl,
     tradeReturn,
     validDrawdownFromEquity,
