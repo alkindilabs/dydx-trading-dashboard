@@ -641,6 +641,7 @@
     <script src="./src/panels/positions.js"></script>
     <script src="./src/panels/behavior.js"></script>
     <script src="./src/panels/risk.js"></script>
+    <script src="./src/panels/performance.js"></script>
     <script>
         // Live masthead date in UTC — analytics throughout the dashboard
         // bucket by UTC, so the masthead must follow the same calendar.
@@ -679,33 +680,6 @@
 
         // Render a histogram of bar counts into a .distribution-bars container.
         // bins: [{ label, count }]; opt.colorize: 'split' (loss/gain by half), 'gain', 'loss', 'neutral'
-        function renderHistogram(containerId, bins, opt = {}) {
-            const container = document.getElementById(containerId);
-            if (!container) return;
-            container.innerHTML = '';
-            if (!bins.length) return;
-            const maxC = Math.max(1, ...bins.map(b => b.count));
-            bins.forEach((b, i) => {
-                const bar = document.createElement('div');
-                bar.className = 'distribution-bar';
-                const h = (b.count / maxC) * 100;
-                bar.style.height = `${Math.max(2, h)}%`;
-                if (opt.colorize === 'split') {
-                    const half = Math.floor(bins.length / 2);
-                    bar.style.background = i < half ? 'var(--loss)' : 'var(--gain)';
-                    bar.style.opacity = '0.55';
-                } else if (opt.colorize === 'gain') {
-                    bar.style.background = 'var(--gain)';
-                    bar.style.opacity = '0.55';
-                } else if (opt.colorize === 'loss') {
-                    bar.style.background = 'var(--loss)';
-                    bar.style.opacity = '0.55';
-                }
-                bar.title = `${b.label}: ${b.count}`;
-                container.appendChild(bar);
-            });
-        }
-
         // Time selector functionality
         document.querySelectorAll('.time-option').forEach(option => {
             option.addEventListener('click', function() {
@@ -1741,7 +1715,7 @@
                 if (!histArr.length) {
                     setRatioNA('Failed to load historical profit');
                     setVarNA('Failed to load historical profit');
-                    updatePerformanceTables(allPositions, [], marketAgg);
+                    window.AppPanels.performance.renderTables(allPositions, [], marketAgg);
                     return;
                 }
 
@@ -1756,16 +1730,16 @@
                     // Per-trade fallback: independent statistic from realized
                     // P&L of closed trades. Honest when the time-series sample
                     // is unusable but the trade log is rich enough to summarize.
-                    const tm = computeTradeBasedMetrics(allPositions);
+                    const tm = window.AppPanels.performance.computeTradeBasedMetrics(allPositions);
                     if (tm.ok) {
-                        renderTradeBasedRatios(tm, adq.reason);
+                        window.AppPanels.performance.renderTradeBasedRatios(tm, adq.reason);
                     } else {
                         setRatioNA(adq.reason);
                     }
                     // VaR/CVaR share the time-series adequacy gate: a 4-day
                     // post-redeposit window is not a basis for portfolio VaR.
                     setVarNA(adq.reason);
-                    updatePerformanceTables(allPositions, histArr, marketAgg);
+                    window.AppPanels.performance.renderTables(allPositions, histArr, marketAgg);
                     return;
                 }
 
@@ -1803,7 +1777,7 @@ Sample: ${rets.length} returns over ${(adq.years*12).toFixed(1)} months (${(adq.
                 }
 
                 window.AppPanels.risk.renderFromHistorical(rets, equityNow);
-                updatePerformanceTables(allPositions, histArr, marketAgg);
+                window.AppPanels.performance.renderTables(allPositions, histArr, marketAgg);
             })();
 
             // Trading Statistics — losses always render as negative dollars so the
@@ -1852,7 +1826,7 @@ Sample: ${rets.length} returns over ${(adq.years*12).toFixed(1)} months (${(adq.
                     : 'N/A');
 
             window.AppPanels.positions.render(allPositions, fillsArr, subaccount);
-            updatePerformanceMetrics(allPositions, cls);
+            window.AppPanels.performance.renderMetrics(allPositions, cls);
             window.AppPanels.behavior.renderTimeAnalysis(allPositions);
             window.AppPanels.behavior.renderActivityHeatmap(allPositions);
             window.AppPanels.risk.renderLiquidationTable(allPositions, marketsMap, subaccount);
@@ -2187,293 +2161,6 @@ Sample: ${rets.length} returns over ${(adq.years*12).toFixed(1)} months (${(adq.
                 feesEl.className = `mono ${sign(feesContribution)}`;
             }
         }
-
-        function updatePerformanceMetrics(positions, precomputedCls) {
-            const cls = precomputedCls || window.RiskMetrics.classifyClosed(positions);
-            // Consecutive streaks: walk the closed-trade timeline, skip
-            // scratches (treat as no signal — neither win nor loss). Single
-            // owner of the maxConsecWins / maxConsecLosses card data.
-            const closedSorted = cls.all.slice().sort((a,b) =>
-                new Date(a.closedAt) - new Date(b.closedAt));
-            let maxW=0, curW=0, maxL=0, curL=0;
-            let bestPnL=0, curBest=0, worstPnL=0, curWorst=0;
-            closedSorted.forEach(p => {
-                const pnl = parseFloat(p.realizedPnl || 0);
-                if (pnl > 0) {
-                    curW++; maxW = Math.max(maxW, curW); curBest += pnl;
-                    worstPnL = Math.min(worstPnL, curWorst);
-                    curL = 0; curWorst = 0;
-                } else if (pnl < 0) {
-                    curL++; maxL = Math.max(maxL, curL); curWorst += pnl;
-                    bestPnL = Math.max(bestPnL, curBest);
-                    curW = 0; curBest = 0;
-                }
-            });
-            bestPnL = Math.max(bestPnL, curBest);
-            worstPnL = Math.min(worstPnL, curWorst);
-            updateElement('maxConsecWins', maxW > 0 ? String(maxW) : '—');
-            updateElement('maxConsecWinsDetail', maxW > 0 && bestPnL ? formatCurrency(bestPnL) : '');
-            updateElement('maxConsecLosses', maxL > 0 ? String(maxL) : '—');
-            updateElement('maxConsecLossesDetail', maxL > 0 && worstPnL ? formatCurrency(worstPnL) : '');
-
-            const avgWin = cls.winCount ? cls.grossWin / cls.winCount : 0;
-            const avgLoss = cls.lossCount ? cls.grossLoss / cls.lossCount : 0;
-            const rrr = avgLoss > 0 ? avgWin / avgLoss : null;
-            const rrrDetailEl = document.getElementById('avgRRRDetail');
-            if (rrr != null) {
-                updateElement('avgRRR', rrr.toFixed(2) + ':1');
-                // Same breakeven-WR comparison as the Overview headline card
-                // so the two surfaces of the Payoff metric carry identical
-                // verdict context. Breakeven WR = 1 / (1 + payoff).
-                const breakevenWR = (1 / (1 + rrr)) * 100;
-                const actualWR = cls.decisiveCount
-                    ? (cls.winCount / cls.decisiveCount) * 100
-                    : null;
-                if (actualWR !== null && rrrDetailEl) {
-                    rrrDetailEl.textContent = `WR ${actualWR.toFixed(1)}% vs ${breakevenWR.toFixed(1)}% breakeven`;
-                    rrrDetailEl.className = `metric-change mono ${actualWR >= breakevenWR ? 'profit' : 'loss'}`;
-                } else {
-                    updateElement('avgRRRDetail', `${breakevenWR.toFixed(1)}% WR needed to break even`);
-                    if (rrrDetailEl) rrrDetailEl.className = 'metric-change mono';
-                }
-            } else {
-                updateElement('avgRRR', '—');
-                updateElement('avgRRRDetail', '');
-                if (rrrDetailEl) rrrDetailEl.className = 'metric-change mono';
-            }
-
-            // Win Rate Trend: same denominator as Header Win Rate (decisive
-            // trades only — scratches excluded). Recent window also draws
-            // from the decisive sequence so the comparison is apples-to-
-            // apples.
-            const decisive = closedSorted.filter(p => {
-                const r = parseFloat(p.realizedPnl || 0);
-                return r > 0 || r < 0;
-            });
-            const allTimeWR = decisive.length
-                ? (cls.winCount / decisive.length) * 100
-                : 0;
-            const N = Math.min(TUNABLES.RECENT_DECISIVE_CAP, decisive.length);
-            const recent = decisive.slice(-N);
-            const recentWins = recent.filter(p => parseFloat(p.realizedPnl || 0) > 0).length;
-            const recentWR = recent.length ? (recentWins / recent.length) * 100 : 0;
-            const trendEl = document.getElementById('winRateTrend');
-            if (trendEl) {
-                if (decisive.length === 0 || N < 2) {
-                    trendEl.textContent = '—';
-                    trendEl.className = 'metric-value mono';
-                } else {
-                    const delta = recentWR - allTimeWR;
-                    const arrow = delta > 1 ? '↑' : delta < -1 ? '↓' : '→';
-                    const klass = delta > 1 ? 'profit' : delta < -1 ? 'loss' : '';
-                    trendEl.textContent = `${arrow} ${recentWR.toFixed(1)}%`;
-                    trendEl.className = 'metric-value mono ' + klass;
-                }
-            }
-            updateElement('winRateTrendDetail',
-                decisive.length && N >= 2
-                    ? `Last ${N} decisive (vs ${allTimeWR.toFixed(1)}% all-time)`
-                    : '');
-            // Use the closed-position list (incl. scratches) for distributions
-            // so hold-time/size buckets reflect the true volume of activity.
-            const closed = cls.all;
-
-            const container = document.getElementById('winLossDistribution');
-            if (container) {
-                container.innerHTML = '';
-                const returns = closed.map(p => {
-                    const entry = parseFloat(p.entryPrice||0);
-                    const exit = parseFloat(p.exitPrice||0);
-                    const side = (p.side||'').toUpperCase();
-                    if (!entry || !exit) return 0;
-                    const r = (exit - entry) / entry * (side==='LONG'?1:-1);
-                    return r;
-                }).filter(v => isFinite(v));
-                if (returns.length > 0) {
-                    const bins = 21;
-                    const minP = -0.2, maxP = 0.2;
-                    const counts = new Array(bins).fill(0);
-                    returns.forEach(r => {
-                        const clamped = Math.max(minP, Math.min(maxP, r));
-                        const idx = Math.min(bins-1, Math.max(0, Math.floor((clamped - minP) / (maxP - minP) * bins)));
-                        counts[idx] += 1;
-                    });
-                    const maxC = Math.max(...counts);
-                    counts.forEach((c, i) => {
-                        const bar = document.createElement('div');
-                        bar.className = 'distribution-bar';
-                        const h = maxC>0 ? (c / maxC) * 100 : 0;
-                        bar.style.height = `${Math.max(2, h)}%`;
-                        const isLoss = (i < Math.floor(bins/2));
-                        bar.style.background = isLoss ? 'var(--loss)' : 'var(--gain)';
-                        bar.style.opacity = '0.55';
-                        // Edge bins absorb out-of-range tails (clamped before
-                        // bucketing); label them explicitly so a heavy edge
-                        // bar isn't read as "lots of trades at exactly ±20%".
-                        let label;
-                        if (i === 0) label = `<${(minP*100).toFixed(0)}% bin`;
-                        else if (i === bins - 1) label = `>${(maxP*100).toFixed(0)}% bin`;
-                        else label = `${((minP + (i+0.5)*(maxP-minP)/bins)*100).toFixed(1)}% bin`;
-                        bar.title = `${label}: ${c}`;
-                        container.appendChild(bar);
-                    });
-                    const title = document.getElementById('winLossTitle');
-                    if (title) title.textContent = `Win/Loss Distribution (${returns.length} trades)`;
-                } else {
-                    const title = document.getElementById('winLossTitle');
-                    if (title) title.textContent = 'Win/Loss Distribution (no data)';
-                }
-            }
-
-            // Hold time + size distributions on Positions tab from real data
-            const closedPos = positions.filter(p => p.status === 'CLOSED');
-            const holdHours = closedPos.map(p => {
-                const c = new Date(p.createdAt).getTime();
-                const d = new Date(p.closedAt).getTime();
-                return (isFinite(c) && isFinite(d) && d > c) ? (d - c) / MS_PER_HOUR : null;
-            }).filter(v => v !== null);
-            const holdBuckets = [
-                { label: '0–1h',     range: [0,1],     count: 0 },
-                { label: '1–4h',     range: [1,4],     count: 0 },
-                { label: '4–12h',    range: [4,12],    count: 0 },
-                { label: '12–24h',   range: [12,24],   count: 0 },
-                { label: '1–3d',     range: [24,72],   count: 0 },
-                { label: '3–7d',     range: [72,168],  count: 0 },
-                { label: '>7d',      range: [168, Infinity], count: 0 }
-            ];
-            holdHours.forEach(h => {
-                const b = holdBuckets.find(b => h >= b.range[0] && h < b.range[1]);
-                if (b) b.count += 1;
-            });
-            renderHistogram('holdTimeDistribution', holdBuckets, { colorize: 'gain' });
-
-            const notionals = closedPos.map(p => {
-                const sz = parseFloat(p.sumOpen || p.size || 0);
-                const px = parseFloat(p.entryPrice || 0);
-                return (sz > 0 && px > 0) ? sz * px : null;
-            }).filter(v => v !== null).sort((a,b) => a - b);
-            if (notionals.length) {
-                const numBins = Math.min(12, Math.max(4, notionals.length));
-                const min = notionals[0], max = notionals[notionals.length - 1];
-                const step = (max - min) / numBins || 1;
-                const bins = [];
-                for (let i = 0; i < numBins; i++) {
-                    const lo = min + i * step;
-                    const hi = i === numBins - 1 ? Infinity : min + (i + 1) * step;
-                    bins.push({ label: `$${formatShortNumber(lo)}–${i === numBins - 1 ? '∞' : '$' + formatShortNumber(hi)}`, range: [lo, hi], count: 0 });
-                }
-                notionals.forEach(n => {
-                    const b = bins.find(b => n >= b.range[0] && n < b.range[1]) || bins[bins.length - 1];
-                    b.count += 1;
-                });
-                renderHistogram('sizeDistribution', bins, { colorize: 'gain' });
-            } else {
-                renderHistogram('sizeDistribution', [], {});
-            }
-        }
-
-        // Annualized per-trade Sharpe from a closed-trade list. Single helper
-        // shared by the per-trade fallback (when the time-series gate fails)
-        // and the per-asset Sharpe column so the two views can never adopt
-        // different return definitions or annualization conventions.
-        // Returns formatted string ('—' if too few decisive samples).
-        function computeAnnualizedTradeSharpe(closedAll, minSampleSize) {
-            const decisive = (closedAll || [])
-                .filter(p => p && p.closedAt && parseFloat(p.realizedPnl || 0) !== 0)
-                .sort((a, b) => new Date(a.closedAt) - new Date(b.closedAt));
-            if (decisive.length < minSampleSize) return '—';
-            const rets = decisive
-                .map(p => window.RiskMetrics.tradeReturn(p))
-                .filter(r => r !== null && isFinite(r));
-            if (rets.length < 2) return '—';
-            const s = window.RiskMetrics.computeSharpe(rets, 0);
-            if (s === null) return '—';
-            const firstT = new Date(decisive[0].closedAt).getTime();
-            const lastT = new Date(decisive[decisive.length - 1].closedAt).getTime();
-            const years = (lastT - firstT) / (365.25 * 24 * 3600 * 1000);
-            const tpy = years > 0 ? rets.length / years : 0;
-            return fmtRatio(tpy > 0 ? s * Math.sqrt(tpy) : s);
-        }
-
-        // Per-trade Sharpe / Sortino / Calmar fallback. Independent statistic
-        // from time-series Sharpe — meaningful when the equity time-series
-        // sample is biased (post-wipeout window) but the trade log is rich
-        // enough to characterize the strategy. Returns r_i = realizedPnl /
-        // (maxSize × entryPrice), the % return on max-instantaneous notional
-        // ever held during the position lifecycle (falls back to sumOpen,
-        // then size, when maxSize is absent). Headline Max Drawdown is
-        // rendered separately (totalPnl-based via histPnlDrawdown, with
-        // trade-system fallback) so this fallback never overrides it.
-        function computeTradeBasedMetrics(positions) {
-            const decisive = (positions || [])
-                .filter(p => p && p.status === 'CLOSED' && p.closedAt
-                    && parseFloat(p.realizedPnl || 0) !== 0)
-                .sort((a, b) => new Date(a.closedAt) - new Date(b.closedAt));
-            const returns = decisive
-                .map(p => window.RiskMetrics.tradeReturn(p))
-                .filter(r => r !== null && isFinite(r));
-            if (returns.length < 2) return { ok: false, n: returns.length };
-
-            const sharpe = window.RiskMetrics.computeSharpe(returns, 0);
-            const sortino = window.RiskMetrics.computeSortino(returns, 0, 'all');
-
-            const firstT = new Date(decisive[0].closedAt).getTime();
-            const lastT = new Date(decisive[decisive.length - 1].closedAt).getTime();
-            const yearsSpan = (lastT - firstT) / (365.25 * 24 * 3600 * 1000);
-            const tpy = yearsSpan > 0 ? returns.length / yearsSpan : 0;
-            const annFactor = tpy > 0 ? Math.sqrt(tpy) : 1;
-            const annualize = (v) => (v === null || !isFinite(v)) ? v : v * annFactor;
-
-            // Calmar denominator: drawdown of multiplicative wealth (relative
-            // % drawdown of compounded trade returns). Reuses the shared
-            // validDrawdownFromEquity so the rejection rules stay uniform.
-            let w = 1;
-            const wealth = [w];
-            for (const r of returns) { w *= (1 + r); wealth.push(w); }
-            const compoundFactor = wealth[wealth.length - 1];
-            const wealthDD = window.RiskMetrics.validDrawdownFromEquity(wealth);
-            const mddFraction = wealthDD ? wealthDD.pct / 100 : 0;
-            const calmarAnn = (yearsSpan >= 1 / 52 && compoundFactor > 0 && mddFraction > 0)
-                ? (Math.pow(compoundFactor, 1 / yearsSpan) - 1) / mddFraction
-                : null;
-
-            return {
-                ok: true,
-                n: returns.length,
-                sharpeAnn: annualize(sharpe),
-                sortinoAnn: annualize(sortino),
-                calmarAnn,
-                tpy,
-                yearsSpan
-            };
-        }
-
-        function renderTradeBasedRatios(tm, tsReason) {
-            updateElement('sharpeRatio', fmtRatio(tm.sharpeAnn));
-            updateElement('sortinoRatio', fmtRatio(tm.sortinoAnn));
-            updateElement('calmarRatio', fmtRatio(tm.calmarAnn));
-
-            const meta = `Per-trade · n=${tm.n} ⓘ`;
-            const sharpeMeta = document.getElementById('sharpeMeta');
-            const sortinoMeta = document.getElementById('sortinoMeta');
-            const tipBase = `Per-trade Sharpe/Sortino computed from ${tm.n} decisive trades (scratches excluded).
-Time-series fallback: ${tsReason}.
-Return per trade: realizedPnl / (maxSize × entryPrice); falls back to sumOpen, then size, when maxSize is absent.
-Annualized via √(trades-per-year ≈ ${tm.tpy.toFixed(0)}).
-Small-N caveat: standard error widens; not a forward-Sharpe forecast.`;
-            if (sharpeMeta) {
-                sharpeMeta.textContent = meta;
-                sharpeMeta.title = tipBase + '\nDenominator: standard deviation of trade returns.';
-            }
-            if (sortinoMeta) {
-                sortinoMeta.textContent = meta;
-                sortinoMeta.title = tipBase + '\nDenominator: downside deviation of trade returns (target semi-deviation).';
-            }
-        }
-
-        // Time Analysis (Overview): hold times, best/worst trading hour, most active day
-        // ──────────────────────────────────────────────────────────────────
-        // Funding window: shared selector for hero panel + KPI cards + table.
         // Persisted in localStorage so the user's window preference survives
         // reloads and re-renders. Default is 30 days to match prior behavior.
         // ──────────────────────────────────────────────────────────────────
@@ -2669,198 +2356,6 @@ Small-N caveat: standard error widens; not a forward-Sharpe forecast.`;
             });
             tagCells('fundingAnalysisBody');
         }
-
-        // Cumulative trading P&L (totalPnl from historical-pnl) over time,
-        // with running peak and shaded underwater region. Same series that
-        // drives the headline Max Drawdown card and Drawdown Periods table
-        // — the chart can't disagree with the cards. Captures unrealized
-        // peaks (e.g. +$364K open profit later given back) which the
-        // closed-trade ledger cannot see.
-        function updatePerformanceTables(positions, historicalPnl = [], marketAggIn = null) {
-            // Bucket closed trades by month using the same classifier rules
-            // as the header so monthly win-rate denominators match the header
-            // win-rate denominator (decisive trades only). The PNL column for
-            // each month comes from /historical-pnl deltas (totalPnl_lastInMonth
-            // − totalPnl_lastInPriorMonth) so it shares its definition with
-            // the headline, MAX DD and Sharpe on the same row. The classifier
-            // sums below are still computed off realizedPnl because Avg Win /
-            // Avg Loss / Profit Factor are trade-quality metrics by design.
-            const monthly = {};
-            positions.filter(p => p.status === 'CLOSED').forEach(p => {
-                const d = new Date(p.closedAt || p.createdAt);
-                if (isNaN(d)) return;
-                const key = d.toLocaleString('en-US', { month: 'long', year: 'numeric' });
-                if (!monthly[key]) {
-                    monthly[key] = {
-                        closedCount: 0, decisiveCount: 0,
-                        wins: 0, losses: 0,
-                        winSum: 0, lossSum: 0
-                    };
-                }
-                const pnl = parseFloat(p.realizedPnl || 0);
-                monthly[key].closedCount += 1;
-                if (pnl > 0) {
-                    monthly[key].wins += 1;
-                    monthly[key].winSum += pnl;
-                    monthly[key].decisiveCount += 1;
-                } else if (pnl < 0) {
-                    monthly[key].losses += 1;
-                    monthly[key].lossSum += Math.abs(pnl);
-                    monthly[key].decisiveCount += 1;
-                }
-            });
-
-            const hist = Array.isArray(historicalPnl)
-                ? historicalPnl.slice().sort((a,b) => (a.createdAt||'').localeCompare(b.createdAt||''))
-                : [];
-            const byMonthHist = {};
-            if (hist.length > 2) {
-                hist.forEach(pt => {
-                    const d = new Date(pt.createdAt);
-                    if (isNaN(d)) return;
-                    const key = d.toLocaleString('en-US', { month: 'long', year: 'numeric' });
-                    if (!byMonthHist[key]) byMonthHist[key] = [];
-                    byMonthHist[key].push(pt);
-                });
-            }
-            const monthlyHistDeltas = window.RiskMetrics.histPnlMonthly(hist);
-            // Include months observed in /historical-pnl even when no
-            // positions closed in that month — funding-only months should
-            // still appear in the table so totals reconcile.
-            Object.keys(monthlyHistDeltas).forEach(key => {
-                if (!monthly[key]) {
-                    monthly[key] = {
-                        closedCount: 0, decisiveCount: 0,
-                        wins: 0, losses: 0,
-                        winSum: 0, lossSum: 0
-                    };
-                }
-            });
-            const bodyM = document.getElementById('monthlyPerformanceBody');
-            if (bodyM) {
-                bodyM.innerHTML = '';
-                Object.entries(monthly)
-                    .sort((a,b)=> new Date(b[0]) - new Date(a[0]))
-                    .forEach(([label, m]) => {
-                        const tr = document.createElement('tr');
-                        const winRate = m.decisiveCount
-                            ? (m.wins / m.decisiveCount) * 100
-                            : 0;
-                        const avgWin = m.wins ? m.winSum / m.wins : 0;
-                        const avgLoss = m.losses ? m.lossSum / m.losses : 0;
-                        const pf = m.lossSum > 0 ? (m.winSum / m.lossSum) : null;
-
-                        // Per-month Sharpe + MDD share the same adequacy gate
-                        // and drawdown definition as the headline so a month
-                        // can't disagree with the rest of the dashboard.
-                        // MDD = totalPnl peak-to-trough on the month's slice
-                        // (same series as headline), in dollars.
-                        let sharpeTxt = '—';
-                        let mddTxt = '—';
-                        const monthHist = byMonthHist[label] || [];
-                        if (monthHist.length > 2) {
-                            const rets = window.RiskMetrics.computeTimeWeightedReturnsFromHist(monthHist);
-                            const tsSeg = monthHist.map(p => p.createdAt);
-                            const adq = window.RiskMetrics.assessAdequacy(rets, tsSeg, monthHist.length);
-                            if (adq.adequate) {
-                                const ann = window.RiskMetrics.computeAnnualizedFromReturns(
-                                    rets, tsSeg, { mar: 0, denominator: 'all' });
-                                sharpeTxt = fmtRatio(ann.sharpeAnnualized);
-                            }
-                            const monthDD = window.RiskMetrics.histPnlDrawdown(monthHist);
-                            if (monthDD.dollarDrawdown > 0) {
-                                mddTxt = formatCurrency(-monthDD.dollarDrawdown);
-                            }
-                        }
-                        const tradesCol = m.closedCount === m.decisiveCount
-                            ? String(m.closedCount)
-                            : `${m.decisiveCount} (+${m.closedCount - m.decisiveCount})`;
-                        // PNL column = Δ totalPnl for this month from
-                        // /historical-pnl. Same definition as headline +
-                        // MAX DD + Sharpe; "—" when historical-pnl had no
-                        // sample in this month (no-metric > wrong-metric).
-                        const histEntry = monthlyHistDeltas[label];
-                        const pnlCellTxt = histEntry && histEntry.hasData
-                            ? formatCurrency(histEntry.delta)
-                            : '—';
-                        const pnlCellCls = histEntry && histEntry.hasData
-                            ? (histEntry.delta >= 0 ? 'profit' : 'loss')
-                            : '';
-                        appendCell(tr, label);
-                        appendCell(tr, pnlCellTxt, ['mono', pnlCellCls]);
-                        appendCell(tr, winRate.toFixed(1) + '%', ['mono']);
-                        appendCell(tr, tradesCol, ['mono']);
-                        appendCell(tr, formatCurrency(avgWin), ['mono', avgWin >= 0 ? 'profit' : 'loss']);
-                        appendCell(tr, formatCurrency(-avgLoss), ['mono', 'loss']);
-                        appendCell(tr, pf === null ? 'N/A' : fmtRatio(pf), ['mono']);
-                        appendCell(tr, mddTxt, ['mono', mddTxt !== '—' ? 'loss' : '']);
-                        appendCell(tr, sharpeTxt, ['mono']);
-                        bodyM.appendChild(tr);
-                    });
-                tagCells('monthlyPerformanceBody');
-            }
-
-            // Per-asset roll-up uses the shared marketPnL helper for the P&L
-            // column (so it agrees with the Overview chart tooltip) and the
-            // shared classifier for win-rate counts (matches the header).
-            // Bucket positions by market ONCE so the per-asset loop doesn't
-            // rescan the full positions array on every iteration.
-            const market = marketAggIn || window.RiskMetrics.marketPnL(positions);
-            const positionsByMarket = new Map();
-            positions.forEach(p => {
-                const m = p.market || 'Unknown';
-                if (!positionsByMarket.has(m)) positionsByMarket.set(m, []);
-                positionsByMarket.get(m).push(p);
-            });
-            const bodyA = document.getElementById('assetPerformanceBody');
-            if (bodyA) {
-                bodyA.innerHTML = '';
-                Object.entries(market)
-                    .filter(([_, v]) => v.closedCount + v.openCount > 0)
-                    .sort((a,b) => Math.abs(b[1].total) - Math.abs(a[1].total))
-                    .forEach(([ticker, slot]) => {
-                        const assetCls = window.RiskMetrics.classifyClosed(
-                            positionsByMarket.get(ticker) || []
-                        );
-                        const winRate = assetCls.decisiveCount
-                            ? (assetCls.winCount / assetCls.decisiveCount) * 100
-                            : 0;
-                        const avgPnL = assetCls.decisiveCount
-                            ? assetCls.totalRealized / assetCls.decisiveCount
-                            : 0;
-                        const best = assetCls.winCount
-                            ? assetCls.grossWin / assetCls.winCount
-                            : 0;
-                        const worstAbs = assetCls.lossCount
-                            ? assetCls.grossLoss / assetCls.lossCount
-                            : 0;
-                        const assetSharpeTxt = computeAnnualizedTradeSharpe(assetCls.all, TUNABLES.ASSET_SHARPE_MIN_N);
-                        const tradesCol = assetCls.closedCount === assetCls.decisiveCount
-                            ? String(assetCls.closedCount)
-                            : `${assetCls.decisiveCount} (+${assetCls.scratchCount})`;
-                        // FUNDING / FEES use the same signed-contribution
-                        // convention as the hero ledger: positive funding =
-                        // received, positive fees = paid (rendered as a
-                        // negative contribution to profit).
-                        const fundingCol = slot.netFunding || 0;
-                        const feesContribution = -(slot.fees || 0);
-                        const tr = document.createElement('tr');
-                        appendCell(tr, ticker);
-                        appendCell(tr, formatCurrency(slot.total), ['mono', slot.total >= 0 ? 'profit' : 'loss']);
-                        appendCell(tr, formatCurrency(fundingCol), ['mono', fundingCol > 0 ? 'profit' : (fundingCol < 0 ? 'loss' : '')]);
-                        appendCell(tr, formatCurrency(feesContribution), ['mono', feesContribution > 0 ? 'profit' : (feesContribution < 0 ? 'loss' : '')]);
-                        appendCell(tr, tradesCol, ['mono']);
-                        appendCell(tr, winRate.toFixed(1) + '%', ['mono']);
-                        appendCell(tr, formatCurrency(avgPnL), ['mono', avgPnL >= 0 ? 'profit' : 'loss']);
-                        appendCell(tr, formatCurrency(best), ['mono', 'profit']);
-                        appendCell(tr, formatCurrency(-worstAbs), ['mono', 'loss']);
-                        appendCell(tr, assetSharpeTxt, ['mono']);
-                        bodyA.appendChild(tr);
-                    });
-                tagCells('assetPerformanceBody');
-            }
-        }
-
         // Auto-load real data on page load and restore last active tab.
         // loadDashboard now owns rendering the cumulative-PnL chart on both
         // the cache-hydrate and post-fetch paths, so no extra render here.
