@@ -640,6 +640,7 @@
     <script src="./src/dom.js"></script>
     <script src="./src/panels/positions.js"></script>
     <script src="./src/panels/behavior.js"></script>
+    <script src="./src/panels/risk.js"></script>
     <script>
         // Live masthead date in UTC — analytics throughout the dashboard
         // bucket by UTC, so the masthead must follow the same calendar.
@@ -897,7 +898,7 @@
             fmtDateShort
         } = window.Format;
 
-        const { safeText, appendCell, tagCells, updateElement } = window.AppDom;
+        const { safeText, appendCell, tagCells, updateElement, updateMetric } = window.AppDom;
 
         let currentAddress = null;
         let allData = {};
@@ -1735,7 +1736,7 @@
                 // this call the table would stay empty when historical-pnl
                 // is unavailable but the trade-system fallback could still
                 // produce events.
-                updateDrawdownPeriods(allPositions, histArr);
+                window.AppPanels.risk.renderDrawdownPeriods(allPositions, histArr);
 
                 if (!histArr.length) {
                     setRatioNA('Failed to load historical profit');
@@ -1801,7 +1802,7 @@ Sample: ${rets.length} returns over ${(adq.years*12).toFixed(1)} months (${(adq.
                     updateElement('calmarRatio', '—');
                 }
 
-                updateRiskFromHistorical(rets, equityNow);
+                window.AppPanels.risk.renderFromHistorical(rets, equityNow);
                 updatePerformanceTables(allPositions, histArr, marketAgg);
             })();
 
@@ -1854,8 +1855,8 @@ Sample: ${rets.length} returns over ${(adq.years*12).toFixed(1)} months (${(adq.
             updatePerformanceMetrics(allPositions, cls);
             window.AppPanels.behavior.renderTimeAnalysis(allPositions);
             window.AppPanels.behavior.renderActivityHeatmap(allPositions);
-            updateLiquidationTable(allPositions, marketsMap, subaccount);
-            updateLeverageUtilization(allPositions, subaccount, marketsMap);
+            window.AppPanels.risk.renderLiquidationTable(allPositions, marketsMap, subaccount);
+            window.AppPanels.risk.renderLeverageUtilization(allPositions, subaccount, marketsMap);
             window.AppPanels.behavior.renderDetectedPatterns(allPositions);
 
             // Kelly criterion — pWin denominator matches Header Win Rate
@@ -2154,14 +2155,6 @@ Sample: ${rets.length} returns over ${(adq.years*12).toFixed(1)} months (${(adq.
             if (wrOut) wrOut.textContent = fmtPct(winRatePct);
             if (pfOut) pfOut.textContent = fmtPf(profitFactor);
             if (rrOut) rrOut.textContent = fmtRR(rr);
-        }
-
-        function updateMetric(id, value, isPositive = true) {
-            const el = document.getElementById(id);
-            if (el) {
-                el.textContent = safeText(value);
-                el.className = isPositive ? 'metric-value mono profit' : 'metric-value mono loss';
-            }
         }
 
         // Paint the three-cell ledger under the Total Profit headline. Each
@@ -2479,144 +2472,6 @@ Small-N caveat: standard error widens; not a forward-Sharpe forecast.`;
         }
 
         // Time Analysis (Overview): hold times, best/worst trading hour, most active day
-        // Liquidation table — cross-margin liq prices via shared helper.
-        // dYdX is cross-margin only, so the per-position liq formula assumes
-        // OTHER open positions hold their current uPnL contribution; for a
-        // single-position account this is exact.
-        // LEVERAGE column = position notional ÷ subaccount equity (account-
-        // level utilization attributed to each position by notional share).
-        function updateLiquidationTable(positions, marketsMap, subaccount) {
-            const body = document.getElementById('liquidationRiskBody');
-            if (!body) return;
-            body.innerHTML = '';
-            const open = positions.filter(p => p.status === 'OPEN');
-            if (!open.length) return;
-            open.forEach(p => {
-                const market = p.market || '—';
-                const side = (p.side || '').toUpperCase();
-                const row = window.RiskMetrics.liquidationRow(p, subaccount, marketsMap) || {};
-                const { size, entry, oracle, lev, liq, distancePct } = row;
-                let scoreClass = '';
-                let scoreLabel = '—';
-                if (distancePct !== null && distancePct !== undefined) {
-                    if (distancePct < 10)      { scoreClass = 'loss';    scoreLabel = 'HIGH';   }
-                    else if (distancePct < 20) { scoreClass = 'warning'; scoreLabel = 'MEDIUM'; }
-                    else                       { scoreClass = 'profit';  scoreLabel = 'LOW';    }
-                }
-                const tr = document.createElement('tr');
-                appendCell(tr, `${market} ${side}`);
-                appendCell(tr, size ? fmtNum(size) : '—', ['mono']);
-                appendCell(tr, lev !== null && lev !== undefined ? lev.toFixed(2) + 'x' : '—', ['mono']);
-                appendCell(tr, entry ? formatPrice(entry) : '—', ['mono']);
-                appendCell(tr, oracle ? formatPrice(oracle) : '—', ['mono']);
-                appendCell(tr, (liq !== null && liq !== undefined && isFinite(liq)) ? formatPrice(liq) : '—', ['mono', scoreClass]);
-                appendCell(tr, (distancePct !== null && distancePct !== undefined) ? distancePct.toFixed(1) + '%' : '—', ['mono']);
-                appendCell(tr, scoreLabel, ['mono', scoreClass]);
-                body.appendChild(tr);
-            });
-            // Multi-position cross-margin: per-position liq formula assumes
-            // OTHER positions hold their current uPnL contribution. Exact
-            // for single-position accounts; an approximation otherwise.
-            if (open.length > 1) {
-                const noteTr = document.createElement('tr');
-                const noteTd = document.createElement('td');
-                noteTd.colSpan = 8;
-                noteTd.style.textAlign = 'center';
-                noteTd.style.fontStyle = 'italic';
-                noteTd.style.color = 'var(--ink-3)';
-                noteTd.textContent = 'Multi-position cross-margin: liquidation prices assume other positions hold their current unrealized profit. Approximation.';
-                noteTr.appendChild(noteTd);
-                body.appendChild(noteTr);
-            }
-            tagCells('liquidationRiskBody');
-        }
-
-        // Leverage Utilization card with tier-based styling so high leverage
-        // is never rendered in profit-green by accident. Compute lives in
-        // RiskMetrics.leverageUtilization so it can be unit-tested.
-        function updateLeverageUtilization(positions, subaccount, marketsMap) {
-            const lev = window.RiskMetrics.leverageUtilization(positions, subaccount, marketsMap);
-            const el = document.getElementById('leverageUtil');
-            if (el) {
-                el.textContent = lev !== null ? lev.toFixed(2) + 'x' : '—';
-                let cls = '';
-                if (lev !== null) {
-                    if (lev >= 5)      cls = 'loss';
-                    else if (lev >= 2) cls = 'warning';
-                    else               cls = 'profit';
-                }
-                el.className = 'metric-value mono' + (cls ? ' ' + cls : '');
-            }
-            const bar = document.getElementById('leverageUtilBar');
-            if (bar) bar.style.width = `${Math.min(100, (lev || 0) * 10).toFixed(1)}%`;
-        }
-
-        // VaR / CVaR per-period (in dollars at current equity).
-        // Caller is expected to have run the canonical sample-adequacy gate
-        // (RiskMetrics.assessAdequacy with MIN_RETS=30) before invoking;
-        // this function only guards against zero-length input. The earlier
-        // local `< 20` threshold has been removed so VaR shares the same
-        // gate as Sharpe/Sortino/Calmar.
-        function updateRiskFromHistorical(returns, equityNow) {
-            if (!returns || returns.length < 1 || !equityNow) {
-                updateMetric('var95', '—', false);
-                updateMetric('expectedShortfall', '—', false);
-                return;
-            }
-            const sorted = returns.slice().sort((a, b) => a - b);
-            // Lower 5th percentile by floor convention: idx = floor(0.05 × n).
-            // VaR95 = the return AT that percentile; CVaR95 = mean of the
-            // tail at-or-below that percentile.
-            const idx = Math.max(0, Math.floor(0.05 * sorted.length));
-            const var95Ret = sorted[idx];
-            const tail = sorted.slice(0, idx + 1);
-            const cvar95Ret = tail.length
-                ? tail.reduce((s, v) => s + v, 0) / tail.length
-                : var95Ret;
-            const var95Usd = var95Ret * equityNow;
-            const cvar95Usd = cvar95Ret * equityNow;
-            updateMetric('var95', formatCurrency(var95Usd), var95Usd >= 0);
-            updateMetric('expectedShortfall', formatCurrency(cvar95Usd), cvar95Usd >= 0);
-        }
-
-        // Drawdown Periods table: enumerate every peak-to-trough event on
-        // the cumulative trading-P&L curve (totalPnl from historical-pnl).
-        // Top row is always the headline MDD event so the two views can
-        // never disagree. Falls back to the closed-trade ledger only when
-        // historical-pnl is empty.
-        function updateDrawdownPeriods(positions, historicalPnl) {
-            const body = document.getElementById('drawdownPeriodsBody');
-            if (!body) return;
-            body.innerHTML = '';
-            const histEvents = window.RiskMetrics.histPnlDrawdownEvents(historicalPnl || []);
-            const events = histEvents.length
-                ? histEvents
-                : window.RiskMetrics.tradeSystemDrawdownEvents(positions || []);
-            events.sort((a, b) => b.depthAbs - a.depthAbs);
-            const top = events.slice(0, 5);
-            const fmtDate = (iso) => new Date(iso).toISOString().slice(0, 10);
-            const dayDelta = (a, b) => Math.max(1,
-                Math.round((new Date(b) - new Date(a)) / MS_PER_DAY));
-            top.forEach(ev => {
-                const tr = document.createElement('tr');
-                const period = ev.recoveryAt
-                    ? `${fmtDate(ev.peakAt)} → ${fmtDate(ev.recoveryAt)}`
-                    : `${fmtDate(ev.peakAt)} → ongoing`;
-                const duration = `${dayDelta(ev.peakAt, ev.troughAt)}d`;
-                const recovery = ev.recoveryAt
-                    ? `${dayDelta(ev.troughAt, ev.recoveryAt)}d`
-                    : '—';
-                appendCell(tr, period);
-                appendCell(tr, formatCurrency(-ev.depthAbs), ['mono', 'loss']);
-                appendCell(tr, duration, ['mono']);
-                appendCell(tr, recovery, ['mono']);
-                appendCell(tr, formatCurrency(ev.peakCum), ['mono']);
-                appendCell(tr, formatCurrency(ev.troughCum), ['mono']);
-                body.appendChild(tr);
-            });
-            tagCells('drawdownPeriodsBody');
-        }
-
         // ──────────────────────────────────────────────────────────────────
         // Funding window: shared selector for hero panel + KPI cards + table.
         // Persisted in localStorage so the user's window preference survives
