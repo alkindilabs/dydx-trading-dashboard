@@ -57,11 +57,50 @@
             --ff-display: 'Fraunces', 'Iowan Old Style', 'Times New Roman', Georgia, serif;
             --ff-sans:    'Geist', -apple-system, system-ui, 'Helvetica Neue', Arial, sans-serif;
             --ff-mono:    'JetBrains Mono', 'SF Mono', 'Menlo', monospace;
+
+            /* ============================================================
+               FLUID SIZING SYSTEM
+               Single source of truth for all layout-affecting dimensions.
+               Every value is clamp(min, vw-scaled, max) so one rule covers
+               320–1920+ CSS px without per-breakpoint media queries.
+               ============================================================ */
+
+            /* Spacing scale */
+            --space-3xs: clamp(0.125rem, 0.25vw + 0.0625rem, 0.25rem);
+            --space-2xs: clamp(0.25rem,  0.5vw  + 0.125rem,  0.5rem);
+            --space-xs:  clamp(0.5rem,   1vw    + 0.25rem,   0.75rem);
+            --space-sm:  clamp(0.75rem,  1.5vw  + 0.375rem,  1rem);
+            --space-md:  clamp(1rem,     2vw    + 0.5rem,    1.5rem);
+            --space-lg:  clamp(1.25rem,  3vw    + 0.625rem,  2rem);
+            --space-xl:  clamp(1.5rem,   4vw    + 0.75rem,   2.5rem);
+            --space-2xl: clamp(2rem,     5vw    + 1rem,      3.5rem);
+            --space-3xl: clamp(2.5rem,   7vw    + 1.25rem,   5rem);
+
+            /* Page edge gutter for .container — tight on phone, roomy on desktop. */
+            --gutter: clamp(0.875rem, 2.5vw + 0.25rem, 2.5rem);
+
+            /* Content measure: caps width without hardcoding a container size. */
+            --measure-content: min(100%, 76rem);
+
+            /* Lane minimums for auto-fit grids. min(100%, X) means each track
+               collapses to a single column once the container drops below X,
+               so a single auto-fit rule replaces multiple breakpoint media queries. */
+            --lane-card:    min(100%, 22rem);
+            --lane-narrow:  min(100%, 16rem);
+            --lane-readout: min(100%, 14rem);
+            --lane-plot:    min(100%, 22rem);
+
+            /* Fluid body baseline. Existing per-element clamp() rules still win. */
+            --font-body: clamp(0.875rem, 0.25vw + 0.8rem, 1rem);
         }
 
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
-        html { background: var(--paper); }
+        html {
+            background: var(--paper);
+            -webkit-text-size-adjust: 100%;
+            text-size-adjust: 100%;
+        }
 
         body {
             font-family: var(--ff-sans);
@@ -117,15 +156,16 @@
             z-index: 1;
             max-width: var(--maxw);
             margin: 0 auto;
-            padding: 1.75rem 2.5rem 6rem;
+            padding: var(--space-lg) var(--gutter) var(--space-3xl);
         }
 
         /* MASTHEAD */
         .header {
-            display: grid;
-            grid-template-columns: minmax(0, 1fr) auto;
-            align-items: end;
-            gap: 2rem;
+            display: flex;
+            flex-wrap: wrap;
+            align-items: flex-end;
+            justify-content: space-between;
+            gap: var(--space-md);
             padding-bottom: 1.375rem;
             margin-bottom: 1.75rem;
             border-bottom: 1px solid var(--rule-strong);
@@ -140,19 +180,26 @@
             background: var(--rule);
         }
 
-        .masthead-left { min-width: 0; }
+        .masthead-left {
+            flex: 1 1 18rem;
+            min-width: 0;
+        }
 
         .masthead-eyebrow {
             display: flex;
             align-items: center;
-            gap: 0.875rem;
+            flex-wrap: wrap;
+            gap: 0.375rem 0.875rem;
             font-family: var(--ff-mono);
             font-size: 0.625rem;
             letter-spacing: 0.24em;
             text-transform: uppercase;
             color: var(--ink-3);
             margin-bottom: 0.625rem;
+            min-width: 0;
+            overflow-wrap: anywhere;
         }
+        .masthead-eyebrow span { min-width: 0; overflow-wrap: anywhere; }
         .masthead-eyebrow .sep { color: var(--ink-4); }
         .masthead-eyebrow .gold { color: var(--gold); }
 
@@ -174,9 +221,12 @@
         .header-right {
             display: flex;
             align-items: center;
-            gap: 1.125rem;
+            gap: var(--space-sm);
             flex-wrap: wrap;
             justify-content: flex-end;
+            flex: 0 1 auto;
+            min-width: 0;
+            max-width: 100%;
         }
 
         .address-controls {
@@ -184,6 +234,9 @@
             align-items: stretch;
             border: 1px solid var(--rule-strong);
             background: var(--paper-2);
+            min-width: 0;
+            max-width: 100%;
+            flex: 1 1 min(22rem, 100%);
         }
         .address-input {
             background: transparent;
@@ -193,7 +246,9 @@
             padding: 0.5625rem 0.75rem;
             font-family: var(--ff-mono);
             font-size: 0.6875rem;
-            width: 20rem;
+            flex: 1 1 0;
+            min-width: 0;
+            width: auto;
             letter-spacing: 0.02em;
         }
         .address-input::placeholder {
@@ -225,6 +280,9 @@
             border-bottom: 1px dotted var(--rule-strong);
             padding-bottom: 1px;
             transition: color 0.15s;
+            overflow-wrap: anywhere;
+            word-break: break-all;
+            max-width: 100%;
         }
         .address:hover { color: var(--ink); }
 
@@ -243,8 +301,9 @@
             color: var(--ink-2);
             /* Stable footprint for all states: FRESH / FETCHING / FRESH PARTIAL /
                OFFLINE. Sized for the widest text ("FRESH · PARTIAL") so the
-               right rail never reflows the headline mid-fetch. */
-            min-width: 10rem;
+               right rail never reflows the headline mid-fetch. Collapses to
+               container width on viewports narrower than 10rem (≈160px). */
+            min-width: min(10rem, 100%);
             box-sizing: border-box;
         }
         .status-badge.fresh {
@@ -429,7 +488,7 @@
         /* METRICS GRID */
         .metrics-grid {
             display: grid;
-            grid-template-columns: repeat(12, 1fr);
+            grid-template-columns: repeat(auto-fit, minmax(var(--lane-card), 1fr));
             gap: 1px;
             background: var(--rule);
             border: 1px solid var(--rule-strong);
@@ -439,7 +498,6 @@
             background: var(--paper-2);
             padding: 1.375rem 1.375rem 1.25rem;
             position: relative;
-            grid-column: span 4;
             transition: background 0.2s;
             min-height: 8.125rem;
             display: flex;
@@ -447,12 +505,10 @@
             justify-content: space-between;
         }
         .metric-card:hover { background: var(--paper-3); }
-        @media (max-width: 1100px) { .metric-card { grid-column: span 6; } }
-        @media (max-width: 720px)  { .metric-card { grid-column: span 12; } }
 
         /* HERO metric — magazine-style spread */
         .metric-card--hero {
-            grid-column: span 12;
+            grid-column: 1 / -1;
             padding: 3.75rem 2.25rem 2rem;
             background:
                 radial-gradient(720px 260px at 0% 100%, rgba(215,172,96,0.05), transparent 60%),
@@ -740,9 +796,9 @@
         }
         .funding-hero__breakdown > div {
             display: grid;
-            grid-template-columns: 9.375rem 1fr;
+            grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
             align-items: baseline;
-            gap: 1rem;
+            gap: var(--space-sm);
             margin: 0;
         }
         .funding-hero__breakdown dt {
@@ -773,8 +829,7 @@
             }
         }
         @media (max-width: 720px) {
-            .funding-hero { padding: 1.5rem; }
-            .funding-hero__breakdown > div { grid-template-columns: 6.875rem 1fr; }
+            .funding-hero { padding: var(--space-md); }
         }
 
         /* standard metric */
@@ -973,21 +1028,105 @@
         }
         tr:hover td { background: var(--paper-3); }
 
-        /* GRID LAYOUTS */
+        /* STACKED-CARD TABLE TRANSFORM — viewports ≤ ~37.5rem render each row
+           as a label:value card (label injected from data-label, populated by
+           tagCells() in JS). The structural switch (table → block) can't be
+           expressed by intrinsic sizing alone, so this is the ONE px breakpoint
+           in the file. Threshold sits below the metric-card stack point. */
+        @media (max-width: 37.5rem) {
+            .table-container { overflow-x: visible; }
+            .table-container > table,
+            .table-container > table > thead,
+            .table-container > table > tbody,
+            .table-container > table > tbody > tr,
+            .table-container > table > tbody > td,
+            .table-container > table > tbody > tr > td { display: block; }
+
+            /* Hide column headers visually but keep them in the a11y tree. */
+            .table-container > table > thead {
+                position: absolute;
+                width: 1px;
+                height: 1px;
+                padding: 0;
+                margin: -1px;
+                overflow: hidden;
+                clip: rect(0 0 0 0);
+                white-space: nowrap;
+                border: 0;
+            }
+
+            .table-container > table > tbody > tr {
+                display: grid;
+                grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
+                column-gap: var(--space-md);
+                row-gap: var(--space-2xs);
+                padding: var(--space-sm) var(--space-md);
+                border-top: 1px solid var(--rule);
+            }
+            .table-container > table > tbody > tr:first-child { border-top: 0; }
+            .table-container > table > tbody > tr:hover td { background: transparent; }
+
+            .table-container > table > tbody > tr > td {
+                display: contents;
+            }
+
+            /* The pseudo-label is injected from data-label and rendered in the
+               first grid track; the cell's own textContent fills the second.
+               Cells are styled directly via :where so display:contents works. */
+            .table-container > table > tbody > tr > td::before {
+                content: attr(data-label);
+                font-family: var(--ff-mono);
+                font-size: 0.59375rem;
+                font-weight: 500;
+                color: var(--ink-3);
+                text-transform: uppercase;
+                letter-spacing: 0.22em;
+                text-align: left;
+                padding: 0;
+                border: 0;
+                white-space: normal;
+            }
+
+            /* Reset table-cell sizing/alignment now that we're in a grid. */
+            .table-container > table > tbody > tr > td {
+                padding: 0;
+                border: 0;
+                text-align: right;
+                font-size: 0.8125rem;
+            }
+            .table-container > table > tbody > tr > td:first-child {
+                padding-left: 0;
+                text-align: right;
+            }
+            .table-container > table > tbody > tr > td:last-child {
+                padding-right: 0;
+            }
+
+            /* Footer notes that used colspan (e.g. cross-margin disclaimer)
+               keep their full-row block layout without a label. */
+            .table-container > table > tbody > tr > td[colspan] {
+                grid-column: 1 / -1;
+                text-align: center;
+                padding: var(--space-sm) 0;
+            }
+            .table-container > table > tbody > tr > td[colspan]::before {
+                content: none;
+            }
+        }
+
+        /* GRID LAYOUTS — auto-fit so columns collapse on narrow viewports
+           without per-breakpoint media queries. */
         .two-column {
             display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 1.5rem;
-            margin-bottom: 1.75rem;
+            grid-template-columns: repeat(auto-fit, minmax(var(--lane-card), 1fr));
+            gap: var(--space-md);
+            margin-bottom: var(--space-lg);
         }
         .three-column {
             display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 1.5rem;
-            margin-bottom: 1.75rem;
-        }
-        @media (max-width: 900px) {
-            .two-column, .three-column { grid-template-columns: 1fr; }
+            grid-template-columns: repeat(auto-fit, minmax(var(--lane-narrow), 1fr));
+            gap: var(--space-md);
+            margin-bottom: var(--space-lg);
         }
 
         /* OVERVIEW: hero equity curve */
@@ -1021,15 +1160,17 @@
             user-select: none;
         }
 
-        /* OVERVIEW: 3-up broadsheet (Activity / Statistics / Time) */
+        /* OVERVIEW: 3-up broadsheet (Activity / Statistics / Time)
+           auto-fit collapses to 2-col, then 1-col, as container narrows. */
         .broadsheet {
             display: grid;
-            grid-template-columns: 1.1fr 1fr 1fr;
+            grid-template-columns: repeat(auto-fit, minmax(var(--lane-card), 1fr));
             gap: 0;
-            margin-bottom: 2.25rem;
+            margin-bottom: var(--space-lg);
             border-top: 1px solid var(--rule-strong);
             border-bottom: 1px solid var(--rule-strong);
             background: linear-gradient(180deg, rgba(215,172,96,0.025), transparent 50%);
+            container-type: inline-size;
         }
         .broadsheet-col {
             padding: 1.75rem 1.875rem;
@@ -1088,20 +1229,11 @@
         }
         .broadsheet-table tr:hover td { background: transparent; }
         .broadsheet-col .canvas-wrap { margin-bottom: 0.875rem; }
-        @media (max-width: 1100px) {
-            .broadsheet { grid-template-columns: 1fr 1fr; }
-            .broadsheet-col:nth-child(2) { border-right: 0; }
-            .broadsheet-col:nth-child(3) {
-                grid-column: 1 / -1;
-                border-top: 1px solid var(--rule);
-            }
-        }
-        @media (max-width: 700px) {
-            .broadsheet { grid-template-columns: 1fr; }
-            .broadsheet-col {
-                border-right: 0;
-                border-bottom: 1px solid var(--rule);
-            }
+        /* Broadsheet border-handling switches via container query when stacked.
+           Below ~36rem container width the columns are vertically stacked,
+           so border-right (between adjacent cols) becomes border-bottom. */
+        @container (max-width: 36rem) {
+            .broadsheet-col { border-right: 0; border-bottom: 1px solid var(--rule); }
             .broadsheet-col:last-child { border-bottom: 0; }
         }
 
@@ -1163,8 +1295,9 @@
         }
         .se-body {
             display: grid;
-            grid-template-columns: minmax(0, 1.4fr) minmax(16.25rem, 1fr);
+            grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
             gap: 0;
+            container-type: inline-size;
         }
         .se-plot {
             padding: 1.5rem 1rem 1.75rem 1.5rem;
@@ -1330,7 +1463,7 @@
         }
         .se-benchmark li {
             display: grid;
-            grid-template-columns: 7rem 1fr;
+            grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
             align-items: baseline;
             gap: 0.75rem;
             font-family: var(--ff-display);
@@ -1352,14 +1485,14 @@
         }
         .se-bench-tick.se-bench-tick--gold { color: var(--gold); border-left-color: var(--gold); }
 
-        @media (max-width: 960px) {
-            .se-body { grid-template-columns: 1fr; }
+        /* .se-body auto-fits at <22rem-twice. Border switch fires when stacked. */
+        @container (max-width: 43rem) {
             .se-plot { border-right: 0; border-bottom: 1px solid var(--rule); }
         }
-        @media (max-width: 600px) {
-            .se-head { padding: 1.5rem 1.25rem 1.125rem; }
-            .se-aside { padding: 1.5rem 1.25rem; }
-            .se-plot { padding: 1.25rem 0.5rem 1.5rem; }
+        @container (max-width: 30rem) {
+            .se-head  { padding: var(--space-md) var(--space-sm) var(--space-sm); }
+            .se-aside { padding: var(--space-md) var(--space-sm); }
+            .se-plot  { padding: var(--space-sm) var(--space-2xs) var(--space-md); }
         }
 
         /* RISK BAR */
@@ -1606,7 +1739,6 @@
             font-variation-settings: 'opsz' 60, 'SOFT' 80;
             text-align: center;
             text-wrap: balance;
-            white-space: nowrap;
         }
         .nameplate-slogan-text .ornament {
             color: var(--gold);
@@ -1620,7 +1752,6 @@
             .nameplate-slogan { grid-template-columns: 1fr; gap: 0; }
             .nameplate-slogan::before,
             .nameplate-slogan::after { display: none; }
-            .nameplate-slogan-text { white-space: normal; font-size: 1.125rem; }
         }
 
         /* ─── DISCLOSURE STRIP ─── */
@@ -3685,6 +3816,24 @@ Sample: ${rets.length} returns over ${(adq.years*12).toFixed(1)} months (${(adq.
             return td;
         }
 
+        // Tag each <td> with data-label matching its column header so the
+        // <600px stacked-card table CSS can surface the label via ::before
+        // pseudo-element. Skips cells with colspan (footer notes).
+        function tagCells(tbodyId) {
+            const tbody = document.getElementById(tbodyId);
+            if (!tbody) return;
+            const table = tbody.closest('table');
+            if (!table || !table.tHead || !table.tHead.rows.length) return;
+            const headers = [...table.tHead.rows[0].cells].map(th => th.textContent.trim());
+            tbody.querySelectorAll('tr').forEach(tr => {
+                [...tr.children].forEach((td, i) => {
+                    if (headers[i] && !td.hasAttribute('colspan')) {
+                        td.setAttribute('data-label', headers[i]);
+                    }
+                });
+            });
+        }
+
         // Strategy Edge phase diagram. Renders a 2D plot of
         // (winRate, profitFactor) with four labeled quadrants — FAILING,
         // DANGEROUS, EXCELLENT, STRONG — separated by the user-supplied
@@ -4060,6 +4209,7 @@ Sample: ${rets.length} returns over ${(adq.years*12).toFixed(1)} months (${(adq.
                 appendCell(tr, formatCurrency(funding), ['mono', funding >= 0 ? 'profit' : 'loss']);
                 body.appendChild(tr);
             });
+            tagCells('positionsHistoryBody');
         }
 
         function updatePerformanceMetrics(positions, precomputedCls) {
@@ -4480,6 +4630,7 @@ Small-N caveat: standard error widens; not a forward-Sharpe forecast.`;
                 noteTr.appendChild(noteTd);
                 body.appendChild(noteTr);
             }
+            tagCells('liquidationRiskBody');
         }
 
         // Leverage Utilization card with tier-based styling so high leverage
@@ -4573,6 +4724,7 @@ Small-N caveat: standard error widens; not a forward-Sharpe forecast.`;
                     : 'var(--ink-3)';
                 body.appendChild(tr);
             });
+            tagCells('patternsBody');
         }
 
         // VaR / CVaR per-period (in dollars at current equity).
@@ -4638,6 +4790,7 @@ Small-N caveat: standard error widens; not a forward-Sharpe forecast.`;
                 appendCell(tr, formatCurrency(ev.troughCum), ['mono']);
                 body.appendChild(tr);
             });
+            tagCells('drawdownPeriodsBody');
         }
 
         // ──────────────────────────────────────────────────────────────────
@@ -4854,6 +5007,7 @@ Small-N caveat: standard error widens; not a forward-Sharpe forecast.`;
                 appendCell(tr, status ? status.toUpperCase() : '-', ['mono']);
                 body.appendChild(tr);
             });
+            tagCells('fundingAnalysisBody');
         }
 
         let marketChart = null;
@@ -5231,6 +5385,7 @@ Small-N caveat: standard error widens; not a forward-Sharpe forecast.`;
                         appendCell(tr, sharpeTxt, ['mono']);
                         bodyM.appendChild(tr);
                     });
+                tagCells('monthlyPerformanceBody');
             }
 
             // Per-asset roll-up uses the shared marketPnL helper for the P&L
@@ -5290,6 +5445,7 @@ Small-N caveat: standard error widens; not a forward-Sharpe forecast.`;
                         appendCell(tr, assetSharpeTxt, ['mono']);
                         bodyA.appendChild(tr);
                     });
+                tagCells('assetPerformanceBody');
             }
         }
 
