@@ -260,3 +260,27 @@ test('quota: write skips silently when payload exceeds quota even after full evi
     Cache.write('dydx1abc', data);
     assert.equal(globalThis.localStorage.getItem(Cache.KEY), null);
 });
+
+test('eviction: read of evicted snapshot carries _cacheMeta marker', () => {
+    // Force eviction by sizing quota between full-payload and post-fills size.
+    globalThis.localStorage = makeLocalStorage(8000);
+    const big = (n) => Array.from({ length: n }, (_, i) => ({ id: i, v: 'x'.repeat(50) }));
+    const data = {
+        fills: big(800),         // largest — first to evict
+        fundingPayments: big(20),
+        historicalPnl: { historicalPnl: big(10) },
+        closedPositions: big(5),
+        orders: 'tiny',
+        markets: { btc: 1 }
+    };
+    Cache.write('dydx1abc', data);
+
+    const got = Cache.read('dydx1abc');
+    assert.ok(got, 'expected stored snapshot after eviction');
+    assert.equal(got.fills, undefined, 'fills should have been evicted');
+    assert.ok(got._cacheMeta, '_cacheMeta marker should be present');
+    assert.equal(got._cacheMeta.evicted, true);
+    assert.ok(Array.isArray(got._cacheMeta.evictedSteps));
+    assert.ok(got._cacheMeta.evictedSteps.includes('fills'),
+        'evictedSteps should name the dropped key');
+});

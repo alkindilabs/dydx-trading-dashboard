@@ -149,14 +149,24 @@
             return;
         }
 
+        // Stamp _cacheMeta on the data the moment we begin evicting so a
+        // later read() can tell the snapshot is partial without re-running
+        // any eviction logic. Without the marker, an evicted snapshot
+        // looked complete and the dashboard might rely on dropped fields.
+        const evictedSteps = [];
         for (let step = 0; step < EVICTION_ORDER.length; step++) {
             const evicted = evictOnce(packed, step);
             if (!evicted) continue;
             packed = evicted;
+            evictedSteps.push(EVICTION_ORDER[step]);
+            packed.data._cacheMeta = {
+                evicted: true,
+                evictedSteps: evictedSteps.slice()
+            };
             result = attemptStore(storage, lz, packed);
             if (result.ok) {
                 console.warn('[dydx-cache] payload exceeded quota; stored after evicting:',
-                    EVICTION_ORDER.slice(0, step + 1).join(', '));
+                    evictedSteps.join(', '));
                 return;
             }
             if (!result.quota) {
