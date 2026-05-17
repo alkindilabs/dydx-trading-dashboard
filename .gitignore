@@ -2,6 +2,7 @@
 *.json
 !package.json
 !package-lock.json
+!test/fixtures/*.json
 *.md
 !README.md
 !CLAUDE.md
@@ -36,3 +37,8 @@ node_modules/
 .wrangler/
 .dev.vars
 .dev.vars.*
+
+# Playwright
+test-results/
+playwright-report/
+playwright/.cache/

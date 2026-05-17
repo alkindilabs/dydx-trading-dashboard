@@ -7,6 +7,7 @@
     "start": "python3 -m http.server 8000",
     "dev": "python3 -m http.server 8000",
     "test": "node --test test/*.test.js",
+    "test:e2e": "playwright test",
     "cf:dev": "CLOUDFLARE_API_TOKEN=\"$CLOUDFLARE_ALKINDI_API_TOKEN\" wrangler dev",
     "cf:deploy": "CLOUDFLARE_API_TOKEN=\"$CLOUDFLARE_ALKINDI_API_TOKEN\" wrangler deploy",
     "cf:tail": "CLOUDFLARE_API_TOKEN=\"$CLOUDFLARE_ALKINDI_API_TOKEN\" wrangler tail",
@@ -26,8 +27,8 @@
     "type": "git",
     "url": "https://github.com/alkindilabs/dydx-trading-dashboard"
   },
-  "dependencies": {},
   "devDependencies": {
+    "@playwright/test": "^1.60.0",
     "wrangler": "^3.91.0"
   }
 }

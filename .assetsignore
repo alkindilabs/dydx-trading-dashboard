@@ -22,6 +22,12 @@ wrangler.jsonc
 *.tmp
 *.png
 
+# Playwright local + CI artifacts
+playwright.config.mjs
+playwright-report/
+test-results/
+playwright/
+
 # No markdown is ever served. Catches CLAUDE.md, README.md, and any future
 # audit / spec / scratch .md a contributor drops into the repo root.
 *.md
