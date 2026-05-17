@@ -635,6 +635,7 @@
     <script src="./portfolio-cache.js"></script>
     <script src="./src/constants.js"></script>
     <script src="./src/format.js"></script>
+    <script src="./src/charts/pnl-chart.js"></script>
     <script>
         // Live masthead date in UTC — analytics throughout the dashboard
         // bucket by UTC, so the masthead must follow the same calendar.
@@ -1245,7 +1246,7 @@
                 }
                 if (allData.historicalPnl) {
                     try {
-                        renderCumulativePnlChart(
+                        window.AppCharts.pnl.render(
                             (allData.historicalPnl && allData.historicalPnl.historicalPnl) || []
                         );
                     } catch (e) {
@@ -3176,158 +3177,6 @@ Small-N caveat: standard error widens; not a forward-Sharpe forecast.`;
         // — the chart can't disagree with the cards. Captures unrealized
         // peaks (e.g. +$364K open profit later given back) which the
         // closed-trade ledger cannot see.
-        function renderCumulativePnlChart(historicalPnl) {
-            const el = document.getElementById('pnlCumulativeChart');
-            if (!el) return;
-            const cumsRaw = window.RiskMetrics.buildCumulativeTotalPnlSeries(historicalPnl || []);
-            if (cumsRaw.length < 2) return;
-            const spanMs = new Date(cumsRaw[cumsRaw.length - 1].t).getTime() - new Date(cumsRaw[0].t).getTime();
-            const spanDays = spanMs / MS_PER_DAY;
-            const xAxisUnit = spanDays > 350 ? 'month' : spanDays > 50 ? 'week' : 'day';
-            // Aggregate OHLC per period from the full hourly series so each
-            // candle shows intra-period high / low / open / close of cumulative
-            // profit. Headline Max Drawdown stays on the full hourly series
-            // (separate computation in RiskMetrics.histPnlDrawdown).
-            const bucketKey = (t) => {
-                const d = new Date(t);
-                if (xAxisUnit === 'week') {
-                    const dow = d.getUTCDay() || 7; // ISO Mon=1..Sun=7
-                    return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - (dow - 1));
-                }
-                if (xAxisUnit === 'month') {
-                    return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1);
-                }
-                return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
-            };
-            const ohlcMap = new Map();
-            for (const p of cumsRaw) {
-                const k = bucketKey(p.t);
-                let b = ohlcMap.get(k);
-                if (!b) {
-                    ohlcMap.set(k, { x: k, o: p.c, h: p.c, l: p.c, c: p.c });
-                } else {
-                    if (p.c > b.h) b.h = p.c;
-                    if (p.c < b.l) b.l = p.c;
-                    b.c = p.c; // sorted asc → last point in bucket = close
-                }
-            }
-            const ohlc = [...ohlcMap.values()];
-            // Running peak on full hourly data, sampled at end-of-bucket so the
-            // dashed peak line stays honest about all-time peaks ever seen.
-            const fullPeakByBucket = new Map();
-            let _peak = -Infinity;
-            for (const p of cumsRaw) {
-                if (p.c > _peak) _peak = p.c;
-                fullPeakByBucket.set(bucketKey(p.t), _peak);
-            }
-            const peakLine = ohlc.map(b => ({ x: b.x, y: fullPeakByBucket.get(b.x) }));
-            try {
-                if (window.pnlChart) { window.pnlChart.destroy(); }
-                window.pnlChart = new Chart(el.getContext('2d'), {
-                    type: 'candlestick',
-                    data: {
-                        datasets: [{
-                            type: 'candlestick',
-                            label: 'Cumulative Profit',
-                            data: ohlc,
-                            color: {
-                                up: 'rgba(143,170,114,0.92)',
-                                down: 'rgba(203,92,80,0.92)',
-                                unchanged: 'rgba(215,172,96,0.92)'
-                            },
-                            borderColor: {
-                                up: '#8FAA72',
-                                down: '#CB5C50',
-                                unchanged: '#D7AC60'
-                            }
-                        }, {
-                            type: 'line',
-                            label: 'Running Peak',
-                            data: peakLine,
-                            borderColor: 'rgba(215,172,96,0.55)',
-                            borderDash: [4, 4],
-                            borderWidth: 1,
-                            fill: false,
-                            pointRadius: 0
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        interaction: { mode: 'index', intersect: false },
-                        scales: {
-                            x: {
-                                type: 'time',
-                                time: {
-                                    unit: xAxisUnit,
-                                    tooltipFormat: 'yyyy-MM-dd',
-                                    displayFormats: {
-                                        day: 'MMM d',
-                                        week: 'MMM d',
-                                        month: 'MMM yyyy'
-                                    }
-                                },
-                                ticks: {
-                                    color: 'rgba(176,161,135,0.85)',
-                                    font: { family: "'JetBrains Mono', monospace", size: 10 },
-                                    maxRotation: 0,
-                                    autoSkip: true,
-                                    autoSkipPadding: 16,
-                                    maxTicksLimit: 12
-                                },
-                                grid: { color: 'rgba(74,62,44,0.32)' }
-                            },
-                            y: {
-                                ticks: {
-                                    color: 'rgba(239,229,210,0.85)',
-                                    font: { family: "'JetBrains Mono', monospace", size: 10 },
-                                    callback: (v) => formatCurrency(v)
-                                },
-                                grid: { color: 'rgba(74,62,44,0.32)' }
-                            }
-                        },
-                        plugins: {
-                            legend: { display: false },
-                            tooltip: {
-                                backgroundColor: 'rgba(14,12,9,0.97)',
-                                titleColor: 'rgba(239,229,210,0.98)',
-                                bodyColor: 'rgba(239,229,210,0.92)',
-                                borderColor: 'rgba(74,62,44,0.9)',
-                                borderWidth: 1,
-                                padding: 12,
-                                cornerRadius: 0,
-                                titleFont: { family: "'Fraunces', serif", style: 'italic', size: 13, weight: '400' },
-                                bodyFont: { family: "'JetBrains Mono', monospace", size: 11 },
-                                callbacks: {
-                                    title: (items) => items[0]
-                                        ? new Date(items[0].parsed.x).toISOString().slice(0, 10)
-                                        : '',
-                                    label: (ctx) => {
-                                        if (ctx.dataset.label === 'Running Peak') {
-                                            return `Peak:  ${formatCurrency(ctx.parsed.y)}`;
-                                        }
-                                        const r = ctx.raw;
-                                        const peakHere = fullPeakByBucket.get(r.x);
-                                        const dd = peakHere != null ? peakHere - r.l : 0;
-                                        const lines = [
-                                            `Open:  ${formatCurrency(r.o)}`,
-                                            `High:  ${formatCurrency(r.h)}`,
-                                            `Low:   ${formatCurrency(r.l)}`,
-                                            `Close: ${formatCurrency(r.c)}`
-                                        ];
-                                        if (dd > 0) lines.push(`Drawdown: ${formatCurrency(-dd)}`);
-                                        return lines;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                });
-            } catch (e) {
-                console.warn('Failed to render PnL chart', e);
-            }
-        }
-
         function updatePerformanceTables(positions, historicalPnl = [], marketAggIn = null) {
             // Bucket closed trades by month using the same classifier rules
             // as the header so monthly win-rate denominators match the header
