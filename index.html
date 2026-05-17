@@ -896,47 +896,6 @@
                 Chart.defaults.plugins.legend.labels.color = 'rgba(239,229,210,0.92)';
             }
         }
-        // Exponential backoff with full jitter, retrying on transient
-        // failures (429, 5xx, network timeouts). Permanent errors (4xx
-        // other than 429) propagate immediately — no point retrying a
-        // bad request. Honors the Retry-After header on 429 / 503 so we
-        // stop hammering the indexer when it explicitly asks us to.
-        //
-        // base    — first delay in ms (500ms = 1 jiffy on a typical link)
-        // factor  — multiplier per attempt
-        // maxMs   — per-attempt delay cap (16s; total worst case ≈ 32s)
-        // tries   — number of retry attempts before giving up (6 →
-        //           seven total fetch attempts including the original)
-            const tries = opts.tries != null ? opts.tries : RETRY_TRIES;
-            let lastError = null;
-            for (let attempt = 0; attempt <= tries; attempt++) {
-                try {
-                    return await fetchJson(url);
-                } catch (e) {
-                    lastError = e;
-                    if (!isTransientError(e) || attempt === tries) throw e;
-                    // Honor server-supplied Retry-After when present; else
-                    // exponential backoff with full jitter (delay in
-                    // [0, capped]) — full jitter de-syncs clients
-                    // hitting the same endpoint after a global stall.
-                    let delay;
-                    if (e.retryAfter != null) {
-                        delay = e.retryAfter;
-                    } else {
-                        const ceil = Math.min(
-                            RETRY_BASE_MS * Math.pow(RETRY_FACTOR, attempt),
-                            RETRY_MAX_DELAY
-                        );
-                        delay = Math.random() * ceil;
-                    }
-                    if (opts.onRetry) {
-                        try { opts.onRetry(attempt + 1, delay, e); } catch (_) {}
-                    }
-                    await new Promise(r => setTimeout(r, delay));
-                }
-            }
-            throw lastError;
-        }
         // Load real dashboard data
         async function loadDashboard() {
             const urlParams = new URLSearchParams(window.location.search);
