@@ -180,7 +180,7 @@
             font-weight: 350;
             font-style: italic;
             font-size: clamp(2rem, 4.2vw, 3.375rem);
-            line-height: 0.94;
+            line-height: 1.15;
             letter-spacing: -0.025em;
             color: var(--ink);
             font-variation-settings: 'opsz' 96, 'SOFT' 60;
@@ -188,6 +188,7 @@
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
+            padding-bottom: 0.08em;
         }
 
         .header-right {
