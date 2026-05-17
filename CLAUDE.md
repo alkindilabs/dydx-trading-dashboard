@@ -101,6 +101,18 @@ The Drawdown Periods table enumerates every peak→trough→recovery event on th
 
 The Recovery Factor card uses the matching numerator: latest `totalPnl` ÷ headline DD when on the historical-pnl path; `cls.totalRealized` ÷ trade-system DD when on the fallback path. The numerator/denominator never come from different profit series.
 
+### Current Drawdown
+`$ DD = max(0, peak − latest)` on the same `totalPnl` series as Headline Max Drawdown — the two cards always share their P&L stream so they cannot disagree about which side of the ledger is being measured. `0` means the account is at-or-above its prior peak; positive value means the account has given back that many dollars since the peak. Helper: `RiskMetrics.histPnlCurrentDrawdown(historicalPnl)` returns `{ dollarDrawdown, pctOfPeakProfit, peakAt, peakValue, currentAt, currentValue, n, hasData }`.
+
+Falls back to `RiskMetrics.tradeSystemCurrentDrawdown(closedPositions)` (cumulative `realizedPnl`) using the same `drawdownSource` decision as Max Drawdown — if the hist path was skipped for the max card, it's skipped for the current card too. `hasData: false` on an empty series → render `—` with "No equity series available".
+
+Visual states on the card:
+- `hasData = false` → `—`, detail "No equity series available" (or "No closed trades")
+- `dollarDrawdown ≤ 0` → `$0`, green (profit class), detail "At peak (YYYY-MM-DD)"
+- `dollarDrawdown > 0` → `−$X`, red (loss class), detail "Nd below peak (since YYYY-MM-DD) · Y.Y% of peak"
+
+The "days below peak" duration is derived inline from `peakAt`/`currentAt` timestamps (rounded to whole days). `pctOfPeakProfit` is suppressed when peak ≤ 0 (no positive peak profit to denominate against).
+
 ### Drawdown of arbitrary equity series
 Use `RiskMetrics.validDrawdownFromEquity(equityArray)` for the Calmar denominator on TWR wealth. No longer feeds the headline. Returns `null` when peak ≤ 0 OR trough < 0 — these are synthetic-equity artifacts that arise when the inception-time principal proxy goes under zero (e.g. a wipe followed by a redeposit). Filtered drawdowns must render as `—`.
 

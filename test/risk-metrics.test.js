@@ -639,6 +639,131 @@ test('tradeSystemDrawdown matches manual cumulative', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Current (active) drawdown — same series sources as the worst-DD family.
+// ---------------------------------------------------------------------------
+
+test('histPnlCurrentDrawdown empty array → hasData=false, $0', () => {
+    const cd = RM.histPnlCurrentDrawdown([]);
+    assert.equal(cd.hasData, false);
+    assert.equal(cd.dollarDrawdown, 0);
+    assert.equal(cd.pctOfPeakProfit, 0);
+    assert.equal(cd.peakAt, null);
+});
+
+test('histPnlCurrentDrawdown monotonically rising → at peak ($0 DD)', () => {
+    const hist = [
+        { createdAt: '2025-01-01T00:00:00Z', totalPnl: '0'   },
+        { createdAt: '2025-01-02T00:00:00Z', totalPnl: '100' },
+        { createdAt: '2025-01-03T00:00:00Z', totalPnl: '250' }
+    ];
+    const cd = RM.histPnlCurrentDrawdown(hist);
+    assert.equal(cd.dollarDrawdown, 0);
+    assert.equal(cd.peakValue, 250);
+    assert.equal(cd.currentValue, 250);
+    assert.equal(cd.peakAt, '2025-01-03T00:00:00Z');
+});
+
+test('histPnlCurrentDrawdown peak then drop → DD = peak − current', () => {
+    const hist = [
+        { createdAt: '2025-01-01T00:00:00Z', totalPnl: '0'    },
+        { createdAt: '2025-01-02T00:00:00Z', totalPnl: '500'  },
+        { createdAt: '2025-01-03T00:00:00Z', totalPnl: '300'  },
+        { createdAt: '2025-01-04T00:00:00Z', totalPnl: '100'  }
+    ];
+    // Peak 500 reached on day 2; current = 100. DD = 400. pct of peak = 80%.
+    const cd = RM.histPnlCurrentDrawdown(hist);
+    assert.equal(cd.dollarDrawdown, 400);
+    assert.ok(close(cd.pctOfPeakProfit, 80));
+    assert.equal(cd.peakValue, 500);
+    assert.equal(cd.currentValue, 100);
+    assert.equal(cd.peakAt, '2025-01-02T00:00:00Z');
+    assert.equal(cd.currentAt, '2025-01-04T00:00:00Z');
+});
+
+test('histPnlCurrentDrawdown fully recovered above prior peak → $0 DD', () => {
+    const hist = [
+        { createdAt: '2025-01-01T00:00:00Z', totalPnl: '0'   },
+        { createdAt: '2025-01-02T00:00:00Z', totalPnl: '200' },
+        { createdAt: '2025-01-03T00:00:00Z', totalPnl: '50'  },
+        { createdAt: '2025-01-04T00:00:00Z', totalPnl: '300' }
+    ];
+    // Max DD was 200→50 but current=300 > prior peak 200, so currently at peak.
+    const cd = RM.histPnlCurrentDrawdown(hist);
+    assert.equal(cd.dollarDrawdown, 0);
+    assert.equal(cd.peakValue, 300);
+    assert.equal(cd.currentValue, 300);
+});
+
+test('histPnlCurrentDrawdown partial recovery → smaller DD than max', () => {
+    const hist = [
+        { createdAt: '2025-01-01T00:00:00Z', totalPnl: '0'   },
+        { createdAt: '2025-01-02T00:00:00Z', totalPnl: '500' },
+        { createdAt: '2025-01-03T00:00:00Z', totalPnl: '100' },
+        { createdAt: '2025-01-04T00:00:00Z', totalPnl: '350' }
+    ];
+    // Max DD was 500→100 = $400. Current = $350, so current DD = 500-350 = $150.
+    const cd = RM.histPnlCurrentDrawdown(hist);
+    assert.equal(cd.dollarDrawdown, 150);
+    assert.ok(close(cd.pctOfPeakProfit, 30));
+    assert.equal(cd.peakValue, 500);
+    assert.equal(cd.currentValue, 350);
+});
+
+test('histPnlCurrentDrawdown single point → at peak ($0 DD)', () => {
+    const hist = [{ createdAt: '2025-01-01T00:00:00Z', totalPnl: '123' }];
+    const cd = RM.histPnlCurrentDrawdown(hist);
+    assert.equal(cd.dollarDrawdown, 0);
+    assert.equal(cd.peakValue, 123);
+    assert.equal(cd.currentValue, 123);
+    assert.equal(cd.hasData, true);
+});
+
+test('histPnlCurrentDrawdown handles unsorted input by sorting chronologically', () => {
+    const hist = [
+        { createdAt: '2025-01-04T00:00:00Z', totalPnl: '100' },
+        { createdAt: '2025-01-02T00:00:00Z', totalPnl: '500' },
+        { createdAt: '2025-01-01T00:00:00Z', totalPnl: '0'   },
+        { createdAt: '2025-01-03T00:00:00Z', totalPnl: '300' }
+    ];
+    const cd = RM.histPnlCurrentDrawdown(hist);
+    // Sorted: 0, 500, 300, 100. Peak 500, current 100, DD 400.
+    assert.equal(cd.dollarDrawdown, 400);
+    assert.equal(cd.currentAt, '2025-01-04T00:00:00Z');
+});
+
+test('histPnlCurrentDrawdown peak ≤ 0 → pct = 0 (no peak profit to denominate)', () => {
+    const hist = [
+        { createdAt: '2025-01-01T00:00:00Z', totalPnl: '-100' },
+        { createdAt: '2025-01-02T00:00:00Z', totalPnl: '-200' },
+        { createdAt: '2025-01-03T00:00:00Z', totalPnl: '-300' }
+    ];
+    // Peak = -100 (the highest), current = -300. DD = 200. But peak ≤ 0 so pct = 0.
+    const cd = RM.histPnlCurrentDrawdown(hist);
+    assert.equal(cd.dollarDrawdown, 200);
+    assert.equal(cd.pctOfPeakProfit, 0);
+});
+
+test('tradeSystemCurrentDrawdown on cumulative realizedPnl', () => {
+    const positions = [
+        { status: 'CLOSED', closedAt: '2025-01-01T00:00:00Z', realizedPnl: '100'  },
+        { status: 'CLOSED', closedAt: '2025-01-02T00:00:00Z', realizedPnl: '200'  },
+        { status: 'CLOSED', closedAt: '2025-01-03T00:00:00Z', realizedPnl: '-150' },
+        { status: 'CLOSED', closedAt: '2025-01-04T00:00:00Z', realizedPnl: '-100' }
+    ];
+    // Cumulative: 100, 300, 150, 50. Peak 300, current 50, current DD = 250.
+    const cd = RM.tradeSystemCurrentDrawdown(positions);
+    assert.equal(cd.dollarDrawdown, 250);
+    assert.equal(cd.peakValue, 300);
+    assert.equal(cd.currentValue, 50);
+});
+
+test('tradeSystemCurrentDrawdown empty input → hasData=false', () => {
+    const cd = RM.tradeSystemCurrentDrawdown([]);
+    assert.equal(cd.hasData, false);
+    assert.equal(cd.dollarDrawdown, 0);
+});
+
+// ---------------------------------------------------------------------------
 // assessAdequacy — sample-size gate shared across Sharpe/Sortino/Calmar/VaR.
 // ---------------------------------------------------------------------------
 

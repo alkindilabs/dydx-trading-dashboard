@@ -454,6 +454,68 @@
     return scanDrawdownEvents(cums).events;
   }
 
+  // Where is the account RIGHT NOW relative to its all-time equity peak?
+  // dollarDrawdown = max(0, peak − latest). 0 when at-or-above prior peak.
+  // pctOfPeakProfit = % of peak profit currently given back.
+  // peakAt/currentAt timestamps let callers surface "days below peak" without
+  // re-scanning the series. peak is computed across the WHOLE series (not just
+  // up to the latest point) so revisiting an old peak after a deeper one was
+  // hit shows dollarDrawdown=0, matching the "currently above prior peak"
+  // intent. Returns hasData=false on empty input so callers can render "—"
+  // without recomputing emptiness.
+  function currentDrawdownFromSeries(cums) {
+    if (!cums || cums.length === 0) {
+      return {
+        dollarDrawdown: 0,
+        pctOfPeakProfit: 0,
+        peakAt: null,
+        peakValue: 0,
+        currentAt: null,
+        currentValue: 0,
+        n: 0,
+        hasData: false
+      };
+    }
+    let peak = cums[0].c;
+    let peakIdx = 0;
+    for (let i = 1; i < cums.length; i++) {
+      if (cums[i].c > peak) {
+        peak = cums[i].c;
+        peakIdx = i;
+      }
+    }
+    const lastIdx = cums.length - 1;
+    const current = cums[lastIdx].c;
+    const dollarDrawdown = Math.max(0, peak - current);
+    return {
+      dollarDrawdown,
+      pctOfPeakProfit: peak > 0 ? (dollarDrawdown / peak) * 100 : 0,
+      peakAt: cums[peakIdx].t,
+      peakValue: peak,
+      currentAt: cums[lastIdx].t,
+      currentValue: current,
+      n: cums.length,
+      hasData: true
+    };
+  }
+
+  // Current (active) drawdown on the totalPnl series. Mirror of
+  // histPnlDrawdown but answering "where am I now?" instead of "what was the
+  // worst?". Same input + sorting + sign convention as histPnlDrawdown so the
+  // two cards can never disagree about which P&L stream is being measured.
+  function histPnlCurrentDrawdown(historicalPnl) {
+    return currentDrawdownFromSeries(buildCumulativeTotalPnlSeries(historicalPnl));
+  }
+
+  // Fallback path: current drawdown on cumulative realizedPnl. Used when
+  // historical-pnl is unavailable, mirroring tradeSystemDrawdown's role.
+  function tradeSystemCurrentDrawdown(closedPositions) {
+    const { closed, cums } = buildCumulativeRealizedSeries(closedPositions);
+    const out = currentDrawdownFromSeries(cums);
+    out.closed = closed;
+    return out;
+  }
+
   // Per-market P&L. Single definition: realized + unrealized of OPEN +
   // netFunding − fees, all bucketed per market. dYdX v4 keeps each of
   // these components on separate fields/streams; without folding all of
@@ -816,8 +878,10 @@
     assessAdequacy,
     tradeSystemDrawdown,
     tradeSystemDrawdownEvents,
+    tradeSystemCurrentDrawdown,
     histPnlDrawdown,
     histPnlDrawdownEvents,
+    histPnlCurrentDrawdown,
     buildCumulativeTotalPnlSeries,
     marketPnL,
     netFundingTotal,
