@@ -2,7 +2,6 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "dydx-trading",
   "compatibility_date": "2025-03-07",
-  "compatibility_flags": ["nodejs_compat"],
 
   // Pin deploys to the al-Kindi LDA Cloudflare account (NOT the personal one).
   "account_id": "dfd3f2f5dec2da4c7f21b816548813af",
