@@ -3791,9 +3791,25 @@ Sample: ${rets.length} returns over ${(adq.years*12).toFixed(1)} months (${(adq.
             // the same value via PF × (1 − WR) / WR; surfacing as a top-level
             // card lets the user scan it without leaving the metric row.
             updateElement('riskRewardHero', rrText);
-            if (avgLoss > 0) {
-                const heroDetail = document.getElementById('riskRewardHeroDetail');
-                if (heroDetail) heroDetail.textContent = `${formatCurrency(avgWin)} / ${formatCurrency(avgLoss)}`;
+            const heroDetail = document.getElementById('riskRewardHeroDetail');
+            if (heroDetail && avgLoss > 0) {
+                // Breakeven WR at this payoff = 1 / (1 + payoff). Below this
+                // win rate, expectancy is negative at the current avg-win/
+                // avg-loss split — surfacing the threshold next to the actual
+                // WR turns the Payoff card into a self-contained verdict.
+                const payoff = avgWin / avgLoss;
+                const breakevenWR = (1 / (1 + payoff)) * 100;
+                const actualWR = cls.decisiveCount
+                    ? (cls.winCount / cls.decisiveCount) * 100
+                    : null;
+                const winLossPart = `${formatCurrency(avgWin)} / ${formatCurrency(avgLoss)}`;
+                if (actualWR !== null) {
+                    heroDetail.textContent = `${winLossPart} · WR ${actualWR.toFixed(1)}% vs ${breakevenWR.toFixed(1)}% breakeven`;
+                    heroDetail.className = `metric-change mono ${actualWR >= breakevenWR ? 'profit' : 'loss'}`;
+                } else {
+                    heroDetail.textContent = winLossPart;
+                    heroDetail.className = 'metric-change mono';
+                }
             }
             // Expectancy: average realized P&L per decisive (non-scratch) trade.
             // Excludes unrealized — that's portfolio P&L, not a per-trade outcome.
@@ -4297,12 +4313,27 @@ Sample: ${rets.length} returns over ${(adq.years*12).toFixed(1)} months (${(adq.
             const avgWin = cls.winCount ? cls.grossWin / cls.winCount : 0;
             const avgLoss = cls.lossCount ? cls.grossLoss / cls.lossCount : 0;
             const rrr = avgLoss > 0 ? avgWin / avgLoss : null;
+            const rrrDetailEl = document.getElementById('avgRRRDetail');
             if (rrr != null) {
                 updateElement('avgRRR', rrr.toFixed(2) + ':1');
-                updateElement('avgRRRDetail', 'vs 2:1 target');
+                // Same breakeven-WR comparison as the Overview headline card
+                // so the two surfaces of the Payoff metric carry identical
+                // verdict context. Breakeven WR = 1 / (1 + payoff).
+                const breakevenWR = (1 / (1 + rrr)) * 100;
+                const actualWR = cls.decisiveCount
+                    ? (cls.winCount / cls.decisiveCount) * 100
+                    : null;
+                if (actualWR !== null && rrrDetailEl) {
+                    rrrDetailEl.textContent = `WR ${actualWR.toFixed(1)}% vs ${breakevenWR.toFixed(1)}% breakeven`;
+                    rrrDetailEl.className = `metric-change mono ${actualWR >= breakevenWR ? 'profit' : 'loss'}`;
+                } else {
+                    updateElement('avgRRRDetail', `${breakevenWR.toFixed(1)}% WR needed to break even`);
+                    if (rrrDetailEl) rrrDetailEl.className = 'metric-change mono';
+                }
             } else {
                 updateElement('avgRRR', '—');
                 updateElement('avgRRRDetail', '');
+                if (rrrDetailEl) rrrDetailEl.className = 'metric-change mono';
             }
 
             // Win Rate Trend: same denominator as Header Win Rate (decisive
