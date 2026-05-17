@@ -1,0 +1,50 @@
+{
+  "_comment": "Minimal-but-valid dYdX v4 indexer response shapes for the Playwright smoke test. Each top-level key maps to an endpoint the dashboard fetches. Empty position/fill/funding/historical arrays let every renderer take the no-data path and render '—' placeholders without throwing.",
+  "address": "dydx1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq",
+  "subaccount": {
+    "subaccount": {
+      "address": "dydx1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq",
+      "subaccountNumber": 0,
+      "equity": "10000.00",
+      "quoteBalance": "10000.00",
+      "freeCollateral": "10000.00",
+      "marginEnabled": true,
+      "openPerpetualPositions": {},
+      "assetPositions": []
+    }
+  },
+  "addressSubaccounts": {
+    "subaccounts": [
+      {
+        "address": "dydx1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq",
+        "subaccountNumber": 0,
+        "equity": "10000.00",
+        "quoteBalance": "10000.00",
+        "freeCollateral": "10000.00",
+        "marginEnabled": true,
+        "openPerpetualPositions": {},
+        "assetPositions": []
+      }
+    ]
+  },
+  "openPositions": { "positions": [] },
+  "orders": [],
+  "markets": {
+    "markets": {
+      "BTC-USD": {
+        "ticker": "BTC-USD",
+        "oraclePrice": "100000.00",
+        "marketType": "CROSS",
+        "status": "ACTIVE",
+        "initialMarginFraction": "0.05",
+        "maintenanceMarginFraction": "0.03",
+        "stepSize": "0.0001",
+        "tickSize": "1"
+      }
+    }
+  },
+  "closedPositions": { "positions": [] },
+  "fills": { "fills": [] },
+  "fundingPayments": { "fundingPayments": [] },
+  "historicalPnl": { "historicalPnl": [] }
+}
