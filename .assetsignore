@@ -7,6 +7,7 @@
 .wrangler/
 node_modules/
 test/
+docs/
 package.json
 package-lock.json
 CLAUDE.md
@@ -20,3 +21,12 @@ wrangler.jsonc
 *.log
 *.tmp
 *.png
+
+# No markdown is ever served. Catches CLAUDE.md, README.md, and any future
+# audit / spec / scratch .md a contributor drops into the repo root.
+*.md
+
+# Toolchain configs have no value at the edge. Glob catches drift.
+tsconfig*.json
+.eslintrc*
+.prettierrc*
