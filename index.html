@@ -1273,7 +1273,11 @@
         }
         .se-readout > div {
             display: grid;
-            grid-template-columns: 9rem 1fr;
+            /* dt column auto-sizes to the widest label in the readout so
+               every row uses the same dt width without us hand-tuning a
+               rem value that breaks under browser zoom or non-default
+               root font sizes. The 1fr value column absorbs the rest. */
+            grid-template-columns: max-content 1fr;
             align-items: baseline;
             column-gap: 1.75rem;
         }
@@ -1286,6 +1290,8 @@
             display: inline-flex;
             align-items: center;
             gap: 0.5rem;
+            /* Belt-and-braces: never let a dt wrap to a second line. */
+            white-space: nowrap;
         }
         .se-readout dt::before {
             content: '';
