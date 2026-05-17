@@ -1216,6 +1216,10 @@
             display: flex;
             flex-direction: column;
             gap: 1.625rem;
+            /* Distribute verdict / readout / benchmarks across the full
+               rail height so the right column doesn't leave a tall void
+               under the benchmark list when the plot is square. */
+            justify-content: space-between;
         }
         .se-verdict-block { display: flex; flex-direction: column; gap: 0.5rem; }
         .se-verdict-eyebrow {
@@ -1269,8 +1273,9 @@
         }
         .se-readout > div {
             display: grid;
-            grid-template-columns: 6.875rem 1fr;
+            grid-template-columns: 9rem 1fr;
             align-items: baseline;
+            column-gap: 0.75rem;
         }
         .se-readout dt {
             font-family: var(--ff-mono);
@@ -1319,7 +1324,7 @@
         }
         .se-benchmark li {
             display: grid;
-            grid-template-columns: 5.75rem 1fr;
+            grid-template-columns: 7rem 1fr;
             align-items: baseline;
             gap: 0.75rem;
             font-family: var(--ff-display);
@@ -1337,6 +1342,7 @@
             color: var(--ink-3);
             border-left: 2px solid var(--rule-strong);
             padding-left: 0.625rem;
+            white-space: nowrap;
         }
         .se-bench-tick.se-bench-tick--gold { color: var(--gold); border-left-color: var(--gold); }
 
@@ -1934,7 +1940,7 @@
                 <div class="chart-header">
                     <div class="chart-title">Cumulative Profit with Drawdown Periods</div>
                 </div>
-                <canvas id="pnlCumulativeChart" class="mini-chart" style="height: 380px"></canvas>
+                <canvas id="pnlCumulativeChart" class="mini-chart" style="height: 23.75rem"></canvas>
             </div>
 
             <!-- Editorial section break -->
@@ -2000,7 +2006,7 @@
                         <span class="broadsheet-eyebrow">I.</span>
                         <h3 class="broadsheet-title">Trading Activity by Market</h3>
                     </header>
-                    <div class="canvas-wrap" style="position: relative; height: 280px;">
+                    <div class="canvas-wrap" style="position: relative; height: 17.5rem;">
                         <canvas id="marketDistributionChart"></canvas>
                     </div>
                     <div id="marketDistributionLegend" class="market-legend"></div>
@@ -2200,7 +2206,7 @@
                 </div>
             </div>
 
-            <div class="table-container" style="max-height: 520px; overflow-y: auto;">
+            <div class="table-container" style="max-height: 32.5rem; overflow-y: auto;">
                 <div class="table-header">
                     <div class="table-title">Recent Position History</div>
                 </div>
@@ -2263,7 +2269,7 @@
             <div class="table-container">
                 <div class="table-header">
                     <div class="table-title">Trading Activity by Hour/Day</div>
-                    <div class="mono" style="font-size: 10px; color: var(--ink-3); letter-spacing: 0.22em; text-transform: uppercase;">Intensity Map</div>
+                    <div class="mono" style="font-size: 0.625rem; color: var(--ink-3); letter-spacing: 0.22em; text-transform: uppercase;">Intensity Map</div>
                 </div>
                 <div class="heatmap" id="activityHeatmap"></div>
             </div>
@@ -3834,7 +3840,11 @@ Sample: ${rets.length} returns over ${(adq.years*12).toFixed(1)} months (${(adq.
             // Iso-R:R curves with labels placed along each curve at a
             // distinct WR. A small paper-2 backdrop rect cuts the label
             // out of the curve so the text stays readable where the
-            // hairline runs underneath it.
+            // hairline runs underneath it. Suppress the LABEL (not the
+            // curve) when it would land near the user marker so the
+            // dot's implied R:R readout in the rail isn't doubled by an
+            // iso-curve label sitting on top of the dot.
+            const ISO_MARKER_GUARD = 40; // px radius around the marker
             const isoCurves = ISO.map(({ rr, label, labelAtWR }) => {
                 const d = seIsoRRPath(rr);
                 if (!d) return '';
@@ -3844,8 +3854,12 @@ Sample: ${rets.length} returns over ${(adq.years*12).toFixed(1)} months (${(adq.
                 let ly = sePfToY(pfAt) - 6;
                 ly = Math.max(y0 + 12, Math.min(y1 - 6, ly));
                 const labelWidth = label.length * 5.4 + 8;
+                const curve = `<path d="${d}" fill="none" stroke="var(--gold)" stroke-width="0.7" stroke-opacity="0.5" stroke-dasharray="${rr === 1 ? '0' : '2 3'}"/>`;
+                const collides = hasPoint && markerX != null && markerY != null
+                    && Math.hypot(lx - markerX, ly - markerY) < ISO_MARKER_GUARD;
+                if (collides) return curve;
                 return `
-                    <path d="${d}" fill="none" stroke="var(--gold)" stroke-width="0.7" stroke-opacity="0.5" stroke-dasharray="${rr === 1 ? '0' : '2 3'}"/>
+                    ${curve}
                     <rect x="${lx - labelWidth / 2}" y="${ly - 8}" width="${labelWidth}" height="11" fill="var(--paper-2)" opacity="0.85"/>
                     <text class="se-iso-label" x="${lx}" y="${ly}" text-anchor="middle">${esc(label)}</text>
                 `;
