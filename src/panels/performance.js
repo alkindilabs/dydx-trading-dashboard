@@ -89,7 +89,7 @@
     if (returns.length < 2) return { ok: false, n: returns.length };
 
     const sharpe = window.RiskMetrics.computeSharpe(returns, 0);
-    const sortino = window.RiskMetrics.computeSortino(returns, 0, 'all');
+    const sortino = window.RiskMetrics.computeSortino(returns, 0);
 
     const firstT = new Date(decisive[0].closedAt).getTime();
     const lastT = new Date(decisive[decisive.length - 1].closedAt).getTime();
@@ -400,7 +400,7 @@ Small-N caveat: standard error widens; not a forward-Sharpe forecast.`;
             const adq = window.RiskMetrics.assessAdequacy(rets, tsSeg, monthHist.length);
             if (adq.adequate) {
               const ann = window.RiskMetrics.computeAnnualizedFromReturns(
-                rets, tsSeg, { mar: 0, denominator: 'all' });
+                rets, tsSeg, { mar: 0 });
               sharpeTxt = F.fmtRatio(ann.sharpeAnnualized);
             }
             const monthDD = window.RiskMetrics.histPnlDrawdown(monthHist);
