@@ -1574,11 +1574,18 @@ Sample: ${rets.length} returns over ${(adq.years*12).toFixed(1)} months (${(adq.
                     heroDetail.className = 'metric-change mono';
                 }
             }
-            // Expectancy: average realized P&L per decisive (non-scratch) trade.
-            // Excludes unrealized — that's portfolio P&L, not a per-trade outcome.
-            // Same denominator as Header Win Rate so the cards stay consistent.
+            // Expectancy: average realized P&L per decisive trade. Numerator
+            // and denominator both come from the classifier (cls.totalRealized
+            // = grossWin − grossLoss over decisive positions; cls.decisiveCount
+            // = same set). Earlier version divided FIFO-from-/fills total by
+            // cls.decisiveCount — accounting paths from different sets, so the
+            // per-trade ratio was incoherent on accounts with open partial
+            // closes or scratches. Closes audit M5 per CLAUDE.md "no metric
+            // is better than a wrong metric".
             updateElement('expectancy',
-                totalTrades > 0 ? formatCurrency(totalRealizedPnL / totalTrades) : 'N/A');
+                cls.decisiveCount > 0
+                    ? formatCurrency(cls.totalRealized / cls.decisiveCount)
+                    : 'N/A');
             // Recovery Factor: numerator and denominator come from the SAME
             // P&L series so the ratio is dimensionally honest.
             //   hist  path → latestTotalPnl ÷ histPnlDrawdown
