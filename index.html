@@ -2070,6 +2070,11 @@
                     <div class="metric-value mono" id="maxDrawdown">-</div>
                     <div class="metric-change mono" id="maxDrawdownDetail">-</div>
                 </div>
+                <div class="metric-card" title="Current Drawdown = how far below the all-time equity peak the account sits right now. $0 means at-or-above the prior peak. Computed on the same totalPnl series as Max Drawdown so the two cards always agree about which P&L stream is being measured.">
+                    <div class="metric-label">Current Drawdown</div>
+                    <div class="metric-value mono" id="currentDrawdown">-</div>
+                    <div class="metric-change mono" id="currentDrawdownDetail">-</div>
+                </div>
             </div>
 
             <!-- Equity curve — hero chart, full row -->
@@ -3434,6 +3439,16 @@
                 : window.RiskMetrics.tradeSystemDrawdown(allPositions);
             const drawdownSource = histDD.dollarDrawdown > 0 ? 'hist' : 'trade';
 
+            // Current (active) drawdown — same source-selection logic as the
+            // worst-DD pair so the two cards never report against different
+            // P&L streams. histPnlCurrentDrawdown returns hasData=false on an
+            // empty series; the trade-system fallback fires whenever the hist
+            // path is the one being skipped for Max DD.
+            const histCDD = window.RiskMetrics.histPnlCurrentDrawdown(histArr);
+            const cdd = drawdownSource === 'hist'
+                ? histCDD
+                : window.RiskMetrics.tradeSystemCurrentDrawdown(allPositions);
+
             const totalUnrealizedPnL = allPositions
                 .filter(p => p.status === 'OPEN')
                 .reduce((s, p) => s + parseFloat(p.unrealizedPnl || 0), 0);
@@ -3630,6 +3645,45 @@
                 updateElement('maxDrawdownDetail', cls.closedCount > 0
                     ? 'No drawdown recorded'
                     : 'No closed trades');
+            }
+
+            // Current Drawdown card. Same series as Max Drawdown above, but
+            // measures peak-vs-NOW instead of peak-vs-worst-historical-trough.
+            // Three states:
+            //   - cdd.hasData=false → no series yet → "—"
+            //   - dollarDrawdown=0  → currently at-or-above prior peak (green)
+            //   - dollarDrawdown>0  → in active drawdown, depth + days below
+            const cddEl = document.getElementById('currentDrawdown');
+            if (!cdd.hasData) {
+                updateElement('currentDrawdown', '—');
+                updateElement('currentDrawdownDetail', cls.closedCount > 0
+                    ? 'No equity series available'
+                    : 'No closed trades');
+                if (cddEl) cddEl.className = 'metric-value mono';
+            } else if (cdd.dollarDrawdown <= 0) {
+                updateElement('currentDrawdown', formatCurrency(0));
+                const peakDate = cdd.peakAt ? cdd.peakAt.slice(0, 10) : null;
+                updateElement('currentDrawdownDetail', peakDate
+                    ? `At peak (${peakDate})`
+                    : 'At peak');
+                if (cddEl) cddEl.className = 'metric-value mono profit';
+            } else {
+                updateElement('currentDrawdown', formatCurrency(-cdd.dollarDrawdown));
+                const peakDate = cdd.peakAt ? cdd.peakAt.slice(0, 10) : null;
+                const daysBelow = cdd.peakAt && cdd.currentAt
+                    ? Math.max(0, Math.round(
+                        (new Date(cdd.currentAt) - new Date(cdd.peakAt)) / 86400000))
+                    : null;
+                const pctText = cdd.pctOfPeakProfit > 0
+                    ? ` · ${cdd.pctOfPeakProfit.toFixed(1)}% of peak`
+                    : '';
+                const daysText = daysBelow !== null
+                    ? `${daysBelow}d below peak`
+                    : 'below peak';
+                updateElement('currentDrawdownDetail', peakDate
+                    ? `${daysText} (since ${peakDate})${pctText}`
+                    : `${daysText}${pctText}`);
+                if (cddEl) cddEl.className = 'metric-value mono loss';
             }
 
             // All-time risk ratios + Calmar + VaR/CVaR + monthly tables.
