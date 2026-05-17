@@ -633,6 +633,7 @@
 
     <script src="./risk-metrics.js"></script>
     <script src="./portfolio-cache.js"></script>
+    <script src="./src/constants.js"></script>
     <script>
         // Live masthead date in UTC — analytics throughout the dashboard
         // bucket by UTC, so the masthead must follow the same calendar.
@@ -843,7 +844,7 @@
             const original = this.textContent;
             const flash = (msg) => {
                 this.textContent = msg;
-                setTimeout(() => { this.textContent = original; }, 1500);
+                setTimeout(() => { this.textContent = original; }, CLIPBOARD_FLASH_MS);
             };
             if (navigator.clipboard && navigator.clipboard.writeText) {
                 navigator.clipboard.writeText(toCopy)
@@ -874,44 +875,15 @@
 
         // dYdX API Configuration
         const DYDX_API = 'https://indexer.dydx.trade/v4';
-        // Bech32 dydx address: HRP "dydx" + separator "1" + bech32 data
-        // (32-char alphabet excluding b/i/o/1). Standard dydx accounts use
-        // 38 data chars (32 program + 6 checksum); module-account variants
-        // can run longer, so we permit 38–58.
-        const ADDRESS_RE = /^dydx1[qpzry9x8gf2tvdw0s3jn54khce6mua7l]{38,58}$/;
-        const FETCH_TIMEOUT_MS = 30000;
-        // Pagination tunables. Page-limit only — pagination loops walk to
-        // inception governed exclusively by natural termination signals
-        // (empty page, short page, dedup-cycle detection). No artificial
-        // page cap: presenting truncated data silently is worse than
-        // taking longer to load. Rate-limit / transient failure protection
-        // lives in fetchJsonWithRetry below (exponential backoff + jitter
-        // + Retry-After honoring), so a 429 from the indexer doesn't
-        // poison the load.
-        //   historicalPnl: 1000/page hourly
-        //   closedPositions: 100/page (indexer-side cap)
-        //   fills: 1000/page
-        //   fundingPayments: 1000/page
-        const HIST_PAGE_LIMIT = 1000;
-        const POS_PAGE_LIMIT = 100;
-        const FILLS_PAGE_LIMIT = 1000;
-        const FUNDING_PAGE_LIMIT = 1000;
-
-        // Tunables centralized so dashboards can be tweaked without scattering
-        // magic numbers across the script. See CLAUDE.md "No magic numbers".
-        const TUNABLES = Object.freeze({
-            TOP_MARKETS: 5,
-            RECENT_DECISIVE_CAP: 50,
-            RECENT_POSITIONS_CAP: 50,
-            HOUR_MIN_SAMPLE: 3,
-            DOUBLE_DOWN_GAP_HOURS: 1,
-            DOUBLE_DOWN_SIZE_MULT: 1.2,
-            TREND_HOLD_HOURS: 4,
-            FLIP_HOLD_HOURS: 0.25,
-            ASSET_SHARPE_MIN_N: 5,
-            PATTERN_MIN_N: 10,
-            ALWAYS_SHOW_TICKERS: ['BTC-USD', 'ETH-USD', 'SOL-USD']
-        });
+        const {
+            ADDRESS_RE,
+            FETCH_TIMEOUT_MS,
+            HIST_PAGE_LIMIT, POS_PAGE_LIMIT, FILLS_PAGE_LIMIT, FUNDING_PAGE_LIMIT,
+            MS_PER_MIN, MS_PER_HOUR, MS_PER_DAY,
+            HOURS_PER_YEAR,
+            CLIPBOARD_FLASH_MS,
+            TUNABLES
+        } = window.AppConstants;
 
         let currentAddress = null;
         let allData = {};
@@ -1088,7 +1060,7 @@
             if (hourlyFraction === null || hourlyFraction === undefined || hourlyFraction === '') return '-';
             const n = typeof hourlyFraction === 'number' ? hourlyFraction : parseFloat(hourlyFraction);
             if (!isFinite(n)) return '-';
-            const apr = n * 8760 * 100; // hourly × hours/year × pct factor
+            const apr = n * HOURS_PER_YEAR * 100; // hourly × hours/year × pct factor
             return apr.toFixed(2) + '%';
         }
 
@@ -1780,7 +1752,7 @@
                 const peakDate = cdd.peakAt ? cdd.peakAt.slice(0, 10) : null;
                 const daysBelow = cdd.peakAt && cdd.currentAt
                     ? Math.max(0, Math.round(
-                        (new Date(cdd.currentAt) - new Date(cdd.peakAt)) / 86400000))
+                        (new Date(cdd.currentAt) - new Date(cdd.peakAt)) / MS_PER_DAY))
                     : null;
                 const pctText = cdd.pctOfPeakProfit > 0
                     ? ` · ${cdd.pctOfPeakProfit.toFixed(1)}% of peak`
@@ -2364,8 +2336,8 @@ Sample: ${rets.length} returns over ${(adq.years*12).toFixed(1)} months (${(adq.
                 const durationMs = closed - created;
                 let durationText = '—';
                 if (isFinite(durationMs) && durationMs >= 0) {
-                    const hours = Math.floor(durationMs / 3600000);
-                    const minutes = Math.floor((durationMs % 3600000) / 60000);
+                    const hours = Math.floor(durationMs / MS_PER_HOUR);
+                    const minutes = Math.floor((durationMs % MS_PER_HOUR) / MS_PER_MIN);
                     durationText = (hours > 0 ? `${hours}h ` : '') + `${minutes}m`;
                 }
                 const realized = parseFloat(p.realizedPnl || 0);
@@ -2532,7 +2504,7 @@ Sample: ${rets.length} returns over ${(adq.years*12).toFixed(1)} months (${(adq.
             const holdHours = closedPos.map(p => {
                 const c = new Date(p.createdAt).getTime();
                 const d = new Date(p.closedAt).getTime();
-                return (isFinite(c) && isFinite(d) && d > c) ? (d - c) / 3600000 : null;
+                return (isFinite(c) && isFinite(d) && d > c) ? (d - c) / MS_PER_HOUR : null;
             }).filter(v => v !== null);
             const holdBuckets = [
                 { label: '0–1h',     range: [0,1],     count: 0 },
@@ -2692,7 +2664,7 @@ Small-N caveat: standard error widens; not a forward-Sharpe forecast.`;
             const holdMs = (p) => new Date(p.closedAt).getTime() - new Date(p.createdAt).getTime();
             const fmtDur = (ms) => {
                 if (!isFinite(ms) || ms <= 0) return '—';
-                const totalMin = Math.round(ms / 60000);
+                const totalMin = Math.round(ms / MS_PER_MIN);
                 const h = Math.floor(totalMin / 60);
                 const m = totalMin % 60;
                 return h > 0 ? `${h}h ${m}m` : `${m}m`;
@@ -2857,7 +2829,7 @@ Small-N caveat: standard error widens; not a forward-Sharpe forecast.`;
             if (!closed.length) return;
             const pnl = (p) => parseFloat(p.realizedPnl || 0);
             const sizeUsd = (p) => Math.abs(parseFloat(p.maxSize || p.sumOpen || p.size || 0)) * parseFloat(p.entryPrice || 0);
-            const holdH = (p) => (new Date(p.closedAt) - new Date(p.createdAt)) / 3600000;
+            const holdH = (p) => (new Date(p.closedAt) - new Date(p.createdAt)) / MS_PER_HOUR;
 
             // Pattern 1: Post-Loss Double Down — a loser followed within
             // DOUBLE_DOWN_GAP_HOURS in the same market by ≥DOUBLE_DOWN_SIZE_MULT × size.
@@ -2866,7 +2838,7 @@ Small-N caveat: standard error widens; not a forward-Sharpe forecast.`;
                 const cur = closed[i], nxt = closed[i+1];
                 if (cur.market !== nxt.market) continue;
                 if (pnl(cur) >= 0) continue;
-                const gapH = (new Date(nxt.createdAt) - new Date(cur.closedAt)) / 3600000;
+                const gapH = (new Date(nxt.createdAt) - new Date(cur.closedAt)) / MS_PER_HOUR;
                 if (gapH < 0 || gapH > TUNABLES.DOUBLE_DOWN_GAP_HOURS) continue;
                 const curSize = sizeUsd(cur), nxtSize = sizeUsd(nxt);
                 if (curSize > 0 && nxtSize >= TUNABLES.DOUBLE_DOWN_SIZE_MULT * curSize) doubleDown.push(nxt);
@@ -2965,7 +2937,7 @@ Small-N caveat: standard error widens; not a forward-Sharpe forecast.`;
             const top = events.slice(0, 5);
             const fmtDate = (iso) => new Date(iso).toISOString().slice(0, 10);
             const dayDelta = (a, b) => Math.max(1,
-                Math.round((new Date(b) - new Date(a)) / 86400000));
+                Math.round((new Date(b) - new Date(a)) / MS_PER_DAY));
             top.forEach(ev => {
                 const tr = document.createElement('tr');
                 const period = ev.recoveryAt
@@ -2992,9 +2964,7 @@ Small-N caveat: standard error widens; not a forward-Sharpe forecast.`;
         // reloads and re-renders. Default is 30 days to match prior behavior.
         // ──────────────────────────────────────────────────────────────────
         const FUNDING_WINDOW_KEY = 'fundingWindow';
-        const HOURS_PER_YEAR = 8760;
-
-        function getFundingWindowDays() {
+                function getFundingWindowDays() {
             try {
                 const v = localStorage.getItem(FUNDING_WINDOW_KEY);
                 if (v === '7' || v === '30' || v === '90' || v === 'all') return v;
@@ -3070,7 +3040,7 @@ Small-N caveat: standard error widens; not a forward-Sharpe forecast.`;
 
             const windowKey = getFundingWindowDays();
             const windowHours = windowKey === 'all'
-                ? Math.max(1, (Date.now() - periodStart) / 3600000)
+                ? Math.max(1, (Date.now() - periodStart) / MS_PER_HOUR)
                 : parseInt(windowKey, 10) * 24;
             const capitalTurns = (avgNotional > 0) ? notionalHours / (avgNotional * windowHours) : 0;
 
@@ -3311,7 +3281,7 @@ Small-N caveat: standard error widens; not a forward-Sharpe forecast.`;
             const cumsRaw = window.RiskMetrics.buildCumulativeTotalPnlSeries(historicalPnl || []);
             if (cumsRaw.length < 2) return;
             const spanMs = new Date(cumsRaw[cumsRaw.length - 1].t).getTime() - new Date(cumsRaw[0].t).getTime();
-            const spanDays = spanMs / 86400000;
+            const spanDays = spanMs / MS_PER_DAY;
             const xAxisUnit = spanDays > 350 ? 'month' : spanDays > 50 ? 'week' : 'day';
             // Aggregate OHLC per period from the full hourly series so each
             // candle shows intra-period high / low / open / close of cumulative
