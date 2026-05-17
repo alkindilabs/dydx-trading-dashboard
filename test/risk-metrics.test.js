@@ -1022,3 +1022,76 @@ test('liquidationRow tolerates empty marketsMap (uses position entryPrice fallba
     assert.ok(row !== null);
     assert.equal(row.notional, 100);
 });
+
+// ---------------------------------------------------------------------------
+// classifyClosed derived fields — pin the single-source-of-truth contract
+// for winRate / profitFactor / avgWin / avgLoss / expectancy. Consumers
+// MUST use these instead of recomputing inline (CLAUDE.md M4 rule).
+// ---------------------------------------------------------------------------
+
+test('classifyClosed derived fields: winRate, profitFactor, avgWin, avgLoss, expectancy', () => {
+    const positions = [
+        { status: 'CLOSED', realizedPnl: '100' },
+        { status: 'CLOSED', realizedPnl: '200' },
+        { status: 'CLOSED', realizedPnl: '-50' },
+        { status: 'CLOSED', realizedPnl: '0'   }   // scratch
+    ];
+    const c = RM.classifyClosed(positions);
+    assert.equal(c.winCount, 2);
+    assert.equal(c.lossCount, 1);
+    assert.equal(c.scratchCount, 1);
+    assert.equal(c.decisiveCount, 3);
+    // winRate = 2 / 3 × 100 ≈ 66.67
+    assert.ok(close(c.winRate, 66.666666, 1e-3));
+    // profitFactor = 300 / 50 = 6
+    assert.equal(c.profitFactor, 6);
+    // avgWin = 300 / 2 = 150
+    assert.equal(c.avgWin, 150);
+    // avgLoss = 50 / 1 = 50
+    assert.equal(c.avgLoss, 50);
+    // expectancy = (300 − 50) / 3 ≈ 83.33
+    assert.ok(close(c.expectancy, 83.333333, 1e-3));
+});
+
+test('classifyClosed derived fields are null when denominator is zero', () => {
+    const allScratches = [{ status: 'CLOSED', realizedPnl: '0' }];
+    const c1 = RM.classifyClosed(allScratches);
+    assert.equal(c1.winRate, null);
+    assert.equal(c1.profitFactor, null);
+    assert.equal(c1.avgWin, null);
+    assert.equal(c1.avgLoss, null);
+    assert.equal(c1.expectancy, null);
+
+    const winsOnly = [
+        { status: 'CLOSED', realizedPnl: '100' },
+        { status: 'CLOSED', realizedPnl: '50'  }
+    ];
+    const c2 = RM.classifyClosed(winsOnly);
+    assert.equal(c2.winRate, 100);
+    assert.equal(c2.profitFactor, null, 'no losses → PF undefined');
+    assert.equal(c2.avgWin, 75);
+    assert.equal(c2.avgLoss, null);
+    assert.equal(c2.expectancy, 75);
+});
+
+test('classifyByMonth buckets closed positions by closedAt month', () => {
+    const positions = [
+        { status: 'CLOSED', closedAt: '2025-01-15T00:00:00Z', realizedPnl: '100' },
+        { status: 'CLOSED', closedAt: '2025-01-20T00:00:00Z', realizedPnl: '-50' },
+        { status: 'CLOSED', closedAt: '2025-02-05T00:00:00Z', realizedPnl: '200' },
+        { status: 'OPEN',   createdAt: '2025-02-10T00:00:00Z' }, // skipped
+    ];
+    const monthly = RM.classifyByMonth(positions);
+    const keys = Object.keys(monthly);
+    assert.equal(keys.length, 2);
+    assert.equal(monthly['January 2025'].winCount, 1);
+    assert.equal(monthly['January 2025'].lossCount, 1);
+    assert.equal(monthly['January 2025'].expectancy, 25); // (100−50)/2
+    assert.equal(monthly['February 2025'].winCount, 1);
+    assert.equal(monthly['February 2025'].profitFactor, null); // no losses
+});
+
+test('classifyByMonth empty / null input → {}', () => {
+    assert.deepEqual(RM.classifyByMonth(null), {});
+    assert.deepEqual(RM.classifyByMonth([]), {});
+});
