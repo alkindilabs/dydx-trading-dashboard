@@ -637,6 +637,8 @@
     <script src="./src/format.js"></script>
     <script src="./src/charts/pnl-chart.js"></script>
     <script src="./src/charts/market-chart.js"></script>
+    <script src="./src/dom.js"></script>
+    <script src="./src/panels/positions.js"></script>
     <script>
         // Live masthead date in UTC — analytics throughout the dashboard
         // bucket by UTC, so the masthead must follow the same calendar.
@@ -893,6 +895,8 @@
             formatPrice, fmtRatio, formatShortNumber, fmtNotional, fmtSignedPct,
             fmtDateShort
         } = window.Format;
+
+        const { safeText, appendCell, tagCells, updateElement } = window.AppDom;
 
         let currentAddress = null;
         let allData = {};
@@ -1845,7 +1849,7 @@ Sample: ${rets.length} returns over ${(adq.years*12).toFixed(1)} months (${(adq.
                     ? fmtRatio(recoveryNumer / tsd.dollarDrawdown)
                     : 'N/A');
 
-            updatePositionsTabFromData(allPositions, fillsArr, subaccount);
+            window.AppPanels.positions.render(allPositions, fillsArr, subaccount);
             updatePerformanceMetrics(allPositions, cls);
             updateTimeAnalysis(allPositions);
             updateActivityHeatmap(allPositions);
@@ -1876,41 +1880,6 @@ Sample: ${rets.length} returns over ${(adq.years*12).toFixed(1)} months (${(adq.
             // $-only because a flow-vs-equity ratio is meaningless across changing equity.
             const payments = (allData.fundingPayments && (allData.fundingPayments.fundingPayments || [])) || [];
             renderFundingViews(payments, marketsMap);
-        }
-
-        function safeText(v) {
-            if (v === null || v === undefined) return '—';
-            if (typeof v === 'number' && !isFinite(v)) return v === Infinity ? '∞' : '—';
-            return v;
-        }
-
-        // Build a <td> with text-only content. Used everywhere row data
-        // includes API-derived strings — textContent prevents an indexer
-        // string ever reaching innerHTML.
-        function appendCell(tr, text, classes = []) {
-            const td = document.createElement('td');
-            classes.filter(Boolean).forEach(c => td.classList.add(c));
-            td.textContent = (text === null || text === undefined) ? '—' : String(text);
-            tr.appendChild(td);
-            return td;
-        }
-
-        // Tag each <td> with data-label matching its column header so the
-        // <600px stacked-card table CSS can surface the label via ::before
-        // pseudo-element. Skips cells with colspan (footer notes).
-        function tagCells(tbodyId) {
-            const tbody = document.getElementById(tbodyId);
-            if (!tbody) return;
-            const table = tbody.closest('table');
-            if (!table || !table.tHead || !table.tHead.rows.length) return;
-            const headers = [...table.tHead.rows[0].cells].map(th => th.textContent.trim());
-            tbody.querySelectorAll('tr').forEach(tr => {
-                [...tr.children].forEach((td, i) => {
-                    if (headers[i] && !td.hasAttribute('colspan')) {
-                        td.setAttribute('data-label', headers[i]);
-                    }
-                });
-            });
         }
 
         // Strategy Edge phase diagram. Renders a 2D plot of
@@ -2223,72 +2192,6 @@ Sample: ${rets.length} returns over ${(adq.years*12).toFixed(1)} months (${(adq.
                 feesEl.textContent = fmt(feesContribution);
                 feesEl.className = `mono ${sign(feesContribution)}`;
             }
-        }
-
-        function updateElement(id, value) {
-            const el = document.getElementById(id);
-            if (el) el.textContent = safeText(value);
-        }
-
-        function updatePositionsTabFromData(positions, fills, subaccount) {
-            const openPositions = positions.filter(p => p.status === 'OPEN');
-            const activeCount = openPositions.length;
-            const activeNotional = openPositions.reduce((sum, p) => {
-                const size = parseFloat(p.size || 0);
-                const entry = parseFloat(p.entryPrice || 0);
-                return sum + (size * entry);
-            }, 0);
-            updateElement('positionsActiveCount', String(activeCount));
-            updateElement('positionsActiveNotional', activeCount > 0 ? formatPrice(activeNotional) : '-');
-
-            const totalFills = Array.isArray(fills) ? fills.length : 0;
-            if (totalFills > 0) {
-                const takerFills = fills.filter(f => f.liquidity === 'TAKER').length;
-                updateElement('positionsFillRate', ((takerFills / totalFills) * 100).toFixed(1) + '%');
-            } else {
-                updateElement('positionsFillRate', '-');
-            }
-
-            const body = document.getElementById('positionsHistoryBody');
-            if (!body) return;
-            body.innerHTML = '';
-
-            const closedPositions = positions
-                .filter(p => p.status === 'CLOSED')
-                .sort((a, b) => new Date(b.closedAt) - new Date(a.closedAt))
-                .slice(0, TUNABLES.RECENT_POSITIONS_CAP);
-
-            closedPositions.forEach(p => {
-                const tr = document.createElement('tr');
-                const created = new Date(p.createdAt);
-                const closed = new Date(p.closedAt);
-                const durationMs = closed - created;
-                let durationText = '—';
-                if (isFinite(durationMs) && durationMs >= 0) {
-                    const hours = Math.floor(durationMs / MS_PER_HOUR);
-                    const minutes = Math.floor((durationMs % MS_PER_HOUR) / MS_PER_MIN);
-                    durationText = (hours > 0 ? `${hours}h ` : '') + `${minutes}m`;
-                }
-                const realized = parseFloat(p.realizedPnl || 0);
-                const pct = (parseFloat(p.exitPrice || 0) && parseFloat(p.entryPrice || 0))
-                    ? ((parseFloat(p.exitPrice) - parseFloat(p.entryPrice)) / parseFloat(p.entryPrice)) * (p.side === 'LONG' ? 100 : -100)
-                    : 0;
-                const funding = parseFloat(p.netFunding || 0);
-                const sizeShown = fmtNum(p.maxSize || p.sumOpen || p.size || 0);
-
-                appendCell(tr, isFinite(closed.getTime()) ? closed.toLocaleString() : '—', ['mono']);
-                appendCell(tr, p.market || '-', ['mono']);
-                appendCell(tr, (p.side || '').toUpperCase(), ['mono']);
-                appendCell(tr, sizeShown, ['mono']);
-                appendCell(tr, formatPrice(p.entryPrice), ['mono']);
-                appendCell(tr, formatPrice(p.exitPrice), ['mono']);
-                appendCell(tr, formatCurrency(realized), ['mono', realized >= 0 ? 'profit' : 'loss']);
-                appendCell(tr, pct.toFixed(2) + '%', ['mono', pct >= 0 ? 'profit' : 'loss']);
-                appendCell(tr, durationText, ['mono']);
-                appendCell(tr, formatCurrency(funding), ['mono', funding >= 0 ? 'profit' : 'loss']);
-                body.appendChild(tr);
-            });
-            tagCells('positionsHistoryBody');
         }
 
         function updatePerformanceMetrics(positions, precomputedCls) {
