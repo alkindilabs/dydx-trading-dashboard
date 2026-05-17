@@ -45,5 +45,14 @@
     if (el) el.textContent = safeText(value);
   }
 
-  window.AppDom = { safeText, appendCell, tagCells, updateElement };
+  // Set text + apply profit/loss class for currency-coded cells.
+  function updateMetric(id, value, isPositive = true) {
+    const el = document.getElementById(id);
+    if (el) {
+      el.textContent = safeText(value);
+      el.className = isPositive ? 'metric-value mono profit' : 'metric-value mono loss';
+    }
+  }
+
+  window.AppDom = { safeText, appendCell, tagCells, updateElement, updateMetric };
 })();
