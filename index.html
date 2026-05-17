@@ -1507,7 +1507,7 @@
                     return;
                 }
 
-                const ann = window.RiskMetrics.computeAnnualizedFromReturns(rets, timestamps, { mar: 0, denominator: 'all' });
+                const ann = window.RiskMetrics.computeAnnualizedFromReturns(rets, timestamps, { mar: 0 });
                 updateElement('sharpeRatio', fmtRatio(ann.sharpeAnnualized));
                 updateElement('sortinoRatio', fmtRatio(ann.sortinoAnnualized));
 

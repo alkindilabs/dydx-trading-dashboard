@@ -71,21 +71,14 @@
   }
 
   /**
-   * Compute Sortino ratio from per-period returns.
-   * Both denominator modes use the canonical sum-of-squares of negative excess
-   * returns; they only differ in the divisor:
-   *   'all'      → divide by total period count N (target semi-deviation, the
-   *                Sortino downside deviation as defined by Frank Sortino).
-   *   'negative' → divide by N as well; preserved as an alias of 'all' for
-   *                backward compatibility. (Earlier versions divided by the
-   *                count of negative periods, which is a non-standard
-   *                semi-deviation that overstates Sortino.)
+   * Compute Sortino ratio from per-period returns. Frank-Sortino downside
+   * deviation: sum of squared negative excess returns divided by N (the
+   * target semi-deviation; NOT the non-standard divide-by-count-of-negatives).
    * @param {number[]} returns fractional returns per period
    * @param {number} mar minimum acceptable return per period (default 0)
-   * @param {'all'|'negative'} denominator deviation divisor mode (default 'all')
    * @returns {number|null} null when undefined; Infinity only if no downside variance
    */
-  function computeSortino(returns, mar = 0, denominator = 'all') {
+  function computeSortino(returns, mar = 0) {
     if (!Array.isArray(returns) || returns.length === 0) return null;
     const excess = returns.map(r => r - mar);
     const mu = mean(excess);
@@ -101,14 +94,13 @@
    * Uses transfer-aware time-weighted returns (pnlDelta / equity_{t-1}) so deposits/withdrawals
    * do not appear as fictitious returns.
    * @param {Array} historicalPnl array of { equity, totalPnl, createdAt, ... }
-   * @param {{mar?: number, denominator?: 'all'|'negative'}} options
+   * @param {{mar?: number}} options
    */
   function computeFromHistoricalPnl(historicalPnl, options = {}) {
     const mar = options.mar ?? 0;
-    const denominator = options.denominator ?? 'all';
     const returns = computeTimeWeightedReturnsFromHist(historicalPnl);
     const sharpe = computeSharpe(returns, mar);
-    const sortino = computeSortino(returns, mar, denominator);
+    const sortino = computeSortino(returns, mar);
     return { returns, sharpe, sortino };
   }
 
@@ -135,9 +127,8 @@
 
   function computeAnnualizedFromReturns(returns, timestamps, options = {}) {
     const mar = options.mar ?? 0;
-    const denominator = options.denominator ?? 'all';
     const perPeriodSharpe = computeSharpe(returns, mar);
-    const perPeriodSortino = computeSortino(returns, mar, denominator);
+    const perPeriodSortino = computeSortino(returns, mar);
     const ppy = detectPeriodsPerYearFromTimestamps(timestamps);
     const factor = ppy > 0 ? Math.sqrt(ppy) : 1;
     const annualize = (v) => (v === null || !isFinite(v)) ? v : v * factor;
@@ -152,13 +143,12 @@
 
   function computeAnnualizedFromHistoricalPnl(historicalPnl, options = {}) {
     const mar = options.mar ?? 0;
-    const denominator = options.denominator ?? 'all';
     const series = Array.isArray(historicalPnl) ? historicalPnl.slice().sort((a, b) => (
       (a.createdAt || '').localeCompare(b.createdAt || '')
     )) : [];
     const timestamps = series.map(p => p.createdAt).filter(Boolean);
     const returns = computeTimeWeightedReturnsFromHist(series);
-    const { sharpe, sortino, sharpeAnnualized, sortinoAnnualized, ppy } = computeAnnualizedFromReturns(returns, timestamps, { mar, denominator });
+    const { sharpe, sortino, sharpeAnnualized, sortinoAnnualized, ppy } = computeAnnualizedFromReturns(returns, timestamps, { mar });
     return { returns, sharpe, sortino, sharpeAnnualized, sortinoAnnualized, ppy };
   }
 
