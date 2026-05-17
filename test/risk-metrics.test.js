@@ -782,3 +782,243 @@ test('assessAdequacy coverage < 0.5 returns adequate=false', () => {
     assert.equal(out.adequate, false);
     assert.match(out.reason, /coverage/i);
 });
+
+// ---------------------------------------------------------------------------
+// computeSharpe / computeSortino — pin null/Infinity contract the UI relies
+// on for the `—` rendering path.
+// ---------------------------------------------------------------------------
+
+test('computeSharpe returns null on zero variance (constant returns)', () => {
+    assert.equal(RM.computeSharpe([0.01, 0.01, 0.01, 0.01]), null);
+    assert.equal(RM.computeSharpe([0]), null);
+    assert.equal(RM.computeSharpe([]), null);
+    assert.equal(RM.computeSharpe(null), null);
+});
+
+test('computeSharpe returns finite ratio when returns have variance', () => {
+    const s = RM.computeSharpe([0.02, -0.01, 0.03, -0.02, 0.01]);
+    assert.ok(typeof s === 'number' && isFinite(s), `expected finite, got ${s}`);
+});
+
+test('computeSortino returns Infinity when mean > 0 and no downside variance', () => {
+    // All returns positive: downside deviation = 0, mean > 0 → Infinity.
+    assert.equal(RM.computeSortino([0.01, 0.02, 0.03]), Infinity);
+});
+
+test('computeSortino returns null when downside variance = 0 and mean ≤ 0', () => {
+    assert.equal(RM.computeSortino([0, 0, 0]), null);
+});
+
+test('computeSortino returns finite ratio when downside variance > 0', () => {
+    const s = RM.computeSortino([0.02, -0.03, 0.01, -0.01]);
+    assert.ok(typeof s === 'number' && isFinite(s), `expected finite, got ${s}`);
+});
+
+// ---------------------------------------------------------------------------
+// computeTimeWeightedReturnsFromHist — transfer-aware contract: deposits and
+// withdrawals never appear as fictitious returns; denominator is PRIOR-row
+// equity (not current).
+// ---------------------------------------------------------------------------
+
+test('computeTimeWeightedReturnsFromHist drops periods where prior equity ≤ 0', () => {
+    const rows = [
+        { createdAt: '2025-01-01T00:00:00Z', equity: '0',    totalPnl: '0' },
+        { createdAt: '2025-01-02T00:00:00Z', equity: '1000', totalPnl: '0' },
+        { createdAt: '2025-01-03T00:00:00Z', equity: '1050', totalPnl: '50' }
+    ];
+    const r = RM.computeTimeWeightedReturnsFromHist(rows);
+    // Period 1→2 dropped (prevEq = 0); period 2→3 included: 50/1000 = 0.05.
+    assert.equal(r.length, 1);
+    assert.ok(close(r[0], 0.05));
+});
+
+test('computeTimeWeightedReturnsFromHist uses PRIOR-row equity as denominator', () => {
+    // pnlDelta = 100; prev equity = 1000 → 0.10.  curr equity is 10000
+    // (large deposit), but the return must NOT use it as the divisor.
+    const rows = [
+        { createdAt: '2025-01-01T00:00:00Z', equity: '1000',  totalPnl: '0' },
+        { createdAt: '2025-01-02T00:00:00Z', equity: '10000', totalPnl: '100' }
+    ];
+    const r = RM.computeTimeWeightedReturnsFromHist(rows);
+    assert.equal(r.length, 1);
+    assert.ok(close(r[0], 0.1), `expected 0.1 (100/1000), got ${r[0]}`);
+});
+
+test('computeTimeWeightedReturnsFromHist isolates pnlDelta (transfers ignored)', () => {
+    // Equity jumps from 1000 → 5000 via deposit but totalPnl unchanged.
+    // r = pnlDelta / prevEq = 0 / 1000 = 0 (NOT (5000-1000)/1000 = 4).
+    const rows = [
+        { createdAt: '2025-01-01T00:00:00Z', equity: '1000', totalPnl: '0' },
+        { createdAt: '2025-01-02T00:00:00Z', equity: '5000', totalPnl: '0' }
+    ];
+    const r = RM.computeTimeWeightedReturnsFromHist(rows);
+    assert.equal(r.length, 1);
+    assert.equal(r[0], 0);
+});
+
+// ---------------------------------------------------------------------------
+// computeAnnualizedFromReturns / FromHistoricalPnl — ppy detection +
+// √ppy annualization.
+// ---------------------------------------------------------------------------
+
+test('computeAnnualizedFromReturns annualizes by √ppy', () => {
+    const rets = [0.01, -0.01, 0.02, -0.02, 0.005, -0.005, 0.015];
+    const ts = rets.map((_, i) => new Date(2025, 0, i + 1).toISOString());
+    const out = RM.computeAnnualizedFromReturns(rets, ts);
+    assert.ok(out.ppy > 350 && out.ppy < 370, `daily ppy ≈ 365.25, got ${out.ppy}`);
+    const factor = Math.sqrt(out.ppy);
+    assert.ok(close(out.sharpeAnnualized, out.sharpe * factor, 1e-6));
+});
+
+test('computeAnnualizedFromHistoricalPnl integrates the full pipeline', () => {
+    const rows = [
+        { createdAt: '2025-01-01T00:00:00Z', equity: '1000', totalPnl: '0' },
+        { createdAt: '2025-01-02T00:00:00Z', equity: '1010', totalPnl: '10' },
+        { createdAt: '2025-01-03T00:00:00Z', equity: '1005', totalPnl: '5' },
+        { createdAt: '2025-01-04T00:00:00Z', equity: '1030', totalPnl: '30' }
+    ];
+    const out = RM.computeAnnualizedFromHistoricalPnl(rows);
+    assert.equal(out.returns.length, 3);
+    assert.ok(typeof out.ppy === 'number' && out.ppy > 0);
+});
+
+// ---------------------------------------------------------------------------
+// tradeReturn — maxSize → sumOpen → size fallback chain.
+// ---------------------------------------------------------------------------
+
+test('tradeReturn prefers maxSize when present', () => {
+    const p = { maxSize: '2', sumOpen: '10', size: '5', entryPrice: '100', realizedPnl: '20' };
+    // r = 20 / (2 * 100) = 0.10
+    assert.ok(close(RM.tradeReturn(p), 0.1));
+});
+
+test('tradeReturn falls back to sumOpen when maxSize missing', () => {
+    const p = { sumOpen: '4', size: '5', entryPrice: '100', realizedPnl: '20' };
+    // r = 20 / (4 * 100) = 0.05
+    assert.ok(close(RM.tradeReturn(p), 0.05));
+});
+
+test('tradeReturn falls back to size when both maxSize and sumOpen missing', () => {
+    const p = { size: '5', entryPrice: '100', realizedPnl: '20' };
+    // r = 20 / (5 * 100) = 0.04
+    assert.ok(close(RM.tradeReturn(p), 0.04));
+});
+
+test('tradeReturn returns null when notional cannot be computed', () => {
+    assert.equal(RM.tradeReturn({ entryPrice: '100', realizedPnl: '20' }), null);
+    assert.equal(RM.tradeReturn({ size: '5', realizedPnl: '20' }), null);
+    assert.equal(RM.tradeReturn({ size: '0', entryPrice: '100', realizedPnl: '20' }), null);
+});
+
+// ---------------------------------------------------------------------------
+// assessAdequacy — MIN_YEARS=1/12 boundary + happy path.
+// ---------------------------------------------------------------------------
+
+test('assessAdequacy fails when years < 1/12 even with 30+ returns', () => {
+    // 30 returns, each ~1 minute apart → years ≪ 1/12, even with high ppy.
+    const rets = Array(30).fill(0.001);
+    const ts = rets.map((_, i) => new Date(2025, 0, 1, 0, i).toISOString());
+    const out = RM.assessAdequacy(rets, ts, 30);
+    assert.equal(out.adequate, false);
+    assert.match(out.reason, /month/i, `expected MIN_YEARS reason, got: ${out.reason}`);
+});
+
+test('assessAdequacy adequate=true at n=35 daily over 35d (>1 month)', () => {
+    // Boundary detail: MIN_YEARS = 1/12 ≈ 0.0833 years ≈ 30.4 days. 30
+    // returns over 30 days lands at 30/365.25 ≈ 0.0821 years and would
+    // fail the gate by ~1%. 35 returns over 35 days clears it cleanly.
+    const rets = Array(35).fill(0.01);
+    const ts = rets.map((_, i) => new Date(2025, 0, i + 1).toISOString());
+    const out = RM.assessAdequacy(rets, ts, 35);
+    assert.equal(out.adequate, true, `expected adequate, reason="${out.reason}"`);
+    assert.equal(out.reason, '');
+});
+
+// ---------------------------------------------------------------------------
+// histPnlDrawdownEvents / tradeSystemDrawdownEvents — multi-event scans.
+// ---------------------------------------------------------------------------
+
+test('histPnlDrawdownEvents emits each peak-to-recovery cycle', () => {
+    const rows = [
+        { createdAt: '2025-01-01T00:00:00Z', totalPnl: '0' },
+        { createdAt: '2025-01-02T00:00:00Z', totalPnl: '100' },  // peak 1
+        { createdAt: '2025-01-03T00:00:00Z', totalPnl: '40' },   // trough 1
+        { createdAt: '2025-01-04T00:00:00Z', totalPnl: '120' },  // recovers + new peak
+        { createdAt: '2025-01-05T00:00:00Z', totalPnl: '60' },   // trough 2 (no recovery)
+    ];
+    const events = RM.histPnlDrawdownEvents(rows);
+    assert.equal(events.length, 2, `expected 2 events, got ${events.length}`);
+    assert.equal(events[0].recoveryAt, '2025-01-04T00:00:00Z');
+    assert.equal(events[1].recoveryAt, null);
+});
+
+test('histPnlDrawdownEvents recovery requires returning to or above prior peak', () => {
+    const rows = [
+        { createdAt: '2025-01-01T00:00:00Z', totalPnl: '0' },
+        { createdAt: '2025-01-02T00:00:00Z', totalPnl: '100' },
+        { createdAt: '2025-01-03T00:00:00Z', totalPnl: '50' },
+        { createdAt: '2025-01-04T00:00:00Z', totalPnl: '99' }, // below peak → not recovered
+    ];
+    const events = RM.histPnlDrawdownEvents(rows);
+    assert.equal(events.length, 1);
+    assert.equal(events[0].recoveryAt, null);
+});
+
+test('tradeSystemDrawdownEvents enumerates events on cumulative realizedPnl', () => {
+    const positions = [
+        { status: 'CLOSED', closedAt: '2025-01-01T00:00:00Z', realizedPnl: '100' },
+        { status: 'CLOSED', closedAt: '2025-01-02T00:00:00Z', realizedPnl: '-60' },
+        { status: 'CLOSED', closedAt: '2025-01-03T00:00:00Z', realizedPnl: '80' },  // cum 120 → new peak
+        { status: 'CLOSED', closedAt: '2025-01-04T00:00:00Z', realizedPnl: '-40' }, // trough 80
+    ];
+    const events = RM.tradeSystemDrawdownEvents(positions);
+    assert.ok(events.length >= 1, `expected at least 1 event, got ${events.length}`);
+    assert.ok(events.every(e => e.depthAbs > 0));
+});
+
+// ---------------------------------------------------------------------------
+// computeRealizedFromFills — defensive contracts: skip unknown-side and
+// zero-size rows without crashing (indexer schema drift protection).
+// ---------------------------------------------------------------------------
+
+test('computeRealizedFromFills ignores unknown side strings', () => {
+    const fills = [
+        { market: 'ETH-USD', side: 'BUY',    size: '1', price: '100', createdAt: '2025-01-01' },
+        { market: 'ETH-USD', side: 'WEIRD',  size: '1', price: '150', createdAt: '2025-01-02' },
+        { market: 'ETH-USD', side: 'SELL',   size: '1', price: '150', createdAt: '2025-01-03' },
+    ];
+    const out = RM.computeRealizedFromFills(fills);
+    assert.ok(close(out.total, 50), `expected +50 (1 buy @100, 1 sell @150), got ${out.total}`);
+});
+
+test('computeRealizedFromFills skips zero-size and unparseable fills', () => {
+    const fills = [
+        { market: 'BTC-USD', side: 'BUY',  size: '0',   price: '100', createdAt: '2025-01-01' },
+        { market: 'BTC-USD', side: 'BUY',  size: 'NaN', price: '100', createdAt: '2025-01-02' },
+        { market: 'BTC-USD', side: 'BUY',  size: '1',   price: '100', createdAt: '2025-01-03' },
+        { market: 'BTC-USD', side: 'SELL', size: '1',   price: '150', createdAt: '2025-01-04' },
+    ];
+    const out = RM.computeRealizedFromFills(fills);
+    assert.ok(close(out.total, 50));
+});
+
+// ---------------------------------------------------------------------------
+// liquidationRow — null position / missing market shouldn't crash callers.
+// ---------------------------------------------------------------------------
+
+test('liquidationRow returns null for null position', () => {
+    assert.equal(RM.liquidationRow(null, { equity: '1000' }, {}), null);
+});
+
+test('liquidationRow returns null for null subaccount', () => {
+    assert.equal(RM.liquidationRow({ market: 'BTC-USD', size: '1', side: 'LONG' }, null, {}), null);
+});
+
+test('liquidationRow tolerates empty marketsMap (uses position entryPrice fallback)', () => {
+    const p = { market: 'BTC-USD', size: '1', side: 'LONG', entryPrice: '100' };
+    const sub = { equity: '50' };
+    const row = RM.liquidationRow(p, sub, {});
+    // size=1, oracle=0 → notional uses entryPrice fallback = 100
+    assert.ok(row !== null);
+    assert.equal(row.notional, 100);
+});
