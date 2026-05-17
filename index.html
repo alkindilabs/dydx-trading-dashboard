@@ -2046,8 +2046,8 @@
                     <div class="metric-value mono" id="profitFactor">-</div>
                     <div class="metric-change mono" id="profitFactorDetail">-</div>
                 </div>
-                <div class="metric-card" title="Avg winning trade ÷ avg losing trade. Equals (profit factor × (1 − win rate) / win rate) — the same Implied R:R surfaced on the phase diagram.">
-                    <div class="metric-label">Risk:Reward</div>
+                <div class="metric-card" title="Payoff Ratio = avg winning trade ÷ avg losing trade. Equals (profit factor × (1 − win rate) / win rate) — the same number the phase diagram surfaces as Implied Payoff. > 1 means winners are larger than losers; below 1, losers dominate.">
+                    <div class="metric-label">Payoff Ratio</div>
                     <div class="metric-value mono" id="riskRewardHero">-</div>
                     <div class="metric-change mono" id="riskRewardHeroDetail">avg win / avg loss</div>
                 </div>
@@ -2120,8 +2120,8 @@
                                 <dt>Profit factor</dt>
                                 <dd class="mono" id="seProfitFactorOut">—</dd>
                             </div>
-                            <div title="Derived from PF = WR × R:R / (1 − WR). Holds the gross-profit / gross-loss ratio explained by the two metrics.">
-                                <dt>Implied R:R</dt>
+                            <div title="Implied Payoff (avg win ÷ avg loss). Derived from PF = WR × payoff / (1 − WR). Holds the gross-profit / gross-loss ratio explained by win rate + profit factor.">
+                                <dt>Implied Payoff</dt>
                                 <dd class="mono" id="seImpliedRR">—</dd>
                             </div>
                         </dl>
@@ -2156,7 +2156,7 @@
                     <table class="broadsheet-table">
                         <tr><td>Average Win</td><td class="mono profit" id="avgWin">-</td></tr>
                         <tr><td>Average Loss</td><td class="mono loss" id="avgLoss">-</td></tr>
-                        <tr><td>Risk/Reward Ratio</td><td class="mono" id="riskReward">-</td></tr>
+                        <tr><td>Payoff Ratio</td><td class="mono" id="riskReward">-</td></tr>
                         <tr><td>Trade Expectancy</td><td class="mono profit" id="expectancy">-</td></tr>
                         <tr><td id="recoveryFactorLabel">Recovery Factor</td><td class="mono" id="recoveryFactor">-</td></tr>
                     </table>
@@ -2200,8 +2200,8 @@
                     <div class="metric-value mono" id="maxConsecLosses">-</div>
                     <div class="metric-change mono loss" id="maxConsecLossesDetail"></div>
                 </div>
-                <div class="metric-card">
-                    <div class="metric-label">Average RRR</div>
+                <div class="metric-card" title="Payoff Ratio = avg winning trade ÷ avg losing trade. > 1 means winners are larger than losers; below 1, losers dominate. Same number as the Overview headline.">
+                    <div class="metric-label">Payoff Ratio</div>
                     <div class="metric-value mono" id="avgRRR">-</div>
                     <div class="metric-change mono" id="avgRRRDetail">vs 2:1 target</div>
                 </div>
