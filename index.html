@@ -639,6 +639,7 @@
     <script src="./src/charts/market-chart.js"></script>
     <script src="./src/dom.js"></script>
     <script src="./src/panels/positions.js"></script>
+    <script src="./src/panels/behavior.js"></script>
     <script>
         // Live masthead date in UTC — analytics throughout the dashboard
         // bucket by UTC, so the masthead must follow the same calendar.
@@ -1851,11 +1852,11 @@ Sample: ${rets.length} returns over ${(adq.years*12).toFixed(1)} months (${(adq.
 
             window.AppPanels.positions.render(allPositions, fillsArr, subaccount);
             updatePerformanceMetrics(allPositions, cls);
-            updateTimeAnalysis(allPositions);
-            updateActivityHeatmap(allPositions);
+            window.AppPanels.behavior.renderTimeAnalysis(allPositions);
+            window.AppPanels.behavior.renderActivityHeatmap(allPositions);
             updateLiquidationTable(allPositions, marketsMap, subaccount);
             updateLeverageUtilization(allPositions, subaccount, marketsMap);
-            updateDetectedPatterns(allPositions);
+            window.AppPanels.behavior.renderDetectedPatterns(allPositions);
 
             // Kelly criterion — pWin denominator matches Header Win Rate
             // (decisive trades only, scratches excluded). Renders N/A unless
@@ -2478,97 +2479,6 @@ Small-N caveat: standard error widens; not a forward-Sharpe forecast.`;
         }
 
         // Time Analysis (Overview): hold times, best/worst trading hour, most active day
-        function updateTimeAnalysis(positions) {
-            const closed = positions.filter(p => p.status === 'CLOSED' && p.closedAt && p.createdAt);
-            if (!closed.length) {
-                ['avgHoldWin','avgHoldLoss','bestHour','worstHour','mostActiveDay'].forEach(id => updateElement(id, '—'));
-                return;
-            }
-            const holdMs = (p) => new Date(p.closedAt).getTime() - new Date(p.createdAt).getTime();
-            const fmtDur = (ms) => {
-                if (!isFinite(ms) || ms <= 0) return '—';
-                const totalMin = Math.round(ms / MS_PER_MIN);
-                const h = Math.floor(totalMin / 60);
-                const m = totalMin % 60;
-                return h > 0 ? `${h}h ${m}m` : `${m}m`;
-            };
-            const winsArr = closed.filter(p => parseFloat(p.realizedPnl||0) > 0);
-            const lossArr = closed.filter(p => parseFloat(p.realizedPnl||0) < 0);
-            const meanMs = (arr) => arr.length ? arr.reduce((s,p) => s + holdMs(p), 0) / arr.length : NaN;
-            updateElement('avgHoldWin',  winsArr.length ? fmtDur(meanMs(winsArr)) : '—');
-            updateElement('avgHoldLoss', lossArr.length ? fmtDur(meanMs(lossArr)) : '—');
-
-            // Hour-of-day buckets weighted by realized P&L. Bucketed by
-            // ENTRY hour (createdAt), since "best trading hour" is a
-            // statement about when the trader chose to enter, not when
-            // the position happened to close.
-            const hourPnl = new Array(24).fill(0);
-            const hourCount = new Array(24).fill(0);
-            closed.forEach(p => {
-                const d = new Date(p.createdAt);
-                const ms = d.getTime();
-                if (!isFinite(ms)) return;
-                const h = d.getUTCHours();
-                if (!Number.isInteger(h) || h < 0 || h > 23) return;
-                hourPnl[h] += parseFloat(p.realizedPnl || 0);
-                hourCount[h] += 1;
-            });
-            // Require min sample before ranking — without it, a single
-            // mega-loss makes its hour the permanent "worst hour."
-            let bestH = -1, worstH = -1, bestPnl = -Infinity, worstPnl = Infinity;
-            for (let h = 0; h < 24; h++) {
-                if (hourCount[h] < TUNABLES.HOUR_MIN_SAMPLE) continue;
-                const avg = hourPnl[h] / hourCount[h];
-                if (avg > bestPnl)  { bestPnl  = avg; bestH  = h; }
-                if (avg < worstPnl) { worstPnl = avg; worstH = h; }
-            }
-            const padHr = (h) => String(h).padStart(2, '0') + ':00 UTC';
-            updateElement('bestHour',  bestH  >= 0 ? padHr(bestH)  : '—');
-            updateElement('worstHour', worstH >= 0 ? padHr(worstH) : '—');
-
-            // Day-of-week (UTC) most active by ENTRY count.
-            const dayCount = new Array(7).fill(0);
-            closed.forEach(p => {
-                const d = new Date(p.createdAt);
-                if (!isFinite(d.getTime())) return;
-                dayCount[d.getUTCDay()] += 1;
-            });
-            const dayNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-            let topDay = -1, topCount = 0;
-            for (let d = 0; d < 7; d++) if (dayCount[d] > topCount) { topCount = dayCount[d]; topDay = d; }
-            updateElement('mostActiveDay', topDay >= 0 ? dayNames[topDay] : '—');
-        }
-
-        // Activity heatmap: 7×24 grid (UTC entry day-of-week × entry hour-of-day)
-        // of closed-trade counts. Bucketed by createdAt to match the Time
-        // Analysis card's "Best/Worst Trading Hour" semantics.
-        function updateActivityHeatmap(positions) {
-            const container = document.getElementById('activityHeatmap');
-            if (!container) return;
-            container.innerHTML = '';
-            const grid = Array.from({ length: 7 }, () => new Array(24).fill(0));
-            const closed = positions.filter(p => p.status === 'CLOSED' && p.createdAt);
-            closed.forEach(p => {
-                const d = new Date(p.createdAt);
-                if (!isFinite(d.getTime())) return;
-                grid[d.getUTCDay()][d.getUTCHours()] += 1;
-            });
-            const max = Math.max(1, ...grid.flat());
-            const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-            for (let day = 0; day < 7; day++) {
-                for (let hour = 0; hour < 24; hour++) {
-                    const cell = document.createElement('div');
-                    cell.className = 'heatmap-cell';
-                    const count = grid[day][hour];
-                    const intensity = count / max;
-                    const alpha = count === 0 ? 0.06 : (0.18 + 0.55 * intensity);
-                    cell.style.backgroundColor = `rgba(215,172,96,${alpha.toFixed(3)})`;
-                    cell.title = `${dayNames[day]} ${String(hour).padStart(2,'0')}:00 UTC — ${count} entry${count===1?'':'ies'}`;
-                    container.appendChild(cell);
-                }
-            }
-        }
-
         // Liquidation table — cross-margin liq prices via shared helper.
         // dYdX is cross-margin only, so the per-position liq formula assumes
         // OTHER open positions hold their current uPnL contribution; for a
@@ -2639,80 +2549,6 @@ Small-N caveat: standard error widens; not a forward-Sharpe forecast.`;
             }
             const bar = document.getElementById('leverageUtilBar');
             if (bar) bar.style.width = `${Math.min(100, (lev || 0) * 10).toFixed(1)}%`;
-        }
-
-        // Detected Trading Patterns from real position sequence
-        function updateDetectedPatterns(positions) {
-            const body = document.getElementById('patternsBody');
-            if (!body) return;
-            body.innerHTML = '';
-            const closed = positions
-                .filter(p => p.status === 'CLOSED' && p.closedAt && p.createdAt)
-                .sort((a,b) => new Date(a.closedAt) - new Date(b.closedAt));
-            if (!closed.length) return;
-            const pnl = (p) => parseFloat(p.realizedPnl || 0);
-            const sizeUsd = (p) => Math.abs(parseFloat(p.maxSize || p.sumOpen || p.size || 0)) * parseFloat(p.entryPrice || 0);
-            const holdH = (p) => (new Date(p.closedAt) - new Date(p.createdAt)) / MS_PER_HOUR;
-
-            // Pattern 1: Post-Loss Double Down — a loser followed within
-            // DOUBLE_DOWN_GAP_HOURS in the same market by ≥DOUBLE_DOWN_SIZE_MULT × size.
-            const doubleDown = [];
-            for (let i = 0; i < closed.length - 1; i++) {
-                const cur = closed[i], nxt = closed[i+1];
-                if (cur.market !== nxt.market) continue;
-                if (pnl(cur) >= 0) continue;
-                const gapH = (new Date(nxt.createdAt) - new Date(cur.closedAt)) / MS_PER_HOUR;
-                if (gapH < 0 || gapH > TUNABLES.DOUBLE_DOWN_GAP_HOURS) continue;
-                const curSize = sizeUsd(cur), nxtSize = sizeUsd(nxt);
-                if (curSize > 0 && nxtSize >= TUNABLES.DOUBLE_DOWN_SIZE_MULT * curSize) doubleDown.push(nxt);
-            }
-            // Pattern 2: Trend-following (> TREND_HOLD_HOURS holds)
-            const trend = closed.filter(p => holdH(p) > TUNABLES.TREND_HOLD_HOURS);
-            // Pattern 3: Short-window flips (< FLIP_HOLD_HOURS holds)
-            const flips = closed.filter(p => holdH(p) < TUNABLES.FLIP_HOLD_HOURS);
-
-            const summarize = (label, set, recommend) => {
-                const n = set.length;
-                if (n === 0) return null;
-                const wins = set.filter(p => pnl(p) > 0).length;
-                const wr = (wins / n) * 100;
-                const avg = set.reduce((s,p) => s + pnl(p), 0) / n;
-                let rec, recCls;
-                if (typeof recommend === 'function') {
-                    const r = recommend(wr, avg, n);
-                    rec = r.label; recCls = r.cls;
-                } else {
-                    rec = '—'; recCls = '';
-                }
-                return { label, n, wr, avg, rec, recCls };
-            };
-            // Require min sample size before issuing CONTINUE/AVOID — a
-            // 4-trade pattern is too noisy to label confidently.
-            const recommendByEdge = (wr, avg, n) => {
-                if (n < TUNABLES.PATTERN_MIN_N) return { label: 'REVIEW (low n)', cls: 'warning' };
-                if (avg > 0 && wr >= 55) return { label: 'CONTINUE', cls: 'profit' };
-                if (avg < 0 && wr < 50)  return { label: 'AVOID',    cls: 'loss' };
-                return { label: 'REVIEW', cls: 'warning' };
-            };
-            const rows = [
-                summarize(`Post-Loss Double Down (same market, ≤${TUNABLES.DOUBLE_DOWN_GAP_HOURS}h, ≥${TUNABLES.DOUBLE_DOWN_SIZE_MULT}×)`, doubleDown, recommendByEdge),
-                summarize(`Trend Following (>${TUNABLES.TREND_HOLD_HOURS}h hold)`, trend, recommendByEdge),
-                summarize(`Quick Flip (<${Math.round(TUNABLES.FLIP_HOLD_HOURS * 60)}m hold)`, flips, recommendByEdge)
-            ].filter(Boolean);
-            rows.forEach(r => {
-                const tr = document.createElement('tr');
-                appendCell(tr, r.label);
-                appendCell(tr, String(r.n), ['mono']);
-                appendCell(tr, r.wr.toFixed(1) + '%', ['mono', r.wr >= 50 ? 'profit' : 'loss']);
-                appendCell(tr, formatCurrency(r.avg), ['mono', r.avg >= 0 ? 'profit' : 'loss']);
-                const recTd = appendCell(tr, r.rec);
-                recTd.style.color = r.recCls === 'warning' ? 'var(--warn)'
-                    : r.recCls === 'profit' ? 'var(--gain)'
-                    : r.recCls === 'loss' ? 'var(--loss)'
-                    : 'var(--ink-3)';
-                body.appendChild(tr);
-            });
-            tagCells('patternsBody');
         }
 
         // VaR / CVaR per-period (in dollars at current equity).
