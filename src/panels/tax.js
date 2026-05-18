@@ -31,6 +31,26 @@
     return sign + String(rounded);
   }
 
+  // Price formatter that preserves cents and finer ticks. Format.formatPrice
+  // rounds prices |value| >= 1 to whole dollars, so a perp entry/exit at
+  // $76902.55 would render as $76903 in the tax table while the CSV/JSON
+  // export keeps the raw value. Up to 4 decimals above $1, 6 sig-digits
+  // below for micro-priced perps (mirrors the sub-dollar branch in
+  // Format.formatPrice).
+  function fmtPricePrecise(value) {
+    if (value === null || value === undefined || value === '') return '-';
+    const n = typeof value === 'number' ? value : parseFloat(value);
+    if (!isFinite(n)) return '-';
+    const a = Math.abs(n);
+    if (a === 0) return '$0';
+    const sign = n < 0 ? '-' : '';
+    if (a >= 1) {
+      const rounded = Number(a.toFixed(4));
+      return sign + '$' + String(rounded);
+    }
+    return sign + '$' + Number(a.toPrecision(6)).toString();
+  }
+
   function isTaxTabActive() {
     const el = document.getElementById('tax');
     return !!(el && el.classList && el.classList.contains('active'));
@@ -86,6 +106,19 @@
     return sign + '$' + Math.abs(n).toFixed(2);
   }
 
+  // Fees are a cost — no leading + sign even when value is positive.
+  // A '+' prefix on a fee makes it look like income; the row/totals
+  // already subtract this from net P&L.
+  function fmtUsdUnsigned(n) {
+    if (typeof n !== 'number' || !isFinite(n)) return '—';
+    return '$' + Math.abs(n).toFixed(2);
+  }
+
+  function fmtEurUnsigned(n) {
+    if (typeof n !== 'number' || !isFinite(n)) return '—';
+    return '€' + Math.abs(n).toFixed(2);
+  }
+
   function fmtEurSigned(n) {
     if (typeof n !== 'number' || !isFinite(n)) return '—';
     const sign = n > 0 ? '+' : (n < 0 ? '-' : '');
@@ -130,15 +163,23 @@
       D.appendCell(tr, row.market || '—', ['mono']);
       D.appendCell(tr, row.side || '—', ['mono']);
       D.appendCell(tr, fmtSizePrecise(row.maxSize), ['mono']);
-      D.appendCell(tr, F.formatPrice(row.entryPrice), ['mono']);
-      D.appendCell(tr, F.formatPrice(row.exitPrice), ['mono']);
+      D.appendCell(tr, fmtPricePrecise(row.entryPrice), ['mono']);
+      D.appendCell(tr, fmtPricePrecise(row.exitPrice), ['mono']);
       D.appendCell(tr, fmtUsdSigned(row.realizedPnlUSD), ['mono', row.realizedPnlUSD >= 0 ? 'profit' : 'loss']);
       D.appendCell(tr, fmtUsdSigned(row.netFundingUSD), ['mono', row.netFundingUSD >= 0 ? 'profit' : 'loss']);
-      D.appendCell(tr, fmtUsdSigned(row.feesUSD), ['mono']);
+      // Fees are a COST (subtracted from net P&L). Don't color them green
+      // and don't prefix with `+` — that misleads the reader into thinking
+      // a positive fee value is income.
+      D.appendCell(tr, fmtUsdUnsigned(row.feesUSD), ['mono']);
       D.appendCell(tr, fmtUsdSigned(row.netUSD), ['mono', row.netUSD >= 0 ? 'profit' : 'loss']);
+      // No profit/loss class unless we actually have a numeric EUR value.
+      // Otherwise the `—` placeholder would render in the gain color.
+      const eurCls = typeof row.netEUR === 'number' && isFinite(row.netEUR)
+        ? (row.netEUR < 0 ? 'loss' : 'profit')
+        : null;
       D.appendCell(tr,
         typeof row.netEUR === 'number' ? fmtEurSigned(row.netEUR) : '—',
-        ['mono', typeof row.netEUR === 'number' && row.netEUR < 0 ? 'loss' : 'profit']);
+        ['mono', eurCls]);
       if (showHolding) D.appendCell(tr, row.holdingDays === null ? '—' : String(row.holdingDays), ['mono']);
       body.appendChild(tr);
     });
@@ -167,8 +208,12 @@
     D.updateElement('taxGrossGainsEur', eurOrDash(totals.grossGainsEUR));
     D.updateElement('taxGrossLossesUsd', fmtUsdSigned(totals.grossLossesUSD));
     D.updateElement('taxGrossLossesEur', eurOrDash(totals.grossLossesEUR));
-    D.updateElement('taxFeesUsd', fmtUsdSigned(totals.feesUSD));
-    D.updateElement('taxFeesEur', eurOrDash(totals.feesEUR));
+    // Fees are a cost — render without a leading `+`.
+    D.updateElement('taxFeesUsd', fmtUsdUnsigned(totals.feesUSD));
+    D.updateElement('taxFeesEur',
+        typeof totals.feesEUR === 'number' && isFinite(totals.feesEUR)
+            ? fmtEurUnsigned(totals.feesEUR)
+            : '—');
     D.updateElement('taxFundingUsd', fmtUsdSigned(totals.fundingUSD));
     D.updateElement('taxFundingEur', eurOrDash(totals.fundingEUR));
     D.updateElement('taxTradeCount', String(totals.count));
@@ -180,7 +225,7 @@
     const status = document.getElementById('taxStatus');
     if (status) {
       const parts = ['Year ' + year, rowCount + ' closed positions'];
-      if (warnings.feeAttributionAmbiguousCount) parts.push(warnings.feeAttributionAmbiguousCount + ' fee-ambiguous');
+      if (warnings.feeAttributionAmbiguousCount) parts.push(warnings.feeAttributionAmbiguousCount + ' attribution-ambiguous (fees + realized)');
       if (warnings.missingFxDates.length) parts.push(warnings.missingFxDates.length + ' missing FX dates');
       if (warnings.positionsWithoutFifoCount) parts.push(warnings.positionsWithoutFifoCount + ' no-FIFO-data');
       status.textContent = parts.join(' · ');
@@ -192,7 +237,7 @@
       strip.textContent = 'Some positions have no fills in the indexer slice — realized P&L for those rows shows 0. Re-fetch the address and try again.';
     } else if (warnings.feeAttributionAmbiguousCount > 0) {
       strip.style.display = '';
-      strip.textContent = 'Overlapping positions in the same market detected — fee attribution is approximate for ' + warnings.feeAttributionAmbiguousCount + ' row(s). See CLAUDE.md "Tax report" section.';
+      strip.textContent = 'Overlapping positions in the same market detected — both fee AND realized P&L attribution are approximate for ' + warnings.feeAttributionAmbiguousCount + ' row(s). See CLAUDE.md "Tax report" section.';
     } else {
       strip.style.display = 'none';
       strip.textContent = '';

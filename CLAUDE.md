@@ -156,7 +156,7 @@ Helper: `TaxReport.realizedFromSlicedFills(position, fills)` returns `{ realized
 ### Fee attribution
 Per-fill fees on `/v4/fills` are attributed to a closed position when BOTH hold: `fill.market === position.market` AND `Date.parse(fill.createdAt) ∈ [position.createdAt, position.closedAt]`. **No side filter** — `/v4/fills` exposes side as `BUY`/`SELL` while positions are `LONG`/`SHORT`, AND both sides legitimately belong to a position's lifecycle (BUY opens a LONG / closes a SHORT; SELL closes a LONG / opens a SHORT). A direct side equality check would never match a single fill.
 
-When ANOTHER closed position in the **same market** overlaps the window (regardless of side), the row carries `_feeAttributionWarning=true` and fees are NOT split pro-rata — pro-rata would fabricate. The ambiguity stays visible.
+When ANOTHER closed position in the **same market** overlaps the window (regardless of side), the row carries `_feeAttributionWarning=true` and fees are NOT split pro-rata — pro-rata would fabricate. The flag's name is historical; **realized P&L is just as ambiguous** for overlap rows because the same sliced fills feed both `aggregateFeesForPosition` and `realizedFromSlicedFills`. Downstream UI / CSV / JSON must treat the flag as covering BOTH fee and realized attribution.
 
 Helper: `TaxReport.aggregateFeesForPosition(position, fills, closedPositions)` returns `{ totalFee, fillCount, warning }`.
 

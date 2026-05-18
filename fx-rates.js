@@ -23,7 +23,9 @@
     const FROM = 'USD';
     const TO = 'EUR';
     const CONCURRENCY = 4;
-    const REQUEST_TIMEOUT_MS = 15000;
+    // `let` so tests can drop the timeout to verify body-stall handling
+    // without waiting 15s. Not part of the public API.
+    let REQUEST_TIMEOUT_MS = 15000;
 
     function getStorage() {
         try {
@@ -40,7 +42,16 @@
             const raw = storage.getItem(STORAGE_KEY);
             if (!raw) return { v: SCHEMA_VERSION, rates: {} };
             const parsed = JSON.parse(raw);
-            if (!parsed || parsed.v !== SCHEMA_VERSION || !parsed.rates) {
+            if (!parsed || parsed.v !== SCHEMA_VERSION) {
+                return { v: SCHEMA_VERSION, rates: {} };
+            }
+            // rates must be a plain object — a string/number/array from a
+            // partially-corrupted localStorage entry would throw later
+            // when mergeAndWriteCache assigns into it in strict mode,
+            // breaking the module contract that FX failures never bubble.
+            if (typeof parsed.rates !== 'object'
+                    || parsed.rates === null
+                    || Array.isArray(parsed.rates)) {
                 return { v: SCHEMA_VERSION, rates: {} };
             }
             return parsed;
@@ -220,6 +231,11 @@
         getRates,
         getRatesForYear,
         clear,
-        peek
+        peek,
+        _internal: {
+            setTimeoutMs: (ms) => {
+                if (Number.isFinite(ms) && ms > 0) REQUEST_TIMEOUT_MS = ms;
+            }
+        }
     };
 })();

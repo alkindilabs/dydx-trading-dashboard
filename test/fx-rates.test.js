@@ -25,21 +25,36 @@ function makeLocalStorage() {
 function makeFetchStub() {
     const calls = [];
     let nextResponses = []; // array of `(url) => responseOrNull | {body: Promise}`
-    function fetchStub(url) {
+    function fetchStub(url, opts) {
         calls.push(url);
         const fn = nextResponses.shift();
         if (!fn) {
             return Promise.resolve({ ok: false, status: 500, json: () => Promise.reject(new Error('no stub')) });
         }
-        const r = fn(url);
+        const r = fn(url, opts);
         if (r === null) return Promise.reject(new Error('network'));
         // Allow stubs to delay the body to simulate a stalled body read
-        // after headers arrive.
+        // after headers arrive. When the caller passes an AbortSignal,
+        // honor it — pending body promises must reject on abort so the
+        // body-stall timeout regression can be exercised without waiting
+        // for the real 15s production timeout.
         if (r && typeof r === 'object' && '__bodyPromise' in r) {
+            const body = (opts && opts.signal)
+                ? Promise.race([
+                    r.__bodyPromise,
+                    new Promise((_, reject) => {
+                        if (opts.signal.aborted) {
+                            reject(new Error('aborted'));
+                            return;
+                        }
+                        opts.signal.addEventListener('abort', () => reject(new Error('aborted')));
+                    })
+                ])
+                : r.__bodyPromise;
             return Promise.resolve({
                 ok: true,
                 status: 200,
-                json: () => r.__bodyPromise
+                json: () => body
             });
         }
         return Promise.resolve({
@@ -121,19 +136,29 @@ test('getRates: total network failure populates missing[]', async () => {
     assert.deepEqual(missing, ['2024-03-12']);
 });
 
-test('getRates: body-read rejection (post-headers stall) returns missing[]', async () => {
-    // Simulates the case where the server returned headers (so fetch
-    // resolves) but the body read rejects — formerly the timer was
-    // cleared before res.json() began, so a body-side stall could not
-    // surface as a failure. Body rejection here is the deterministic
-    // proxy for that scenario.
+test('getRates: body that NEVER resolves is aborted by the request timeout', async () => {
+    // The bug being guarded: clearTimeout used to fire as soon as
+    // fetch() resolved, before res.json() began. A body that stalled
+    // forever would then hang `getRates()` indefinitely. With the fix
+    // the timer is held through res.json(); the AbortController abort
+    // event propagates to the body promise (modeled in the stub via
+    // signal-aware Promise.race) and `getRates` returns missing[].
     resetState();
-    globalThis.fetch.queueAppend(() => ({
-        __bodyPromise: Promise.reject(new Error('body stalled'))
-    }));
-    const { rates, missing } = await FX.getRates(['2024-03-12']);
-    assert.deepEqual(rates, {});
-    assert.deepEqual(missing, ['2024-03-12']);
+    FX._internal.setTimeoutMs(50);
+    try {
+        globalThis.fetch.queueAppend(() => ({
+            __bodyPromise: new Promise(() => {}) // never resolves
+        }));
+        const start = Date.now();
+        const { rates, missing } = await FX.getRates(['2024-03-12']);
+        const elapsed = Date.now() - start;
+        assert.deepEqual(rates, {});
+        assert.deepEqual(missing, ['2024-03-12']);
+        assert.ok(elapsed >= 40 && elapsed < 2000,
+            `expected ~50ms elapsed, got ${elapsed}ms`);
+    } finally {
+        FX._internal.setTimeoutMs(15000);
+    }
 });
 
 test('getRates: timeseries outage does NOT cascade into per-date fallback', async () => {

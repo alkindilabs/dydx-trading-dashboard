@@ -507,6 +507,55 @@ test('toCsv: ends with CRLF', () => {
 });
 
 // ---------------------------------------------------------------------------
+// toJson — schema/metadata coverage.
+// ---------------------------------------------------------------------------
+
+test('toJson: meta block carries classification, year, schemaVersion', () => {
+    const rows = [{
+        closedAtISO: '2024-03-12T00:00:00Z',
+        market: 'ETH-USD', side: 'LONG',
+        realizedPnlUSD: 100, netFundingUSD: 0, feesUSD: 0, netUSD: 100
+    }];
+    const totals = TR.summarize(rows, 'E');
+    const out = JSON.parse(TR.toJson(rows, totals, 'E', 2024));
+    assert.equal(out.meta.classification, 'E');
+    assert.equal(out.meta.classificationLabel, 'Categoria E (derivativos)');
+    assert.equal(out.meta.year, 2024);
+    assert.equal(out.meta.schemaVersion, 1);
+    assert.ok(typeof out.meta.generatedAt === 'string'
+        && /^\d{4}-\d{2}-\d{2}T/.test(out.meta.generatedAt),
+        'generatedAt must be ISO');
+});
+
+test('toJson: totals + rows round-trip without mutation', () => {
+    const rows = [
+        { closedAtISO: '2024-01-01T00:00:00Z', market: 'BTC-USD', side: 'LONG',
+          realizedPnlUSD: 50, netFundingUSD: 0, feesUSD: 1, netUSD: 49 },
+        { closedAtISO: '2024-02-01T00:00:00Z', market: 'ETH-USD', side: 'SHORT',
+          realizedPnlUSD: -20, netFundingUSD: 0, feesUSD: 0.5, netUSD: -20.5 }
+    ];
+    const totals = TR.summarize(rows, 'G');
+    const out = JSON.parse(TR.toJson(rows, totals, 'G', 2024));
+    assert.equal(out.rows.length, 2);
+    assert.equal(out.rows[0].market, 'BTC-USD');
+    assert.equal(out.totals.count, 2);
+    assert.equal(out.totals.winCount, 1);
+    assert.equal(out.totals.lossCount, 1);
+    assert.equal(out.totals.classificationId, 'G');
+});
+
+test('toJson: classification argument overrides totals.classificationId in meta', () => {
+    // meta.classification follows the JSON-call argument, while totals
+    // keep their own classificationId — useful when a single set of
+    // totals is exported under different category labels.
+    const rows = [];
+    const totals = TR.summarize(rows, 'E');
+    const out = JSON.parse(TR.toJson(rows, totals, 'G', 2024));
+    assert.equal(out.meta.classification, 'G');
+    assert.equal(out.totals.classificationId, 'E');
+});
+
+// ---------------------------------------------------------------------------
 // _internal.csvEscape — direct unit test of escape rules.
 // ---------------------------------------------------------------------------
 
