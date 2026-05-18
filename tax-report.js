@@ -175,22 +175,47 @@
     function buildRowFromWindowFills(position, windowFills, overlap) {
         let realizedPnlUSD = 0;
         let realizedError = null;
+        // Detect partial fill slices: a CLOSED position should be
+        // flattened by the time its closedAt arrives, so the sum of
+        // signed BUY/SELL sizes in the window must net to ~0. When it
+        // doesn't, the slice is missing fills (paginated cut-off,
+        // overlapping position drew them, etc.) and FIFO will silently
+        // return 0 for the orphan inventory. Treat that as not-from-
+        // FIFO so the row gets the warning path instead of a misleading
+        // $0 realized total.
         if (!windowFills.length) {
             realizedError = 'no-fills-in-window';
         } else {
-            const r = fifoRealizedForMarket(position.market, windowFills);
-            realizedPnlUSD = r.realized;
-            if (r.error) realizedError = r.error;
+            let netSize = 0;
+            for (let i = 0; i < windowFills.length; i++) {
+                const f = windowFills[i];
+                const sz = Math.abs(parseFloat(f && f.size));
+                if (!isNumber(sz) || sz <= 0) continue;
+                const s = (f.side || '').toUpperCase();
+                if (s === 'BUY') netSize += sz;
+                else if (s === 'SELL') netSize -= sz;
+            }
+            // Tolerance for float drift on scaled trades. 1e-6 is well
+            // below the smallest meaningful position size on dYdX v4.
+            if (Math.abs(netSize) > 1e-6) {
+                realizedError = 'partial-fill-slice';
+            } else {
+                const r = fifoRealizedForMarket(position.market, windowFills);
+                realizedPnlUSD = r.realized;
+                if (r.error) realizedError = r.error;
+            }
         }
         let feesUSD = 0;
         windowFills.forEach(f => { feesUSD += num(f.fee); });
         const netFundingUSD = num(position.netFunding);
         const netUSD = netRealizedPnl(realizedPnlUSD, netFundingUSD, feesUSD);
         // Preserve null when source fields are absent so the UI/exports
-        // can render `—` instead of a misleading `0`.
+        // can render `—` instead of a misleading `0`. Do NOT fall back
+        // to `position.size`: closed positions on the dYdX indexer have
+        // `size: "0"` after close, which would turn an unavailable max
+        // size into a hard 0.
         const rawMaxSize = maybeNum(position.maxSize)
-            ?? maybeNum(position.sumOpen)
-            ?? maybeNum(position.size);
+            ?? maybeNum(position.sumOpen);
         const maxSize = rawMaxSize === null ? null : Math.abs(rawMaxSize);
         const entryPrice = maybeNum(position.entryPrice);
         const exitPrice = maybeNum(position.exitPrice);

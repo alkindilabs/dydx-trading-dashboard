@@ -24,7 +24,11 @@ function makeLocalStorage() {
 
 function makeFetchStub() {
     const calls = [];
-    let nextResponses = []; // array of `(url) => responseOrNull | {body: Promise}`
+    // array of `(url, opts) => responseValue` where responseValue is
+    // one of: a parsed body object (resolves immediately), `null`
+    // (rejects with a network error), or `{ __bodyPromise: Promise }`
+    // (body read returns the supplied promise, honoring AbortSignal).
+    let nextResponses = [];
     function fetchStub(url, opts) {
         calls.push(url);
         const fn = nextResponses.shift();

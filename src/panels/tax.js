@@ -301,15 +301,29 @@
     const classification = getClassification();
     try { localStorage.setItem('taxClassification', classification); } catch (_) {}
 
-    // Build the report ONCE without FX. After rates arrive we mutate
-    // the same rows in-place via the idempotent convertRowsToEur, then
-    // re-summarize. Avoids running FIFO + fee attribution twice per
-    // refresh — important on accounts with thousands of fills.
+    // Build the report ONCE without FX, then mutate rows in-place via
+    // the idempotent convertRowsToEur after rates arrive. Avoids
+    // running FIFO + fee attribution twice per refresh.
     const report = window.TaxReport.buildYearReport(positions, fills, year, null);
     const dates = [...new Set(report.rows.map(r => r.closedDateUTC).filter(Boolean))];
 
+    // Paint the USD-only report immediately. Prior renders (different
+    // year, different address, post-clear-cache) must not linger on
+    // screen for the duration of the FX await — a slow or timed-out
+    // FX request could otherwise leave stale figures visible under
+    // the new fetching status. EUR cells render `—` here and fill in
+    // when rates arrive.
+    const totalsUSD = window.TaxReport.summarize(report.rows, classification);
+    renderRows(report.rows, classification);
+    renderTotals(totalsUSD, classification);
+    renderStatus(year, report.warnings, report.rows.length);
+    _state.lastReport = { rows: report.rows, totals: totalsUSD, year, classification };
+
+    if (dates.length === 0) return; // nothing to convert; USD render is final
+
     const status = document.getElementById('taxStatus');
-    if (status) status.textContent = 'Fetching ECB rates for ' + dates.length + ' date(s)…';
+    const baseStatus = status ? status.textContent : '';
+    if (status) status.textContent = baseStatus + ' · Fetching ECB rates for ' + dates.length + ' date(s)…';
 
     const { rates } = await window.FxRates.getRates(dates);
     if (token !== _renderToken) return;

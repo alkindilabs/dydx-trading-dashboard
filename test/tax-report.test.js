@@ -282,6 +282,56 @@ test('buildYearReport: missing maxSize/entry/exit render as null (distinguishabl
     assert.equal(row.exitPrice, null);
 });
 
+test('buildYearReport: closed-position size=0 alone does NOT seed maxSize', () => {
+    // dYdX closed-position rows commonly have size:"0" after close.
+    // Falling back to that would turn an unavailable max into a hard 0,
+    // which is misleading because the position clearly had non-zero
+    // size at some point.
+    const p = {
+        status: 'CLOSED', market: 'BTC-USD', side: 'LONG',
+        createdAt: '2024-01-01T00:00:00Z', closedAt: '2024-01-02T00:00:00Z',
+        netFunding: '0', size: '0'
+        // maxSize and sumOpen intentionally absent
+    };
+    const r = TR.buildYearReport([p], [], 2024, {});
+    assert.equal(r.rows[0].maxSize, null);
+});
+
+test('buildYearReport: partial fill slice (no closing fill) flagged as not-FIFO', () => {
+    // Only the opening BUY arrived in the indexer window — net size is
+    // not zero, so FIFO would silently return 0 realized for orphan
+    // inventory. The row must drop _realizedFromFills so the panel
+    // surfaces a warning instead of a misleading $0.
+    const p = {
+        status: 'CLOSED', market: 'BTC-USD', side: 'LONG',
+        createdAt: '2024-02-01T00:00:00Z', closedAt: '2024-02-05T00:00:00Z',
+        netFunding: '0', maxSize: '1'
+    };
+    const fills = [
+        { market: 'BTC-USD', side: 'BUY', createdAt: '2024-02-01T00:00:00Z', size: '1', price: '100' }
+        // SELL missing — net = +1
+    ];
+    const r = TR.buildYearReport([p], fills, 2024, {});
+    assert.equal(r.rows[0]._realizedFromFills, false);
+    assert.equal(r.rows[0].realizedPnlUSD, 0);
+    assert.equal(r.warnings.positionsWithoutFifoCount, 1);
+});
+
+test('buildYearReport: partial fill slice (no opening fill) flagged as not-FIFO', () => {
+    // Symmetric case: closing SELL present but opening BUY out of window.
+    const p = {
+        status: 'CLOSED', market: 'BTC-USD', side: 'LONG',
+        createdAt: '2024-03-01T00:00:00Z', closedAt: '2024-03-05T00:00:00Z',
+        netFunding: '0', maxSize: '1'
+    };
+    const fills = [
+        { market: 'BTC-USD', side: 'SELL', createdAt: '2024-03-05T00:00:00Z', size: '1', price: '120' }
+    ];
+    const r = TR.buildYearReport([p], fills, 2024, {});
+    assert.equal(r.rows[0]._realizedFromFills, false);
+    assert.equal(r.warnings.positionsWithoutFifoCount, 1);
+});
+
 test('buildYearReport: real 0 entry/exit preserved (not coerced to null)', () => {
     const p = {
         status: 'CLOSED', market: 'BTC-USD', side: 'LONG',
