@@ -24,7 +24,7 @@ function makeLocalStorage() {
 
 function makeFetchStub() {
     const calls = [];
-    let nextResponses = []; // array of `(url) => responseOrNull`
+    let nextResponses = []; // array of `(url) => responseOrNull | {body: Promise}`
     function fetchStub(url) {
         calls.push(url);
         const fn = nextResponses.shift();
@@ -33,6 +33,15 @@ function makeFetchStub() {
         }
         const r = fn(url);
         if (r === null) return Promise.reject(new Error('network'));
+        // Allow stubs to delay the body to simulate a stalled body read
+        // after headers arrive.
+        if (r && typeof r === 'object' && '__bodyPromise' in r) {
+            return Promise.resolve({
+                ok: true,
+                status: 200,
+                json: () => r.__bodyPromise
+            });
+        }
         return Promise.resolve({
             ok: true,
             status: 200,
@@ -107,6 +116,21 @@ test('getRates: weekend gap-fills via single-date call after timeseries', async 
 test('getRates: total network failure populates missing[]', async () => {
     resetState();
     globalThis.fetch.queue(() => null, () => null);
+    const { rates, missing } = await FX.getRates(['2024-03-12']);
+    assert.deepEqual(rates, {});
+    assert.deepEqual(missing, ['2024-03-12']);
+});
+
+test('getRates: body-read rejection (post-headers stall) returns missing[]', async () => {
+    // Simulates the case where the server returned headers (so fetch
+    // resolves) but the body read rejects — formerly the timer was
+    // cleared before res.json() began, so a body-side stall could not
+    // surface as a failure. Body rejection here is the deterministic
+    // proxy for that scenario.
+    resetState();
+    globalThis.fetch.queueAppend(() => ({
+        __bodyPromise: Promise.reject(new Error('body stalled'))
+    }));
     const { rates, missing } = await FX.getRates(['2024-03-12']);
     assert.deepEqual(rates, {});
     assert.deepEqual(missing, ['2024-03-12']);
@@ -205,6 +229,37 @@ test('peek: returns parsed cache contents', () => {
     const c = FX.peek();
     assert.equal(c.v, 1);
     assert.equal(c.rates['2024-03-12'], 0.92);
+});
+
+// ---------------------------------------------------------------------------
+// getRatesForYear — ok flag distinguishes empty success from outage.
+// ---------------------------------------------------------------------------
+
+test('getRatesForYear: ok=true when fetch succeeds with rates', async () => {
+    resetState();
+    globalThis.fetch.queue(
+        () => ({ rates: { '2024-03-15': { EUR: 0.92 } } })
+    );
+    const res = await FX.getRatesForYear(2024);
+    assert.equal(res.ok, true);
+    assert.equal(res.rates['2024-03-15'], 0.92);
+});
+
+test('getRatesForYear: ok=false when fetch fails (caller can distinguish from empty success)', async () => {
+    resetState();
+    globalThis.fetch.queue(() => null);
+    const res = await FX.getRatesForYear(2024);
+    assert.equal(res.ok, false);
+    assert.deepEqual(res.rates, {});
+});
+
+test('getRatesForYear: invalid year returns ok=true, empty rates (not an outage)', async () => {
+    resetState();
+    const res = await FX.getRatesForYear('not-a-year');
+    assert.equal(res.ok, true);
+    assert.deepEqual(res.rates, {});
+    // No fetch should have been issued
+    assert.equal(globalThis.fetch.calls.length, 0);
 });
 
 test('peek: returns empty rates on missing/corrupt cache', () => {

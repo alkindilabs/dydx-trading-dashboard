@@ -79,14 +79,23 @@
         const timer = (ctrl && typeof setTimeout !== 'undefined')
             ? setTimeout(() => { try { ctrl.abort(); } catch (_) {} }, REQUEST_TIMEOUT_MS)
             : null;
+        const cancelTimer = () => { if (timer) clearTimeout(timer); };
         try {
+            // Hold the timer through BOTH the headers fetch AND the body
+            // read: res.json() can hang on a server that sends headers
+            // and then stalls, so clearing the timeout after fetch()
+            // returns would let the Tax tab get stuck on "Fetching ECB
+            // rates…" despite a documented hard timeout.
             const res = await fetch(url, ctrl ? { signal: ctrl.signal } : undefined);
-            if (timer) clearTimeout(timer);
-            if (!res || !res.ok) return { ok: false, json: null };
+            if (!res || !res.ok) {
+                cancelTimer();
+                return { ok: false, json: null };
+            }
             const json = await res.json();
+            cancelTimer();
             return { ok: true, json };
         } catch (_) {
-            if (timer) clearTimeout(timer);
+            cancelTimer();
             return { ok: false, json: null };
         }
     }
@@ -179,16 +188,22 @@
         return result;
     }
 
+    // Year-warming convenience. `ok` distinguishes a successful empty
+    // result (range entirely outside business-day data) from an outage,
+    // since `missing` is unsuitable here — getRatesForYear is not
+    // called with a specific date list and has no way to enumerate
+    // which dates should have been present. Invalid input returns
+    // `ok: true` so callers don't treat malformed years as outages.
     async function getRatesForYear(year) {
         const y = parseInt(year, 10);
         if (!Number.isInteger(y) || y < 1999) {
-            return { rates: {}, missing: [] };
+            return { rates: {}, missing: [], ok: true };
         }
         const start = `${y}-01-01`;
         const end = `${y}-12-31`;
         const ts = await fetchTimeseries(start, end);
         if (Object.keys(ts.rates).length) mergeAndWriteCache(ts.rates);
-        return { rates: Object.assign({}, ts.rates), missing: [] };
+        return { rates: Object.assign({}, ts.rates), missing: [], ok: ts.ok };
     }
 
     function clear() {

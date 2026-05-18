@@ -268,6 +268,29 @@ test('buildYearReport: no fills in window flags row as not-from-FIFO', () => {
     assert.equal(r.warnings.positionsWithoutFifoCount, 1);
 });
 
+test('buildYearReport: chained overlaps mark every member of the chain', () => {
+    // A overlaps B, B overlaps C, A does not overlap C. The naive
+    // short-circuit scan (skip i if already in set, break inner loop
+    // on first match) would visit A, mark A and B, then skip B's own
+    // scan because B is already in the set — leaving C unmarked even
+    // though C overlaps B.
+    const a = { status: 'CLOSED', market: 'ETH-USD', side: 'LONG',
+        createdAt: '2024-01-10T00:00:00Z', closedAt: '2024-01-20T00:00:00Z',
+        netFunding: '0', maxSize: '1' };
+    const b = { status: 'CLOSED', market: 'ETH-USD', side: 'LONG',
+        createdAt: '2024-01-15T00:00:00Z', closedAt: '2024-02-05T00:00:00Z',
+        netFunding: '0', maxSize: '1' };
+    const c = { status: 'CLOSED', market: 'ETH-USD', side: 'LONG',
+        createdAt: '2024-01-25T00:00:00Z', closedAt: '2024-02-10T00:00:00Z',
+        netFunding: '0', maxSize: '1' };
+    const r = TR.buildYearReport([a, b, c], [], 2024, {});
+    // All three rows must be flagged. Naive scan would miss C.
+    assert.equal(r.rows.length, 3);
+    assert.equal(r.rows.every(row => row._feeAttributionWarning), true,
+        'all chained positions must carry the overlap flag');
+    assert.equal(r.warnings.feeAttributionAmbiguousCount, 3);
+});
+
 test('buildYearReport: rows sorted by closedAt descending', () => {
     const positions = [
         { status: 'CLOSED', market: 'ETH-USD', side: 'LONG',
@@ -341,6 +364,23 @@ test('convertRowsToEur: idempotent — second call without rate clears stale EUR
     assert.equal(rows[0].fxRate, undefined);
     assert.equal(rows[0].netEUR, undefined);
     assert.equal(rows[0]._fxMissing, true);
+});
+
+test('convertRowsToEur: idempotent — stale missingFxDates cleared on re-run with rates', () => {
+    // First call: rate unavailable → date added to warnings.missingFxDates.
+    // Second call on same rows with rate available must NOT leave the
+    // stale date in the warnings array.
+    const rows = [{
+        closedDateUTC: '2024-03-12',
+        realizedPnlUSD: 100, netFundingUSD: 0, feesUSD: 0, netUSD: 100,
+        _fxMissing: false
+    }];
+    const warnings = { missingFxDates: [] };
+    TR.convertRowsToEur(rows, {}, warnings);
+    assert.deepEqual(warnings.missingFxDates, ['2024-03-12']);
+    TR.convertRowsToEur(rows, { '2024-03-12': 0.92 }, warnings);
+    assert.deepEqual(warnings.missingFxDates, [],
+        'stale missing date must be cleared when rate becomes available');
 });
 
 test('convertRowsToEur: deduplicates missing dates', () => {

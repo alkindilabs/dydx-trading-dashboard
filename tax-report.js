@@ -222,8 +222,18 @@
 
     // Idempotent: clears any prior EUR fields / _fxMissing flag before
     // re-applying so repeated calls on the same rows produce a clean
-    // result regardless of order of (rate-present, rate-missing).
+    // result regardless of order of (rate-present, rate-missing). The
+    // missingFxDates array on `warnings` is also truncated upfront so
+    // a previously-stale date does not linger after re-running with
+    // rates that have since become available.
     function convertRowsToEur(rows, fxRates, warnings) {
+        if (warnings) {
+            if (Array.isArray(warnings.missingFxDates)) {
+                warnings.missingFxDates.length = 0;
+            } else {
+                warnings.missingFxDates = [];
+            }
+        }
         const missing = (warnings && warnings.missingFxDates) || [];
         (rows || []).forEach(row => {
             row.fxRate = undefined;
@@ -328,7 +338,12 @@
 
         // Overlap detection: scan positions per-market only. Total work
         // = sum over markets of (per-market positions)² — much smaller
-        // than total_closed² for users trading many markets.
+        // than total_closed² for users trading many markets. The inner
+        // loop must NOT short-circuit on a found match: in a chain
+        // A overlaps B, B overlaps C, A does not overlap C, we still
+        // need C marked. Skipping i when overlapSet already contains
+        // it would also drop C, since visiting B alone would not
+        // discover (B, C).
         const overlapSet = new WeakSet();
         const closedByMarket = {};
         closed.forEach(p => {
@@ -338,7 +353,6 @@
         });
         Object.values(closedByMarket).forEach(list => {
             for (let i = 0; i < list.length; i++) {
-                if (overlapSet.has(list[i])) continue;
                 const aOpen = tsMs(list[i].createdAt);
                 const aClose = tsMs(list[i].closedAt);
                 if (aOpen === null || aClose === null) continue;
@@ -349,7 +363,6 @@
                     if (!(bClose < aOpen || bOpen > aClose)) {
                         overlapSet.add(list[i]);
                         overlapSet.add(list[j]);
-                        break;
                     }
                 }
             }
