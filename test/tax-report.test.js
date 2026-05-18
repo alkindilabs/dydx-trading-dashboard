@@ -268,6 +268,33 @@ test('buildYearReport: no fills in window flags row as not-from-FIFO', () => {
     assert.equal(r.warnings.positionsWithoutFifoCount, 1);
 });
 
+test('buildYearReport: missing maxSize/entry/exit render as null (distinguishable from real 0)', () => {
+    const p = {
+        status: 'CLOSED', market: 'BTC-USD', side: 'LONG',
+        createdAt: '2024-01-01T00:00:00Z', closedAt: '2024-01-02T00:00:00Z',
+        netFunding: '0'
+        // maxSize, sumOpen, size, entryPrice, exitPrice all absent
+    };
+    const r = TR.buildYearReport([p], [], 2024, {});
+    const row = r.rows[0];
+    assert.equal(row.maxSize, null);
+    assert.equal(row.entryPrice, null);
+    assert.equal(row.exitPrice, null);
+});
+
+test('buildYearReport: real 0 entry/exit preserved (not coerced to null)', () => {
+    const p = {
+        status: 'CLOSED', market: 'BTC-USD', side: 'LONG',
+        createdAt: '2024-01-01T00:00:00Z', closedAt: '2024-01-02T00:00:00Z',
+        entryPrice: '0', exitPrice: '0', maxSize: '0', netFunding: '0'
+    };
+    const r = TR.buildYearReport([p], [], 2024, {});
+    const row = r.rows[0];
+    assert.equal(row.maxSize, 0);
+    assert.equal(row.entryPrice, 0);
+    assert.equal(row.exitPrice, 0);
+});
+
 test('buildYearReport: chained overlaps mark every member of the chain', () => {
     // A overlaps B, B overlaps C, A does not overlap C. The naive
     // short-circuit scan (skip i if already in set, break inner loop

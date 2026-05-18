@@ -287,6 +287,27 @@ test('getRatesForYear: invalid year returns ok=true, empty rates (not an outage)
     assert.equal(globalThis.fetch.calls.length, 0);
 });
 
+test('getRatesForYear: partially-numeric strings rejected (not silently parsed)', async () => {
+    resetState();
+    const a = await FX.getRatesForYear('2024abc');
+    const b = await FX.getRatesForYear('2024.5');
+    assert.equal(a.ok, true);
+    assert.equal(b.ok, true);
+    assert.deepEqual(a.rates, {});
+    assert.deepEqual(b.rates, {});
+    // Neither malformed input should have hit the network
+    assert.equal(globalThis.fetch.calls.length, 0);
+});
+
+test('getRates: impossible dates (2024-99-99 / 2024-02-30) rejected at validation', async () => {
+    resetState();
+    const { rates, missing } = await FX.getRates(['2024-99-99', '2024-02-30', '2024-13-01']);
+    assert.deepEqual(rates, {});
+    assert.deepEqual(missing, []);
+    // No fetch — these are dropped before any network call
+    assert.equal(globalThis.fetch.calls.length, 0);
+});
+
 test('peek: returns empty rates on missing/corrupt cache', () => {
     globalThis.localStorage.removeItem('fxRates:v1:USD-EUR');
     let c = FX.peek();

@@ -49,6 +49,16 @@
         return isNumber(n) ? n : 0;
     }
 
+    // Returns null for absent/invalid values so downstream code can
+    // distinguish "field unavailable" from a legitimate zero. Used for
+    // size/entry/exit columns where 0 has a real trading meaning and
+    // must not be conflated with missing data.
+    function maybeNum(v) {
+        if (v === null || v === undefined || v === '') return null;
+        const n = parseFloat(v);
+        return isNumber(n) ? n : null;
+    }
+
     function tsMs(s) {
         const t = Date.parse(s || '');
         return Number.isFinite(t) ? t : null;
@@ -158,10 +168,11 @@
         return num(realizedPnlUSD) + num(netFundingUSD) - num(feesUSD);
     }
 
-    // Build a row using pre-sliced fills (market filter already applied)
-    // and a pre-computed overlap flag. Internal — see buildYearReport.
-    function buildRowFromSlice(position, marketFills, overlap) {
-        const windowFills = fillsInWindowFromMarketSlice(position, marketFills);
+    // Build a row from a window-bound, market-bound, time-sorted fill
+    // slice. Caller is responsible for slicing — buildYearReport runs
+    // the optimized batch path (sort fills once per market, binary-
+    // search window bounds per row) and feeds the final slice in.
+    function buildRowFromWindowFills(position, windowFills, overlap) {
         let realizedPnlUSD = 0;
         let realizedError = null;
         if (!windowFills.length) {
@@ -175,9 +186,14 @@
         windowFills.forEach(f => { feesUSD += num(f.fee); });
         const netFundingUSD = num(position.netFunding);
         const netUSD = netRealizedPnl(realizedPnlUSD, netFundingUSD, feesUSD);
-        const maxSize = Math.abs(num(position.maxSize || position.sumOpen || position.size));
-        const entryPrice = num(position.entryPrice);
-        const exitPrice = num(position.exitPrice);
+        // Preserve null when source fields are absent so the UI/exports
+        // can render `—` instead of a misleading `0`.
+        const rawMaxSize = maybeNum(position.maxSize)
+            ?? maybeNum(position.sumOpen)
+            ?? maybeNum(position.size);
+        const maxSize = rawMaxSize === null ? null : Math.abs(rawMaxSize);
+        const entryPrice = maybeNum(position.entryPrice);
+        const exitPrice = maybeNum(position.exitPrice);
         const openMs = tsMs(position.createdAt);
         const closeMs = tsMs(position.closedAt);
         const holdingDays = (openMs !== null && closeMs !== null && closeMs >= openMs)
@@ -207,6 +223,14 @@
             _realizedFromFills: !realizedError,
             _fxMissing: false
         };
+    }
+
+    // Back-compat wrapper for the optimized path: takes the full market
+    // slice (unsorted, time-unfiltered) and slices to the window. Used
+    // only by the public buildRow API; the batch path skips this step.
+    function buildRowFromSlice(position, marketFills, overlap) {
+        const windowFills = fillsInWindowFromMarketSlice(position, marketFills);
+        return buildRowFromWindowFills(position, windowFills, overlap);
     }
 
     // Public buildRow keeps the old signature for backward compatibility
@@ -315,11 +339,61 @@
         };
     }
 
+    // Binary search: smallest index where arr[i].ms >= target.
+    function lowerBound(arr, target) {
+        let lo = 0, hi = arr.length;
+        while (lo < hi) {
+            const mid = (lo + hi) >>> 1;
+            if (arr[mid].ms < target) lo = mid + 1;
+            else hi = mid;
+        }
+        return lo;
+    }
+
+    // Sweep-based overlap detection. Sort by createdAt, maintain an
+    // "active" list of positions whose closeMs is still ahead of the
+    // current cursor; every new entry marks itself + every active entry
+    // as overlapping. O(n log n) for the sort plus O(n + total_overlap)
+    // for the sweep — handles chained overlaps (A↔B↔C) correctly because
+    // each new entry compares against every still-active prior entry.
+    function sweepOverlapsPerMarket(closedByMarket, overlapSet) {
+        Object.values(closedByMarket).forEach(list => {
+            const items = [];
+            for (let i = 0; i < list.length; i++) {
+                const openMs = tsMs(list[i].createdAt);
+                const closeMs = tsMs(list[i].closedAt);
+                if (openMs === null || closeMs === null) continue;
+                items.push({ p: list[i], openMs, closeMs });
+            }
+            items.sort((a, b) => a.openMs - b.openMs);
+            const active = [];
+            for (let i = 0; i < items.length; i++) {
+                const cur = items[i];
+                // Drop expired actives (closeMs strictly before cur.openMs
+                // means the intervals are disjoint).
+                for (let k = active.length - 1; k >= 0; k--) {
+                    if (active[k].closeMs < cur.openMs) {
+                        active.splice(k, 1);
+                    }
+                }
+                if (active.length > 0) {
+                    overlapSet.add(cur.p);
+                    for (let k = 0; k < active.length; k++) {
+                        overlapSet.add(active[k].p);
+                    }
+                }
+                active.push(cur);
+            }
+        });
+    }
+
     // Pre-group fills by market AND pre-compute the per-market overlap
-    // set in a single pass each so per-row work stays O(market_fills + 1)
-    // instead of O(total_fills + total_positions). For accounts with
-    // thousands of fills across many positions this avoids freezing the
-    // browser on the Tax tab.
+    // set in a single pass each. Within each market, fills are sorted
+    // by createdAtMs once and per-position window slicing uses binary
+    // search for the lower/upper bounds, so per-row work stays
+    // O(log marketFills + windowSize) instead of O(marketFills). For
+    // accounts with thousands of fills in one market this avoids
+    // freezing the Tax tab.
     function buildYearReport(positions, fills, year, fxRates) {
         const warnings = {
             feeAttributionAmbiguousCount: 0,
@@ -329,21 +403,17 @@
         const closed = (positions || []).filter(p => p && p.status === 'CLOSED');
         const inYear = closed.filter(p => closedAtYearUTC(p) === year);
 
+        // { [market]: [{ f, ms }, ...] sorted by ms ascending }
         const fillsByMarket = {};
         (fills || []).forEach(f => {
             if (!f || !f.market) return;
+            const ms = tsMs(f.createdAt);
+            if (ms === null) return;
             if (!fillsByMarket[f.market]) fillsByMarket[f.market] = [];
-            fillsByMarket[f.market].push(f);
+            fillsByMarket[f.market].push({ f, ms });
         });
+        Object.values(fillsByMarket).forEach(arr => arr.sort((a, b) => a.ms - b.ms));
 
-        // Overlap detection: scan positions per-market only. Total work
-        // = sum over markets of (per-market positions)² — much smaller
-        // than total_closed² for users trading many markets. The inner
-        // loop must NOT short-circuit on a found match: in a chain
-        // A overlaps B, B overlaps C, A does not overlap C, we still
-        // need C marked. Skipping i when overlapSet already contains
-        // it would also drop C, since visiting B alone would not
-        // discover (B, C).
         const overlapSet = new WeakSet();
         const closedByMarket = {};
         closed.forEach(p => {
@@ -351,28 +421,23 @@
             if (!closedByMarket[m]) closedByMarket[m] = [];
             closedByMarket[m].push(p);
         });
-        Object.values(closedByMarket).forEach(list => {
-            for (let i = 0; i < list.length; i++) {
-                const aOpen = tsMs(list[i].createdAt);
-                const aClose = tsMs(list[i].closedAt);
-                if (aOpen === null || aClose === null) continue;
-                for (let j = i + 1; j < list.length; j++) {
-                    const bOpen = tsMs(list[j].createdAt);
-                    const bClose = tsMs(list[j].closedAt);
-                    if (bOpen === null || bClose === null) continue;
-                    if (!(bClose < aOpen || bOpen > aClose)) {
-                        overlapSet.add(list[i]);
-                        overlapSet.add(list[j]);
-                    }
+        sweepOverlapsPerMarket(closedByMarket, overlapSet);
+
+        const rows = inYear.map(p => {
+            const openMs = tsMs(p.createdAt);
+            const closeMs = tsMs(p.closedAt);
+            let windowFills = [];
+            if (openMs !== null && closeMs !== null) {
+                const indexed = fillsByMarket[p.market];
+                if (indexed && indexed.length) {
+                    const lo = lowerBound(indexed, openMs);
+                    const hi = lowerBound(indexed, closeMs + 1);
+                    windowFills = new Array(hi - lo);
+                    for (let i = lo; i < hi; i++) windowFills[i - lo] = indexed[i].f;
                 }
             }
+            return buildRowFromWindowFills(p, windowFills, overlapSet.has(p));
         });
-
-        const rows = inYear.map(p => buildRowFromSlice(
-            p,
-            fillsByMarket[p.market] || [],
-            overlapSet.has(p)
-        ));
         rows.sort((a, b) => {
             const at = tsMs(a.closedAtISO) || 0;
             const bt = tsMs(b.closedAtISO) || 0;

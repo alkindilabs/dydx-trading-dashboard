@@ -78,8 +78,15 @@
         }
     }
 
+    // Match YYYY-MM-DD shape AND verify the parsed UTC date round-trips
+    // to the same string — rejects nonsense like 2024-99-99 / 2024-02-30
+    // that the regex alone would accept.
     function isValidIsoDate(s) {
-        return typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s);
+        if (typeof s !== 'string') return false;
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+        const d = new Date(s + 'T00:00:00Z');
+        if (!Number.isFinite(d.getTime())) return false;
+        return d.toISOString().slice(0, 10) === s;
     }
 
     // Returns { json, ok }. `ok=false` signals network/HTTP failure
@@ -205,8 +212,14 @@
     // called with a specific date list and has no way to enumerate
     // which dates should have been present. Invalid input returns
     // `ok: true` so callers don't treat malformed years as outages.
+    // Validation rejects partially-numeric strings (`2024abc`,
+    // `2024.5`) that parseInt would silently accept — those are
+    // caller bugs, not outages.
     async function getRatesForYear(year) {
-        const y = parseInt(year, 10);
+        const isNumeric = typeof year === 'number'
+            ? Number.isInteger(year)
+            : (typeof year === 'string' && /^-?\d+$/.test(year));
+        const y = isNumeric ? parseInt(year, 10) : NaN;
         if (!Number.isInteger(y) || y < 1999) {
             return { rates: {}, missing: [], ok: true };
         }

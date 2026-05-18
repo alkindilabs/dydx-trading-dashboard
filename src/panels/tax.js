@@ -106,17 +106,21 @@
     return sign + '$' + Math.abs(n).toFixed(2);
   }
 
-  // Fees are a cost — no leading + sign even when value is positive.
-  // A '+' prefix on a fee makes it look like income; the row/totals
-  // already subtract this from net P&L.
-  function fmtUsdUnsigned(n) {
+  // Fees follow the dYdX convention: positive = paid (cost),
+  // negative = maker rebate (income). Render paid fees without a `+`
+  // (a leading `+` reads as income), but keep the `-` sign on rebates
+  // so they read distinctly and agree with the CSV/JSON exports and
+  // the net P&L math (which adds rebates back).
+  function fmtFee(n) {
     if (typeof n !== 'number' || !isFinite(n)) return '—';
-    return '$' + Math.abs(n).toFixed(2);
+    if (n < 0) return '-$' + Math.abs(n).toFixed(2);
+    return '$' + n.toFixed(2);
   }
 
-  function fmtEurUnsigned(n) {
+  function fmtFeeEur(n) {
     if (typeof n !== 'number' || !isFinite(n)) return '—';
-    return '€' + Math.abs(n).toFixed(2);
+    if (n < 0) return '-€' + Math.abs(n).toFixed(2);
+    return '€' + n.toFixed(2);
   }
 
   function fmtEurSigned(n) {
@@ -127,7 +131,6 @@
 
   function renderRows(rows, classification) {
     const D = window.AppDom;
-    const F = window.Format;
     const body = document.getElementById('taxRowsBody');
     const holdHeader = document.getElementById('taxHoldingHeader');
     if (!body) return;
@@ -156,9 +159,20 @@
 
       const closedTd = D.appendCell(tr, row.closedDateUTC || '—', ['mono']);
       if (reasons.length) {
-        closedTd.textContent = (row.closedDateUTC || '—') + ' †';
+        const dateText = row.closedDateUTC || '—';
+        closedTd.textContent = dateText + ' †';
         closedTd.title = reasons.join('\n');
         closedTd.style.cursor = 'help';
+        // Accessibility: a `title` tooltip alone is not reliably exposed
+        // to keyboard or screen-reader users. Make the cell focusable
+        // and announce the warning text via aria-label so the dagger's
+        // meaning surfaces in every input modality.
+        closedTd.setAttribute('tabindex', '0');
+        closedTd.setAttribute('role', 'note');
+        closedTd.setAttribute(
+          'aria-label',
+          dateText + ' — warning: ' + reasons.join(' ')
+        );
       }
       D.appendCell(tr, row.market || '—', ['mono']);
       D.appendCell(tr, row.side || '—', ['mono']);
@@ -167,10 +181,10 @@
       D.appendCell(tr, fmtPricePrecise(row.exitPrice), ['mono']);
       D.appendCell(tr, fmtUsdSigned(row.realizedPnlUSD), ['mono', row.realizedPnlUSD >= 0 ? 'profit' : 'loss']);
       D.appendCell(tr, fmtUsdSigned(row.netFundingUSD), ['mono', row.netFundingUSD >= 0 ? 'profit' : 'loss']);
-      // Fees are a COST (subtracted from net P&L). Don't color them green
-      // and don't prefix with `+` — that misleads the reader into thinking
-      // a positive fee value is income.
-      D.appendCell(tr, fmtUsdUnsigned(row.feesUSD), ['mono']);
+      // Fees follow the dYdX convention: positive = paid, negative =
+      // maker rebate. fmtFee preserves the sign on rebates so the row
+      // value agrees with net P&L (which adds rebates back).
+      D.appendCell(tr, fmtFee(row.feesUSD), ['mono']);
       D.appendCell(tr, fmtUsdSigned(row.netUSD), ['mono', row.netUSD >= 0 ? 'profit' : 'loss']);
       // No profit/loss class unless we actually have a numeric EUR value.
       // Otherwise the `—` placeholder would render in the gain color.
@@ -208,11 +222,12 @@
     D.updateElement('taxGrossGainsEur', eurOrDash(totals.grossGainsEUR));
     D.updateElement('taxGrossLossesUsd', fmtUsdSigned(totals.grossLossesUSD));
     D.updateElement('taxGrossLossesEur', eurOrDash(totals.grossLossesEUR));
-    // Fees are a cost — render without a leading `+`.
-    D.updateElement('taxFeesUsd', fmtUsdUnsigned(totals.feesUSD));
+    // Fees: positive = paid (no leading +), negative = maker rebate
+    // (keep `-` sign so totals match the per-row breakdown).
+    D.updateElement('taxFeesUsd', fmtFee(totals.feesUSD));
     D.updateElement('taxFeesEur',
         typeof totals.feesEUR === 'number' && isFinite(totals.feesEUR)
-            ? fmtEurUnsigned(totals.feesEUR)
+            ? fmtFeeEur(totals.feesEUR)
             : '—');
     D.updateElement('taxFundingUsd', fmtUsdSigned(totals.fundingUSD));
     D.updateElement('taxFundingEur', eurOrDash(totals.fundingEUR));
@@ -234,10 +249,10 @@
     if (!strip) return;
     if (warnings.positionsWithoutFifoCount > 0) {
       strip.style.display = '';
-      strip.textContent = 'Some positions have no fills in the indexer slice — realized P&L for those rows shows 0. Re-fetch the address and try again.';
+      strip.textContent = 'Some positions have no fills available in the indexer window. Realized P&L for those rows shows $0 and may not reflect the actual gain or loss. Reload the page or click the address Forget/Load buttons to re-fetch a complete fills history before relying on these totals.';
     } else if (warnings.feeAttributionAmbiguousCount > 0) {
       strip.style.display = '';
-      strip.textContent = 'Overlapping positions in the same market detected — both fee AND realized P&L attribution are approximate for ' + warnings.feeAttributionAmbiguousCount + ' row(s). See CLAUDE.md "Tax report" section.';
+      strip.textContent = 'Two or more closed positions overlap in time within the same market for ' + warnings.feeAttributionAmbiguousCount + ' row(s). Fees and realized P&L for those rows are attributed by best effort and may not match what a dYdX FIFO accounting on the raw fills would produce. Treat affected rows as approximations and verify against fills if the totals matter for your filing.';
     } else {
       strip.style.display = 'none';
       strip.textContent = '';
@@ -258,8 +273,13 @@
 
     const sel = document.getElementById('taxYear');
     if (!sel || !sel.value) {
-      renderRows([], 'E');
-      renderTotals(window.TaxReport.summarize([], 'E'), 'E');
+      // Respect the user's current classification radio even in the
+      // empty state, so a G-selected user does not see the table flip
+      // to E labels when they switch to an address with no closed
+      // positions.
+      const cls = getClassification();
+      renderRows([], cls);
+      renderTotals(window.TaxReport.summarize([], cls), cls);
       clearWarningStrip();
       const status = document.getElementById('taxStatus');
       if (status) status.textContent = positions.length
@@ -322,6 +342,24 @@
     }
   }
 
+  // Classification only affects labels + the Holding column. Re-summarize
+  // and re-render the cached report instead of paying for a full FIFO
+  // rebuild + FX lookup. Falls back to refresh() when no cached report
+  // exists (first paint or empty state).
+  function reclassify() {
+    const classification = getClassification();
+    try { localStorage.setItem('taxClassification', classification); } catch (_) {}
+    if (_state.lastReport) {
+      const totals = window.TaxReport.summarize(_state.lastReport.rows, classification);
+      _state.lastReport.classification = classification;
+      _state.lastReport.totals = totals;
+      renderRows(_state.lastReport.rows, classification);
+      renderTotals(totals, classification);
+      return;
+    }
+    refresh();
+  }
+
   function wireEvents() {
     if (_wired) return;
     const sel = document.getElementById('taxYear');
@@ -329,7 +367,7 @@
     _wired = true;
     sel.addEventListener('change', refresh);
     document.querySelectorAll('input[name="taxClass"]').forEach(r => {
-      r.addEventListener('change', refresh);
+      r.addEventListener('change', reclassify);
     });
     let restored = null;
     try { restored = localStorage.getItem('taxClassification'); } catch (_) {}
