@@ -112,6 +112,7 @@
             <div class="nav-tab" data-tab="positions">Positions</div>
             <div class="nav-tab" data-tab="behavior">Behavior</div>
             <div class="nav-tab" data-tab="market">Market Structure</div>
+            <div class="nav-tab" data-tab="tax">Tax</div>
         </div>
 
         <!-- Overview Tab -->
@@ -594,6 +595,101 @@
 
         </div>
 
+        <!-- Tax Tab -->
+        <div class="tab-content" id="tax">
+            <div class="chart-container">
+                <div class="chart-header" style="display:flex; flex-wrap:wrap; gap:16px; align-items:center;">
+                    <div class="chart-title">Capital Gains Report</div>
+                    <label class="mono" style="font-size:12px;">
+                        Year
+                        <select id="taxYear" class="mono" style="margin-left:6px;"></select>
+                    </label>
+                    <label class="mono" style="font-size:12px;">
+                        <input type="radio" name="taxClass" value="E" checked>
+                        Categoria E (derivativos)
+                    </label>
+                    <label class="mono" style="font-size:12px;">
+                        <input type="radio" name="taxClass" value="G">
+                        Categoria G (cripto-ativos)
+                    </label>
+                    <button id="taxRefreshFx" class="address-btn" type="button" title="Drop cached ECB rates and re-fetch for selected year">Refresh FX</button>
+                    <button id="taxDownloadCsv" class="address-btn" type="button">Download CSV</button>
+                    <button id="taxDownloadJson" class="address-btn" type="button">Download JSON</button>
+                </div>
+                <div id="taxStatus" class="mono" style="font-size:11px; color:var(--ink-3); margin:4px 0 12px;">Load an address to populate.</div>
+                <div id="taxWarningStrip" class="mono" style="display:none; font-size:11px; padding:8px 12px; border-left:3px solid var(--warning); background:var(--paper-2); margin-bottom:12px;"></div>
+            </div>
+
+            <div class="metrics-grid">
+                <div class="metric-card">
+                    <div class="metric-label">Net P&amp;L (USD)</div>
+                    <div class="metric-value mono" id="taxNetUsd">—</div>
+                    <div class="metric-change mono" id="taxNetUsdDetail">—</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Net P&amp;L (EUR)</div>
+                    <div class="metric-value mono" id="taxNetEur">—</div>
+                    <div class="metric-change mono" id="taxNetEurDetail">ECB daily rate</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Gross gains</div>
+                    <div class="metric-value mono" id="taxGrossGainsUsd">—</div>
+                    <div class="metric-change mono" id="taxGrossGainsEur">—</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Gross losses</div>
+                    <div class="metric-value mono" id="taxGrossLossesUsd">—</div>
+                    <div class="metric-change mono" id="taxGrossLossesEur">—</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Fees</div>
+                    <div class="metric-value mono" id="taxFeesUsd">—</div>
+                    <div class="metric-change mono" id="taxFeesEur">—</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Funding</div>
+                    <div class="metric-value mono" id="taxFundingUsd">—</div>
+                    <div class="metric-change mono" id="taxFundingEur">—</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Trades</div>
+                    <div class="metric-value mono" id="taxTradeCount">—</div>
+                    <div class="metric-change mono" id="taxTradeBreakdown">—</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label" id="taxClassificationLabel">Categoria E (derivativos)</div>
+                    <div class="metric-value mono" id="taxFlatRate">28%</div>
+                    <div class="metric-change mono">Flat rate (PT)</div>
+                </div>
+            </div>
+
+            <div class="chart-container">
+                <div class="chart-header">
+                    <div class="chart-title">Closed Positions</div>
+                    <div class="chart-subtitle mono" style="font-size:11px; color:var(--ink-3);">One row per CLOSED position whose <em>closedAt</em> falls in the selected UTC year. Sorted newest → oldest.</div>
+                </div>
+                <table class="broadsheet-table">
+                    <thead>
+                        <tr>
+                            <th>CLOSED (UTC)</th>
+                            <th>MARKET</th>
+                            <th>SIDE</th>
+                            <th>SIZE (MAX)</th>
+                            <th>ENTRY</th>
+                            <th>EXIT</th>
+                            <th>REALIZED USD</th>
+                            <th>FUNDING USD</th>
+                            <th>FEES USD</th>
+                            <th>NET USD</th>
+                            <th>NET EUR</th>
+                            <th id="taxHoldingHeader" style="display:none;">HOLDING (d)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="taxRowsBody"></tbody>
+                </table>
+            </div>
+        </div>
+
         <!-- Colophon -->
         <footer class="colophon" role="contentinfo">
             <section class="colophon-col">
@@ -633,6 +729,8 @@
 
     <script src="./risk-metrics.js"></script>
     <script src="./portfolio-cache.js"></script>
+    <script src="./fx-rates.js"></script>
+    <script src="./tax-report.js"></script>
     <script src="./src/constants.js"></script>
     <script src="./src/format.js"></script>
     <script src="./src/charts/pnl-chart.js"></script>
@@ -644,6 +742,7 @@
     <script src="./src/panels/performance.js"></script>
     <script src="./src/panels/overview.js"></script>
     <script src="./src/panels/market.js"></script>
+    <script src="./src/panels/tax.js"></script>
     <script src="./src/dydx-api.js"></script>
     <script>
         // Live masthead date in UTC — analytics throughout the dashboard
@@ -672,6 +771,9 @@
                 if (bc) {
                     const tabName = tabId.charAt(0).toUpperCase() + tabId.slice(1);
                     bc.textContent = tabId === 'overview' ? 'dYdX Trading Analytics' : `Trading Analytics — ${tabName}`;
+                }
+                if (tabId === 'tax' && window.AppPanels && window.AppPanels.tax) {
+                    window.AppPanels.tax.refresh();
                 }
             }
         }
@@ -1556,6 +1658,7 @@ Sample: ${rets.length} returns over ${(adq.years*12).toFixed(1)} months (${(adq.
                     : 'N/A');
 
             window.AppPanels.positions.render(allPositions, fillsArr, subaccount);
+            window.AppPanels.tax.render(allPositions, fillsArr);
             window.AppPanels.performance.renderMetrics(allPositions, cls);
             window.AppPanels.behavior.renderTimeAnalysis(allPositions);
             window.AppPanels.behavior.renderActivityHeatmap(allPositions);

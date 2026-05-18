@@ -137,9 +137,53 @@ The Liquidation Risk Analysis table's LEVERAGE column shows `notional / subaccou
 
 Two display-side helpers wrap the formula so the Risk-tab Leverage card and the per-row LEVERAGE column never diverge: `RiskMetrics.leverageUtilization(positions, subaccount, marketsMap)` returns the account-level ratio; `RiskMetrics.liquidationRow(position, subaccount, marketsMap)` returns `{ size, entry, oracle, notional, lev, liq, distancePct }`. Position objects from `/perpetualPositions` do **not** carry `oraclePrice` — the oracle price lives on `marketsMap[market].oraclePrice`. Both helpers and `crossMarginLiqPrice` follow the same fallback chain `position.oraclePrice || marketsMap[market].oraclePrice || position.entryPrice`. All three are unit-tested in `test/risk-metrics.test.js`.
 
+## Tax report (Portugal)
+
+All tax-year report logic lives in `tax-report.js` on `window.TaxReport`. **Do not recompute these inline in `index.html` or in panels — call the helper.** ECB daily FX rates live in `fx-rates.js` on `window.FxRates`. The Tax panel (`src/panels/tax.js`) is wiring + DOM only. When semantics change, update the helper AND this section in the same commit.
+
+### Year boundary
+A closed position belongs to tax year `Y` iff `new Date(position.closedAt).getUTCFullYear() === Y`. UTC is mandatory: Portuguese local time (WET/WEST) would misclassify late-Dec UTC trades.
+
+Helper: `TaxReport.closedAtYearUTC(position)` returns `null` for invalid timestamps.
+
+### Fee attribution
+Per-fill fees on `/v4/fills` are attributed to a closed position when ALL hold: `fill.market === position.market`, `upper(fill.side) === upper(position.side)`, and `Date.parse(fill.createdAt) ∈ [position.createdAt, position.closedAt]`. When ANOTHER closed position in the same `(market, side)` overlaps the same window, the row carries `_feeAttributionWarning=true` and fees are NOT split pro-rata — pro-rata would fabricate. The ambiguity stays visible.
+
+Helper: `TaxReport.aggregateFeesForPosition(position, fills, closedPositions)` returns `{ totalFee, fillCount, warning }`.
+
+### Net realized P&L (per row)
+`netUSD = realizedPnl + netFunding − (derivedFlag ? fees : 0)`. The `derivedFlag` is `position._derivedRealizedPnl` (set by `RiskMetrics.normalizeRealizedPnl` when the indexer reports `realizedPnl=0` and the helper backfills via `(exit − entry) × maxSize × sideMult`). Derived values are provably gross of fees — subtract. Indexer-supplied values have UNVERIFIED fee semantics; we do NOT subtract to avoid double-count and mark the row `_feeDoubleCountRisk=true` so the user sees the uncertainty. **Spot-check verdict pending**: after sampling 3+ live positions with `_derivedRealizedPnl=false` against `(exit − entry) × size` and `Σ fee_in_window`, lock the policy here and either always-subtract or never-subtract for indexer rows, then remove the flag.
+
+Helper: `TaxReport.netRealizedPnl(realizedPnlUSD, netFundingUSD, feesUSD, derivedFlag)`.
+
+### Currency conversion
+USD → EUR via ECB daily reference rate on `closedDateUTC`. Source: `https://api.frankfurter.app/{date}?from=USD&to=EUR` (ECB-sourced, CORS-friendly, no auth). Weekend/holiday close dates inherit the nearest preceding business-day rate; the rate is stored in localStorage under the REQUESTED date so close-date lookups always hit. Cache key `fxRates:v1:USD-EUR`, indefinite TTL (historical reference rates do not change), independent of `dydxCache:v1` so `Forget` does not clear multi-year FX work.
+
+When a rate is unavailable for a row's close date, EUR cells render `—` and the row is excluded from EUR totals — never fall back to year-end rate. Single rule, no surprises. The totals card flips `eurPartial=true` so the user sees the partial coverage.
+
+Helper: `FxRates.getRates(dates: string[]) -> Promise<{rates, missing}>`. The `dates` array is built from the report's unique `closedDateUTC` values.
+
+### Classification (Categoria E vs G)
+The Portuguese fiscal category affects ONLY the totals card label preset and whether the Holding (days) column renders. Row data is identical. The 365-day holding exemption that applies to spot crypto under Categoria G is NOT automatically applied to perp gains: accountants decide on a case-by-case basis.
+
+- `Categoria E (derivativos)`: 28% flat. No holding column.
+- `Categoria G (cripto-ativos)`: 28% flat. Holding-days column shown for reference.
+
+Helper: `TaxReport.summarize(rows, classificationId)` — `classificationId ∈ {'E','G'}` swaps labels only.
+
+### Outputs
+- On-screen broadsheet table + 8 totals cards.
+- CSV download (RFC 4180 escapes for `,` `"` `\r` `\n`, CRLF line endings, includes meta header line with category + year).
+- JSON download (`{ meta: { classification, year, generatedAt, schemaVersion }, totals, rows }`).
+
+Helpers: `TaxReport.toCsv(rows, classificationId, year)`, `TaxReport.toJson(rows, totals, classificationId, year)`.
+
+### Tests
+`test/tax-report.test.js` pins year boundary in UTC, fee attribution + overlap flag, derived vs indexer-supplied net formulas, EUR conversion with missing-rate handling, summarize bucketing, RFC 4180 CSV escaping. Network logic in `fx-rates.js` is verified manually (no test mocks).
+
 ## Tests
 
-`node --test test/` runs the regression suite for `risk-metrics.js`. The suite pins formulas that have shipped bugs in the past: cross-margin liq price (LONG and SHORT), leverage notional source, oracle field path, indexer-zeroed `realizedPnl` repair, drawdown family, sample-adequacy gate, classifier. CI runs the same command on every push and PR via `.github/workflows/test.yml`.
+`npm test` (equivalent: `node --test test/*.test.js`) runs the regression suites for `risk-metrics.js`, `portfolio-cache.js`, and `tax-report.js`. The suites pin formulas that have shipped bugs in the past: cross-margin liq price (LONG and SHORT), leverage notional source, oracle field path, indexer-zeroed `realizedPnl` repair, drawdown family, sample-adequacy gate, classifier, tax year boundary (UTC), fee attribution + overlap flag, RFC 4180 CSV escaping. CI runs the same command on every push and PR via `.github/workflows/test.yml`.
 
 When semantics of any helper change, update `risk-metrics.js`, the calling sites, this section, AND the test in the same commit.
 
@@ -158,5 +202,5 @@ The pulsing dot is purely decorative; data is static between fetches. The badge 
 ## Future Improvements
 - Add more detailed error messages
 - Implement data caching for performance
-- Add export functionality for reports
 - Support for multiple subaccounts
+- Lock the fee-double-count policy in `tax-report.js` after spot-checking indexer `realizedPnl` semantics against fills (remove `_feeDoubleCountRisk` flag once resolved)
