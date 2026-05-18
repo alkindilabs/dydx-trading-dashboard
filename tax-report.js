@@ -8,6 +8,15 @@
  * the holding-days column renders. The 365-day exemption that applies
  * to spot crypto under Categoria G is NOT auto-applied to perp gains:
  * accountants decide on a case-by-case basis.
+ *
+ * Per-row realized P&L is derived from sliced /fills via FIFO
+ * (RiskMetrics.computeRealizedFromFills), not from
+ * /perpetualPositions.realizedPnl — the indexer field is known to
+ * undercount heavily-scaled accounts and the rest of the dashboard's
+ * P&L pipeline already treats fills as authoritative.
+ *
+ * Depends on window.RiskMetrics (computeRealizedFromFills must be
+ * available at runtime; tax-report.js loads after risk-metrics.js).
  */
 
 (function () {
@@ -65,64 +74,78 @@
         return [...seen].sort((a, b) => b - a);
     }
 
-    // Sum per-fill fees inside the position's [createdAt, closedAt] window
-    // for the same market+side. Returns ambiguity flag when ANOTHER closed
-    // position in the same (market, side) overlaps that window — pro-rata
-    // splitting would fabricate; we keep the over-attributed total visible
-    // and surface a warning the row inherits.
-    function aggregateFeesForPosition(position, fills, closedPositions) {
-        if (!position) return { totalFee: 0, fillCount: 0, warning: null };
+    // Slice the global fills array down to those in (same market,
+    // [createdAt, closedAt] window). Side is intentionally NOT filtered:
+    // /v4/fills sides are BUY/SELL while positions are LONG/SHORT, AND
+    // both sides legitimately belong to a position's lifecycle (BUY
+    // opens a LONG, SELL closes it; SELL opens a SHORT, BUY closes it).
+    function fillsInWindow(position, fills) {
+        if (!position) return [];
         const market = position.market;
-        const side = (position.side || '').toUpperCase();
         const openMs = tsMs(position.createdAt);
         const closeMs = tsMs(position.closedAt);
-        if (openMs === null || closeMs === null) {
-            return { totalFee: 0, fillCount: 0, warning: 'no-window' };
-        }
-        let totalFee = 0;
-        let fillCount = 0;
-        (fills || []).forEach(f => {
-            if (!f) return;
-            if (f.market !== market) return;
-            if ((f.side || '').toUpperCase() !== side) return;
+        if (openMs === null || closeMs === null) return [];
+        return (fills || []).filter(f => {
+            if (!f || f.market !== market) return false;
             const ms = tsMs(f.createdAt);
-            if (ms === null || ms < openMs || ms > closeMs) return;
-            totalFee += num(f.fee);
-            fillCount++;
+            return ms !== null && ms >= openMs && ms <= closeMs;
         });
-        let warning = null;
-        (closedPositions || []).forEach(other => {
-            if (warning) return;
-            if (!other || other === position) return;
-            if (other.market !== market) return;
-            if ((other.side || '').toUpperCase() !== side) return;
-            const oOpen = tsMs(other.createdAt);
-            const oClose = tsMs(other.closedAt);
-            if (oOpen === null || oClose === null) return;
-            if (oClose < openMs || oOpen > closeMs) return;
-            warning = 'overlap';
-        });
-        return { totalFee, fillCount, warning };
     }
 
-    // netUSD = realizedPnl + netFunding − (fees only when realizedPnl is the
-    // VWAP-derived repair, which is provably gross). For indexer-supplied
-    // realizedPnl the fee semantics are unverified — see _feeDoubleCountRisk
-    // flag and the spot-check note in CLAUDE.md.
-    function netRealizedPnl(realizedPnlUSD, netFundingUSD, feesUSD, derivedFlag) {
-        const r = num(realizedPnlUSD);
-        const f = num(netFundingUSD);
-        const fee = num(feesUSD);
-        return r + f - (derivedFlag ? fee : 0);
+    // Detect overlap with ANOTHER closed position in the same market.
+    // Side does not enter the check: when positions overlap in the same
+    // market regardless of side, the fee + realized-P&L attribution
+    // becomes ambiguous because their fills share the window.
+    function hasOverlapInMarket(position, closedPositions) {
+        if (!position) return false;
+        const market = position.market;
+        const openMs = tsMs(position.createdAt);
+        const closeMs = tsMs(position.closedAt);
+        if (openMs === null || closeMs === null) return false;
+        return (closedPositions || []).some(other => {
+            if (!other || other === position) return false;
+            if (other.market !== market) return false;
+            const oOpen = tsMs(other.createdAt);
+            const oClose = tsMs(other.closedAt);
+            if (oOpen === null || oClose === null) return false;
+            return !(oClose < openMs || oOpen > closeMs);
+        });
+    }
+
+    function aggregateFeesForPosition(position, fills, closedPositions) {
+        const sliced = fillsInWindow(position, fills);
+        let totalFee = 0;
+        sliced.forEach(f => { totalFee += num(f.fee); });
+        return {
+            totalFee,
+            fillCount: sliced.length,
+            warning: hasOverlapInMarket(position, closedPositions) ? 'overlap' : null
+        };
+    }
+
+    function realizedFromSlicedFills(position, fills) {
+        const sliced = fillsInWindow(position, fills);
+        if (!sliced.length) return { realized: 0, fillCount: 0 };
+        const RM = window.RiskMetrics;
+        if (!RM || typeof RM.computeRealizedFromFills !== 'function') {
+            return { realized: 0, fillCount: sliced.length, error: 'no-RiskMetrics' };
+        }
+        const fifo = RM.computeRealizedFromFills(sliced);
+        const realized = (fifo.byMarket && fifo.byMarket[position.market]) || 0;
+        return { realized, fillCount: sliced.length };
+    }
+
+    function netRealizedPnl(realizedPnlUSD, netFundingUSD, feesUSD) {
+        return num(realizedPnlUSD) + num(netFundingUSD) - num(feesUSD);
     }
 
     function buildRow(position, fills, closedPositions) {
-        const realizedPnlUSD = num(position.realizedPnl);
+        const realizedAgg = realizedFromSlicedFills(position, fills);
+        const realizedPnlUSD = realizedAgg.realized;
         const netFundingUSD = num(position.netFunding);
-        const derivedFlag = position._derivedRealizedPnl === true;
         const feeAgg = aggregateFeesForPosition(position, fills, closedPositions);
         const feesUSD = feeAgg.totalFee;
-        const netUSD = netRealizedPnl(realizedPnlUSD, netFundingUSD, feesUSD, derivedFlag);
+        const netUSD = netRealizedPnl(realizedPnlUSD, netFundingUSD, feesUSD);
         const maxSize = Math.abs(num(position.maxSize || position.sumOpen || position.size));
         const entryPrice = num(position.entryPrice);
         const exitPrice = num(position.exitPrice);
@@ -131,6 +154,8 @@
         const holdingDays = (openMs !== null && closeMs !== null && closeMs >= openMs)
             ? Math.floor((closeMs - openMs) / 86400000)
             : null;
+        const indexerRealized = num(position.realizedPnl);
+        const fifoDelta = realizedPnlUSD - indexerRealized;
         return {
             closedAtISO: position.closedAt || null,
             createdAtISO: position.createdAt || null,
@@ -150,16 +175,26 @@
             netEUR: undefined,
             fxRate: undefined,
             holdingDays,
-            _derivedRealizedPnl: derivedFlag,
+            indexerRealizedPnlUSD: indexerRealized,
+            fifoVsIndexerDeltaUSD: fifoDelta,
             _feeAttributionWarning: feeAgg.warning === 'overlap',
-            _fxMissing: false,
-            _feeDoubleCountRisk: !derivedFlag && feesUSD !== 0
+            _realizedFromFills: !realizedAgg.error,
+            _fxMissing: false
         };
     }
 
+    // Idempotent: clears any prior EUR fields / _fxMissing flag before
+    // re-applying so repeated calls on the same rows produce a clean
+    // result.
     function convertRowsToEur(rows, fxRates, warnings) {
         const missing = (warnings && warnings.missingFxDates) || [];
         (rows || []).forEach(row => {
+            row.fxRate = undefined;
+            row.realizedPnlEUR = undefined;
+            row.netFundingEUR = undefined;
+            row.feesEUR = undefined;
+            row.netEUR = undefined;
+            row._fxMissing = false;
             const rate = fxRates && row.closedDateUTC ? fxRates[row.closedDateUTC] : undefined;
             if (isNumber(rate)) {
                 row.fxRate = rate;
@@ -223,10 +258,9 @@
 
     function buildYearReport(positions, fills, year, fxRates) {
         const warnings = {
-            derivedRealizedPnlCount: 0,
             feeAttributionAmbiguousCount: 0,
-            feeDoubleCountRiskCount: 0,
-            missingFxDates: []
+            missingFxDates: [],
+            positionsWithoutFifoCount: 0
         };
         const closed = (positions || []).filter(p => p && p.status === 'CLOSED');
         const inYear = closed.filter(p => closedAtYearUTC(p) === year);
@@ -237,9 +271,8 @@
             return bt - at;
         });
         rows.forEach(r => {
-            if (r._derivedRealizedPnl) warnings.derivedRealizedPnlCount++;
             if (r._feeAttributionWarning) warnings.feeAttributionAmbiguousCount++;
-            if (r._feeDoubleCountRisk) warnings.feeDoubleCountRiskCount++;
+            if (!r._realizedFromFills) warnings.positionsWithoutFifoCount++;
         });
         if (fxRates) convertRowsToEur(rows, fxRates, warnings);
         const totals = summarize(rows, null);
@@ -278,7 +311,8 @@
             'fx_rate_usd_eur',
             'realized_pnl_eur', 'net_funding_eur', 'fees_eur', 'net_eur',
             'holding_days',
-            'derived_realized_pnl', 'fee_attribution_warning', 'fx_missing', 'fee_double_count_risk'
+            'indexer_realized_pnl_usd', 'fifo_vs_indexer_delta_usd',
+            'realized_from_fills', 'fee_attribution_warning', 'fx_missing'
         ];
         const meta = `# Categoria ${cls.id} — ${cls.label} — Portugal tax year ${year}`;
         const out = [meta, header.map(csvEscape).join(',')];
@@ -301,10 +335,11 @@
                 fmtEur(row.feesEUR),
                 fmtEur(row.netEUR),
                 row.holdingDays === null ? '' : String(row.holdingDays),
-                row._derivedRealizedPnl ? 'true' : 'false',
+                fmtUsd(row.indexerRealizedPnlUSD),
+                fmtUsd(row.fifoVsIndexerDeltaUSD),
+                row._realizedFromFills ? 'true' : 'false',
                 row._feeAttributionWarning ? 'true' : 'false',
-                row._fxMissing ? 'true' : 'false',
-                row._feeDoubleCountRisk ? 'true' : 'false'
+                row._fxMissing ? 'true' : 'false'
             ].map(csvEscape).join(','));
         });
         return out.join('\r\n') + '\r\n';
@@ -331,6 +366,7 @@
         CLASSIFICATIONS,
         buildYearReport,
         aggregateFeesForPosition,
+        realizedFromSlicedFills,
         netRealizedPnl,
         convertRowsToEur,
         summarize,
@@ -338,6 +374,6 @@
         toJson,
         availableYearsFromPositions,
         closedAtYearUTC,
-        _internal: { csvEscape, buildRow, dateUTC, tsMs }
+        _internal: { csvEscape, buildRow, dateUTC, tsMs, fillsInWindow, hasOverlapInMarket }
     };
 })();

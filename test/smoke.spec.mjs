@@ -38,9 +38,18 @@ test.describe('dashboard smoke', () => {
         body: JSON.stringify(fixture[rule.key]),
       });
     });
+    // Stub the ECB-proxy used by the Tax tab so the smoke run never hits
+    // the live api.frankfurter.app endpoint.
+    await page.route(/api\.frankfurter\.app/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ rates: {} }),
+      });
+    });
   });
 
-  test('loads with no console errors and renders all 6 tabs', async ({ page }) => {
+  test('loads with no console errors and renders all 7 tabs', async ({ page }) => {
     const errors = [];
     page.on('pageerror', e => errors.push(`pageerror: ${e.message}`));
     page.on('console', m => { if (m.type() === 'error') errors.push(`console: ${m.text()}`); });
@@ -50,7 +59,7 @@ test.describe('dashboard smoke', () => {
     // Wait for the load lifecycle then a beat for the dashboard render to settle.
     await page.waitForLoadState('networkidle');
 
-    const tabs = ['overview', 'performance', 'risk', 'positions', 'behavior', 'market'];
+    const tabs = ['overview', 'performance', 'risk', 'positions', 'behavior', 'market', 'tax'];
     for (const id of tabs) {
       await expect(page.locator(`.nav-tab[data-tab="${id}"]`)).toBeVisible();
     }
@@ -70,10 +79,15 @@ test.describe('dashboard smoke', () => {
     await page.goto(`/?address=${ADDRESS}`);
     await page.waitForLoadState('networkidle');
 
-    for (const id of ['performance', 'risk', 'positions', 'behavior', 'market', 'overview']) {
+    for (const id of ['performance', 'risk', 'positions', 'behavior', 'market', 'tax', 'overview']) {
       await page.locator(`.nav-tab[data-tab="${id}"]`).click();
       await expect(page.locator(`#${id}.tab-content.active`)).toBeVisible();
     }
+
+    // Tax tab activation kicks off an async FX fetch via window.FxRates.
+    // Give it a beat to settle so the post-await render doesn't throw
+    // unobserved.
+    await page.waitForTimeout(500);
 
     expect(errors, errors.join('\n')).toHaveLength(0);
   });

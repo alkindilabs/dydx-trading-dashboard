@@ -146,22 +146,29 @@ A closed position belongs to tax year `Y` iff `new Date(position.closedAt).getUT
 
 Helper: `TaxReport.closedAtYearUTC(position)` returns `null` for invalid timestamps.
 
+### Realized P&L source — FIFO from sliced /fills
+Per-row realized P&L is derived by running `RiskMetrics.computeRealizedFromFills` over the fills sliced to (`fill.market === position.market` AND `Date.parse(fill.createdAt) ∈ [position.createdAt, position.closedAt]`). The `/perpetualPositions.realizedPnl` field is NOT used as the source — it is known to undercount heavily-scaled accounts (the rest of the dashboard's P&L pipeline already treats FIFO-from-fills as authoritative; see comment at `risk-metrics.js:548` and `index.html:1240`). The indexer-supplied value is still emitted in the report as `indexerRealizedPnlUSD` with a `fifoVsIndexerDeltaUSD` column so the user can see the gap.
+
+Helper: `TaxReport.realizedFromSlicedFills(position, fills)` returns `{ realized, fillCount, error? }`. When no fills land in the window, returns `realized: 0` and the row carries `_realizedFromFills: false`; the panel surfaces a "no fills found" warning.
+
 ### Fee attribution
-Per-fill fees on `/v4/fills` are attributed to a closed position when ALL hold: `fill.market === position.market`, `upper(fill.side) === upper(position.side)`, and `Date.parse(fill.createdAt) ∈ [position.createdAt, position.closedAt]`. When ANOTHER closed position in the same `(market, side)` overlaps the same window, the row carries `_feeAttributionWarning=true` and fees are NOT split pro-rata — pro-rata would fabricate. The ambiguity stays visible.
+Per-fill fees on `/v4/fills` are attributed to a closed position when BOTH hold: `fill.market === position.market` AND `Date.parse(fill.createdAt) ∈ [position.createdAt, position.closedAt]`. **No side filter** — `/v4/fills` exposes side as `BUY`/`SELL` while positions are `LONG`/`SHORT`, AND both sides legitimately belong to a position's lifecycle (BUY opens a LONG / closes a SHORT; SELL closes a LONG / opens a SHORT). A direct side equality check would never match a single fill.
+
+When ANOTHER closed position in the **same market** overlaps the window (regardless of side), the row carries `_feeAttributionWarning=true` and fees are NOT split pro-rata — pro-rata would fabricate. The ambiguity stays visible.
 
 Helper: `TaxReport.aggregateFeesForPosition(position, fills, closedPositions)` returns `{ totalFee, fillCount, warning }`.
 
 ### Net realized P&L (per row)
-`netUSD = realizedPnl + netFunding − (derivedFlag ? fees : 0)`. The `derivedFlag` is `position._derivedRealizedPnl` (set by `RiskMetrics.normalizeRealizedPnl` when the indexer reports `realizedPnl=0` and the helper backfills via `(exit − entry) × maxSize × sideMult`). Derived values are provably gross of fees — subtract. Indexer-supplied values have UNVERIFIED fee semantics; we do NOT subtract to avoid double-count and mark the row `_feeDoubleCountRisk=true` so the user sees the uncertainty. **Spot-check verdict pending**: after sampling 3+ live positions with `_derivedRealizedPnl=false` against `(exit − entry) × size` and `Σ fee_in_window`, lock the policy here and either always-subtract or never-subtract for indexer rows, then remove the flag.
+`netUSD = realizedPnlUSD (FIFO) + netFundingUSD − feesUSD`. Fees always subtract because the FIFO source is provably gross of fees (`computeRealizedFromFills` looks only at fill prices and sizes).
 
-Helper: `TaxReport.netRealizedPnl(realizedPnlUSD, netFundingUSD, feesUSD, derivedFlag)`.
+Helper: `TaxReport.netRealizedPnl(realizedPnlUSD, netFundingUSD, feesUSD)`.
 
 ### Currency conversion
 USD → EUR via ECB daily reference rate on `closedDateUTC`. Source: `https://api.frankfurter.app/{date}?from=USD&to=EUR` (ECB-sourced, CORS-friendly, no auth). Weekend/holiday close dates inherit the nearest preceding business-day rate; the rate is stored in localStorage under the REQUESTED date so close-date lookups always hit. Cache key `fxRates:v1:USD-EUR`, indefinite TTL (historical reference rates do not change), independent of `dydxCache:v1` so `Forget` does not clear multi-year FX work.
 
-When a rate is unavailable for a row's close date, EUR cells render `—` and the row is excluded from EUR totals — never fall back to year-end rate. Single rule, no surprises. The totals card flips `eurPartial=true` so the user sees the partial coverage.
+When a rate is unavailable for a row's close date, EUR cells render `—` and the row is excluded from EUR totals — never fall back to year-end rate. Single rule, no surprises. The totals card flips `eurPartial=true` so the user sees the partial coverage. `convertRowsToEur` is idempotent: each call resets EUR fields and `_fxMissing` on every row before re-applying so re-renders against fresh FX rates always produce a clean result.
 
-Helper: `FxRates.getRates(dates: string[]) -> Promise<{rates, missing}>`. The `dates` array is built from the report's unique `closedDateUTC` values.
+Helper: `FxRates.getRates(dates: string[]) -> Promise<{rates, missing}>`. The `dates` array is built from the report's unique `closedDateUTC` values. The Tax panel only invokes `FxRates.getRates` when the Tax tab is actually active (`isTaxTabActive()` check in `render()`); users who never open the tab never hit api.frankfurter.app.
 
 ### Classification (Categoria E vs G)
 The Portuguese fiscal category affects ONLY the totals card label preset and whether the Holding (days) column renders. Row data is identical. The 365-day holding exemption that applies to spot crypto under Categoria G is NOT automatically applied to perp gains: accountants decide on a case-by-case basis.
@@ -179,11 +186,11 @@ Helper: `TaxReport.summarize(rows, classificationId)` — `classificationId ∈ 
 Helpers: `TaxReport.toCsv(rows, classificationId, year)`, `TaxReport.toJson(rows, totals, classificationId, year)`.
 
 ### Tests
-`test/tax-report.test.js` pins year boundary in UTC, fee attribution + overlap flag, derived vs indexer-supplied net formulas, EUR conversion with missing-rate handling, summarize bucketing, RFC 4180 CSV escaping. Network logic in `fx-rates.js` is verified manually (no test mocks).
+`test/tax-report.test.js` pins year boundary in UTC, fee attribution (window + market, no side filter), per-position FIFO realized, FIFO-vs-indexer delta surface, idempotent EUR conversion, summarize bucketing, RFC 4180 CSV escaping. `test/fx-rates.test.js` exercises the cache + network paths against a stubbed `fetch`: cache hit, timeseries miss + persist, weekend single-date fallback, network-failure → `missing[]`. The Playwright smoke (`test/smoke.spec.mjs`) routes `api.frankfurter.app` to an empty-rates response so the Tax tab activates and exercises the async path without a live network call.
 
 ## Tests
 
-`npm test` (equivalent: `node --test test/*.test.js`) runs the regression suites for `risk-metrics.js`, `portfolio-cache.js`, and `tax-report.js`. The suites pin formulas that have shipped bugs in the past: cross-margin liq price (LONG and SHORT), leverage notional source, oracle field path, indexer-zeroed `realizedPnl` repair, drawdown family, sample-adequacy gate, classifier, tax year boundary (UTC), fee attribution + overlap flag, RFC 4180 CSV escaping. CI runs the same command on every push and PR via `.github/workflows/test.yml`.
+`npm test` (equivalent: `node --test test/*.test.js`) runs the regression suites for `risk-metrics.js`, `portfolio-cache.js`, `tax-report.js`, `fx-rates.js`, and `format.js`. The suites pin formulas that have shipped bugs in the past: cross-margin liq price (LONG and SHORT), leverage notional source, oracle field path, indexer-zeroed `realizedPnl` repair, drawdown family, sample-adequacy gate, classifier, tax year boundary (UTC), per-position FIFO realized, fee attribution + overlap flag, RFC 4180 CSV escaping, FX cache hit / timeseries miss / weekend gap-fill. CI runs the same command on every push and PR via `.github/workflows/test.yml`.
 
 When semantics of any helper change, update `risk-metrics.js`, the calling sites, this section, AND the test in the same commit.
 
@@ -203,4 +210,3 @@ The pulsing dot is purely decorative; data is static between fetches. The badge 
 - Add more detailed error messages
 - Implement data caching for performance
 - Support for multiple subaccounts
-- Lock the fee-double-count policy in `tax-report.js` after spot-checking indexer `realizedPnl` semantics against fills (remove `_feeDoubleCountRisk` flag once resolved)

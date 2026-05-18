@@ -2,6 +2,11 @@
 // tax-report.js (window.TaxReport); ECB daily rates in fx-rates.js
 // (window.FxRates). This file is wiring + DOM only.
 //
+// FX is fetched lazily — render() seeds state but only fires refresh()
+// when the Tax tab is currently active. The activateTab hook in
+// index.html invokes refresh() on tab switch so users who never open
+// the Tax tab never trigger a third-party ECB request.
+//
 // Depends on: window.TaxReport, window.FxRates, window.Format, window.AppDom.
 
 (function () {
@@ -10,6 +15,19 @@
   let _wired = false;
   let _renderToken = 0;
   let _state = { positions: [], fills: [], lastReport: null };
+
+  function isTaxTabActive() {
+    const el = document.getElementById('tax');
+    return !!(el && el.classList && el.classList.contains('active'));
+  }
+
+  function clearWarningStrip() {
+    const strip = document.getElementById('taxWarningStrip');
+    if (strip) {
+      strip.style.display = 'none';
+      strip.textContent = '';
+    }
+  }
 
   function getClassification() {
     const radio = document.querySelector('input[name="taxClass"]:checked');
@@ -84,10 +102,12 @@
     rows.forEach(row => {
       const tr = document.createElement('tr');
       const reasons = [];
-      if (row._derivedRealizedPnl) reasons.push('Realized P&L derived from prices (gross of fees).');
-      if (row._feeAttributionWarning) reasons.push('Another closed position overlaps this market+side window — fee attribution ambiguous.');
+      if (!row._realizedFromFills) reasons.push('No fills found in window — realized P&L falls back to 0.');
+      if (row._feeAttributionWarning) reasons.push('Another closed position in this market overlaps the window — fee/realized attribution is approximate.');
       if (row._fxMissing) reasons.push('FX rate unavailable for ' + (row.closedDateUTC || 'close date') + '.');
-      if (row._feeDoubleCountRisk) reasons.push('Fees may already be netted into indexer realizedPnl — not subtracted to avoid double-count.');
+      if (typeof row.fifoVsIndexerDeltaUSD === 'number' && Math.abs(row.fifoVsIndexerDeltaUSD) > 0.01) {
+        reasons.push('FIFO realized differs from indexer by $' + row.fifoVsIndexerDeltaUSD.toFixed(2) + '. FIFO is authoritative.');
+      }
 
       const closedTd = D.appendCell(tr, row.closedDateUTC || '—', ['mono']);
       if (reasons.length) {
@@ -143,21 +163,19 @@
     const status = document.getElementById('taxStatus');
     if (status) {
       const parts = ['Year ' + year, rowCount + ' closed positions'];
-      if (warnings.derivedRealizedPnlCount) parts.push(warnings.derivedRealizedPnlCount + ' derived P&L');
       if (warnings.feeAttributionAmbiguousCount) parts.push(warnings.feeAttributionAmbiguousCount + ' fee-ambiguous');
       if (warnings.missingFxDates.length) parts.push(warnings.missingFxDates.length + ' missing FX dates');
-      if (warnings.feeDoubleCountRiskCount) parts.push(warnings.feeDoubleCountRiskCount + ' fee double-count risk');
+      if (warnings.positionsWithoutFifoCount) parts.push(warnings.positionsWithoutFifoCount + ' no-FIFO-data');
       status.textContent = parts.join(' · ');
     }
     const strip = document.getElementById('taxWarningStrip');
     if (!strip) return;
-    const halfDerived = rowCount > 0 && warnings.derivedRealizedPnlCount / rowCount > 0.5;
-    if (halfDerived) {
+    if (warnings.positionsWithoutFifoCount > 0) {
       strip.style.display = '';
-      strip.textContent = 'Most rows use realized P&L derived from VWAP prices (indexer reported $0). These values are gross of fees; the net column subtracts attributed fills-fees, but totals may still differ from broker-confirmed figures.';
-    } else if (warnings.feeDoubleCountRiskCount > 0) {
+      strip.textContent = 'Some positions have no fills in the indexer slice — realized P&L for those rows shows 0. Re-fetch the address and try again.';
+    } else if (warnings.feeAttributionAmbiguousCount > 0) {
       strip.style.display = '';
-      strip.textContent = 'Indexer-supplied realizedPnl rows: fees NOT subtracted (uncertain whether indexer already netted them). See CLAUDE.md “Tax report” section; spot-check needed before relying on totals.';
+      strip.textContent = 'Overlapping positions in the same market detected — fee attribution is approximate for ' + warnings.feeAttributionAmbiguousCount + ' row(s). See CLAUDE.md "Tax report" section.';
     } else {
       strip.style.display = 'none';
       strip.textContent = '';
@@ -166,14 +184,19 @@
 
   async function refresh() {
     if (!window.TaxReport || !window.FxRates) return;
+    // Bump the token on every entry: any prior in-flight FX fetch
+    // becomes obsolete and its post-await render is suppressed.
+    const token = ++_renderToken;
     const positions = _state.positions;
     const fills = _state.fills;
     populateYearSelect(positions);
 
     const sel = document.getElementById('taxYear');
     if (!sel || !sel.value) {
+      _state.lastReport = null;
       renderRows([], 'E');
       renderTotals(window.TaxReport.summarize([], 'E'), 'E');
+      clearWarningStrip();
       const status = document.getElementById('taxStatus');
       if (status) status.textContent = positions.length
         ? 'No closed positions for any year.'
@@ -191,7 +214,6 @@
     const status = document.getElementById('taxStatus');
     if (status) status.textContent = 'Fetching ECB rates for ' + dates.length + ' date(s)…';
 
-    const token = ++_renderToken;
     const { rates } = await window.FxRates.getRates(dates);
     if (token !== _renderToken) return;
 
@@ -258,8 +280,14 @@
   function render(positions, fills) {
     _state.positions = Array.isArray(positions) ? positions : [];
     _state.fills = Array.isArray(fills) ? fills : [];
+    // Stale lastReport from the prior address must not be downloadable.
+    _state.lastReport = null;
+    // Token bump cancels any in-flight FX render against the old data.
+    _renderToken++;
     wireEvents();
-    refresh();
+    // Only paint + hit ECB when the user is actually looking at the tab.
+    // Otherwise just seed state; activateTab('tax') triggers refresh().
+    if (isTaxTabActive()) refresh();
   }
 
   window.AppPanels = window.AppPanels || {};

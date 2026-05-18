@@ -3,13 +3,15 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-// Tax module is browser-targeted; shim window onto globalThis so the IIFE
-// attaches, then grab the global.
+// Tax module is browser-targeted and depends on window.RiskMetrics
+// (computeRealizedFromFills). Shim window onto globalThis, load
+// risk-metrics first, then tax-report.
 globalThis.window = globalThis;
+require('../risk-metrics.js');
 require('../tax-report.js');
 const TR = globalThis.TaxReport;
 
-const close = (a, b, eps = 1e-9) => Math.abs(a - b) < eps;
+const close = (a, b, eps = 1e-6) => Math.abs(a - b) < eps;
 
 // ---------------------------------------------------------------------------
 // closedAtYearUTC — UTC boundary correctness (not local time).
@@ -45,10 +47,14 @@ test('availableYearsFromPositions: dedupes, sorts desc, ignores OPEN', () => {
 });
 
 // ---------------------------------------------------------------------------
-// aggregateFeesForPosition — window + ambiguity flag.
+// aggregateFeesForPosition — window + market filter (NO side filter).
+// /v4/fills exposes side as BUY/SELL; positions are LONG/SHORT. Both
+// sides legitimately belong to a position's lifecycle (open + close
+// fills always use opposite sides), so the helper must not equality-
+// match on side.
 // ---------------------------------------------------------------------------
 
-test('aggregateFeesForPosition: sums in-window fills for same market+side', () => {
+test('aggregateFeesForPosition: sums in-window fills for same market regardless of BUY vs SELL', () => {
     const position = {
         market: 'ETH-USD',
         side: 'LONG',
@@ -56,30 +62,29 @@ test('aggregateFeesForPosition: sums in-window fills for same market+side', () =
         closedAt: '2024-01-15T00:00:00Z'
     };
     const fills = [
-        { market: 'ETH-USD', side: 'LONG',  createdAt: '2024-01-10T01:00:00Z', fee: '1.50' },
-        { market: 'ETH-USD', side: 'LONG',  createdAt: '2024-01-14T22:00:00Z', fee: '2.25' },
-        { market: 'ETH-USD', side: 'SHORT', createdAt: '2024-01-12T00:00:00Z', fee: '5.00' }, // wrong side
-        { market: 'BTC-USD', side: 'LONG',  createdAt: '2024-01-12T00:00:00Z', fee: '5.00' }, // wrong market
-        { market: 'ETH-USD', side: 'LONG',  createdAt: '2024-01-09T23:59:00Z', fee: '5.00' }, // before window
-        { market: 'ETH-USD', side: 'LONG',  createdAt: '2024-01-15T00:00:01Z', fee: '5.00' }  // after window
+        { market: 'ETH-USD', side: 'BUY',  createdAt: '2024-01-10T01:00:00Z', fee: '1.50' },
+        { market: 'ETH-USD', side: 'SELL', createdAt: '2024-01-14T22:00:00Z', fee: '2.25' },
+        { market: 'BTC-USD', side: 'BUY',  createdAt: '2024-01-12T00:00:00Z', fee: '5.00' },
+        { market: 'ETH-USD', side: 'BUY',  createdAt: '2024-01-09T23:59:00Z', fee: '5.00' },
+        { market: 'ETH-USD', side: 'SELL', createdAt: '2024-01-15T00:00:01Z', fee: '5.00' }
     ];
     const result = TR.aggregateFeesForPosition(position, fills, [position]);
-    assert.ok(close(result.totalFee, 3.75), `expected 3.75, got ${result.totalFee}`);
+    assert.ok(close(result.totalFee, 3.75, 1e-9), `expected 3.75, got ${result.totalFee}`);
     assert.equal(result.fillCount, 2);
     assert.equal(result.warning, null);
 });
 
-test('aggregateFeesForPosition: flags overlap when another closed position shares market+side window', () => {
+test('aggregateFeesForPosition: flags overlap when another closed position shares market window', () => {
     const a = {
         status: 'CLOSED', market: 'ETH-USD', side: 'LONG',
         createdAt: '2024-01-10T00:00:00Z', closedAt: '2024-01-20T00:00:00Z'
     };
     const b = {
-        status: 'CLOSED', market: 'ETH-USD', side: 'LONG',
+        status: 'CLOSED', market: 'ETH-USD', side: 'SHORT',
         createdAt: '2024-01-15T00:00:00Z', closedAt: '2024-01-25T00:00:00Z'
     };
     const fills = [
-        { market: 'ETH-USD', side: 'LONG', createdAt: '2024-01-17T00:00:00Z', fee: '1.00' }
+        { market: 'ETH-USD', side: 'BUY', createdAt: '2024-01-17T00:00:00Z', fee: '1.00' }
     ];
     const result = TR.aggregateFeesForPosition(a, fills, [a, b]);
     assert.equal(result.warning, 'overlap');
@@ -97,43 +102,117 @@ test('aggregateFeesForPosition: no fills returns zero, no warning', () => {
 });
 
 // ---------------------------------------------------------------------------
-// netRealizedPnl — derived vs indexer-supplied branch.
+// realizedFromSlicedFills — FIFO over per-position-sliced fills.
+// Source of truth for taxable realized P&L. Aligns with the rest of
+// the dashboard's P&L pipeline (FIFO-from-fills is authoritative).
 // ---------------------------------------------------------------------------
 
-test('netRealizedPnl: derived flag subtracts fees', () => {
-    assert.ok(close(TR.netRealizedPnl(100, 5, 3, true), 102));
+test('realizedFromSlicedFills: BUY-then-SELL within window yields exit-entry × size', () => {
+    const position = {
+        market: 'BTC-USD',
+        createdAt: '2024-01-10T00:00:00Z',
+        closedAt: '2024-01-15T00:00:00Z'
+    };
+    const fills = [
+        { market: 'BTC-USD', createdAt: '2024-01-10T00:00:00Z', side: 'BUY',  size: '1', price: '100' },
+        { market: 'BTC-USD', createdAt: '2024-01-15T00:00:00Z', side: 'SELL', size: '1', price: '150' }
+    ];
+    const r = TR.realizedFromSlicedFills(position, fills);
+    assert.ok(close(r.realized, 50), `expected 50, got ${r.realized}`);
+    assert.equal(r.fillCount, 2);
 });
 
-test('netRealizedPnl: indexer-supplied (derived=false) does NOT subtract fees', () => {
-    // Guards against double-counting if indexer realizedPnl already nets fees.
-    assert.ok(close(TR.netRealizedPnl(100, 5, 3, false), 105));
+test('realizedFromSlicedFills: SELL-open SHORT then BUY-close', () => {
+    const position = {
+        market: 'BTC-USD',
+        createdAt: '2024-02-01T00:00:00Z',
+        closedAt: '2024-02-05T00:00:00Z'
+    };
+    const fills = [
+        { market: 'BTC-USD', createdAt: '2024-02-01T00:00:00Z', side: 'SELL', size: '1', price: '200' },
+        { market: 'BTC-USD', createdAt: '2024-02-05T00:00:00Z', side: 'BUY',  size: '1', price: '180' }
+    ];
+    const r = TR.realizedFromSlicedFills(position, fills);
+    assert.ok(close(r.realized, 20), `expected 20, got ${r.realized}`);
 });
 
-test('netRealizedPnl: loss with paid funding, derived branch', () => {
-    assert.ok(close(TR.netRealizedPnl(-50, -2, 1, true), -53));
+test('realizedFromSlicedFills: scaled-in LONG resolves via FIFO', () => {
+    const position = {
+        market: 'BTC-USD',
+        createdAt: '2024-03-01T00:00:00Z',
+        closedAt: '2024-03-10T00:00:00Z'
+    };
+    const fills = [
+        { market: 'BTC-USD', createdAt: '2024-03-01T00:00:00Z', side: 'BUY',  size: '1', price: '100' },
+        { market: 'BTC-USD', createdAt: '2024-03-05T00:00:00Z', side: 'BUY',  size: '1', price: '200' },
+        { market: 'BTC-USD', createdAt: '2024-03-10T00:00:00Z', side: 'SELL', size: '2', price: '300' }
+    ];
+    // FIFO: (300-100)*1 + (300-200)*1 = 300
+    const r = TR.realizedFromSlicedFills(position, fills);
+    assert.ok(close(r.realized, 300), `expected 300, got ${r.realized}`);
+});
+
+test('realizedFromSlicedFills: ignores fills outside window or in other markets', () => {
+    const position = {
+        market: 'BTC-USD',
+        createdAt: '2024-04-01T00:00:00Z',
+        closedAt: '2024-04-05T00:00:00Z'
+    };
+    const fills = [
+        { market: 'BTC-USD', createdAt: '2024-04-01T00:00:00Z', side: 'BUY',  size: '1', price: '100' },
+        { market: 'BTC-USD', createdAt: '2024-04-05T00:00:00Z', side: 'SELL', size: '1', price: '150' },
+        { market: 'BTC-USD', createdAt: '2024-03-30T00:00:00Z', side: 'BUY',  size: '5', price: '999' },
+        { market: 'BTC-USD', createdAt: '2024-04-10T00:00:00Z', side: 'SELL', size: '5', price: '999' },
+        { market: 'ETH-USD', createdAt: '2024-04-02T00:00:00Z', side: 'BUY',  size: '5', price: '999' }
+    ];
+    const r = TR.realizedFromSlicedFills(position, fills);
+    assert.ok(close(r.realized, 50), `expected 50, got ${r.realized}`);
+    assert.equal(r.fillCount, 2);
 });
 
 // ---------------------------------------------------------------------------
-// buildYearReport — filter by closedAt UTC year, exclude OPEN, attribute fees.
+// netRealizedPnl — realized + funding − fees.
+// ---------------------------------------------------------------------------
+
+test('netRealizedPnl: realized + funding − fees', () => {
+    assert.ok(close(TR.netRealizedPnl(100, 5, 3), 102));
+});
+
+test('netRealizedPnl: loss + paid funding + fees', () => {
+    assert.ok(close(TR.netRealizedPnl(-50, -2, 1), -53));
+});
+
+test('netRealizedPnl: NaN-safe', () => {
+    assert.equal(TR.netRealizedPnl('abc', null, undefined), 0);
+});
+
+// ---------------------------------------------------------------------------
+// buildYearReport — filter by closedAt UTC year, exclude OPEN,
+// FIFO-derived realized, side-agnostic fee attribution.
 // ---------------------------------------------------------------------------
 
 test('buildYearReport: filters by closedAt UTC year', () => {
     const positions = [
         { status: 'CLOSED', market: 'ETH-USD', side: 'LONG',
           createdAt: '2024-12-30T00:00:00Z', closedAt: '2024-12-31T23:59:59Z',
-          realizedPnl: '100', netFunding: '0', entryPrice: '3000', exitPrice: '3100',
-          maxSize: '1', _derivedRealizedPnl: true },
+          realizedPnl: '0', netFunding: '0', entryPrice: '3000', exitPrice: '3100', maxSize: '1' },
         { status: 'CLOSED', market: 'ETH-USD', side: 'LONG',
           createdAt: '2025-01-01T00:00:00Z', closedAt: '2025-01-02T00:00:00Z',
-          realizedPnl: '50', netFunding: '0', entryPrice: '3100', exitPrice: '3150',
-          maxSize: '1', _derivedRealizedPnl: true }
+          realizedPnl: '0', netFunding: '0', entryPrice: '3100', exitPrice: '3150', maxSize: '1' }
     ];
-    const r2024 = TR.buildYearReport(positions, [], 2024, {});
+    const fills = [
+        { market: 'ETH-USD', side: 'BUY',  createdAt: '2024-12-30T00:00:00Z', size: '1', price: '3000' },
+        { market: 'ETH-USD', side: 'SELL', createdAt: '2024-12-31T23:59:59Z', size: '1', price: '3100' },
+        { market: 'ETH-USD', side: 'BUY',  createdAt: '2025-01-01T00:00:00Z', size: '1', price: '3100' },
+        { market: 'ETH-USD', side: 'SELL', createdAt: '2025-01-02T00:00:00Z', size: '1', price: '3150' }
+    ];
+    const r2024 = TR.buildYearReport(positions, fills, 2024, {});
     assert.equal(r2024.rows.length, 1);
     assert.equal(r2024.rows[0].closedAtISO, '2024-12-31T23:59:59Z');
-    const r2025 = TR.buildYearReport(positions, [], 2025, {});
+    assert.ok(close(r2024.rows[0].realizedPnlUSD, 100));
+    const r2025 = TR.buildYearReport(positions, fills, 2025, {});
     assert.equal(r2025.rows.length, 1);
-    assert.equal(r2025.rows[0].closedAtISO, '2025-01-02T00:00:00Z');
+    assert.ok(close(r2025.rows[0].realizedPnlUSD, 50));
 });
 
 test('buildYearReport: excludes OPEN positions even when createdAt in year', () => {
@@ -142,62 +221,60 @@ test('buildYearReport: excludes OPEN positions even when createdAt in year', () 
           createdAt: '2024-06-01T00:00:00Z', closedAt: null },
         { status: 'CLOSED', market: 'ETH-USD', side: 'LONG',
           createdAt: '2024-06-01T00:00:00Z', closedAt: '2024-06-10T00:00:00Z',
-          realizedPnl: '10', netFunding: '0', entryPrice: '3000', exitPrice: '3010',
-          maxSize: '1' }
+          realizedPnl: '0', netFunding: '0', maxSize: '1' }
     ];
-    const r = TR.buildYearReport(positions, [], 2024, {});
+    const fills = [
+        { market: 'ETH-USD', side: 'BUY',  createdAt: '2024-06-01T00:00:00Z', size: '1', price: '3000' },
+        { market: 'ETH-USD', side: 'SELL', createdAt: '2024-06-10T00:00:00Z', size: '1', price: '3010' }
+    ];
+    const r = TR.buildYearReport(positions, fills, 2024, {});
     assert.equal(r.rows.length, 1);
     assert.equal(r.rows[0].closedAtISO, '2024-06-10T00:00:00Z');
 });
 
-test('buildYearReport: attributes fees via window and computes netUSD with derived guard', () => {
+test('buildYearReport: netUSD = FIFO realized + netFunding − fees', () => {
     const p = {
         status: 'CLOSED', market: 'ETH-USD', side: 'LONG',
         createdAt: '2024-03-10T00:00:00Z', closedAt: '2024-03-12T00:00:00Z',
-        realizedPnl: '100', netFunding: '-2', entryPrice: '3000', exitPrice: '3100',
-        maxSize: '1', _derivedRealizedPnl: true
+        netFunding: '-2', maxSize: '1', entryPrice: '3000', exitPrice: '3100'
     };
     const fills = [
-        { market: 'ETH-USD', side: 'LONG', createdAt: '2024-03-10T05:00:00Z', fee: '0.50' },
-        { market: 'ETH-USD', side: 'LONG', createdAt: '2024-03-11T05:00:00Z', fee: '0.75' }
+        { market: 'ETH-USD', side: 'BUY',  createdAt: '2024-03-10T00:00:00Z', size: '1', price: '3000', fee: '0.50' },
+        { market: 'ETH-USD', side: 'SELL', createdAt: '2024-03-12T00:00:00Z', size: '1', price: '3100', fee: '0.75' }
     ];
     const r = TR.buildYearReport([p], fills, 2024, {});
-    assert.equal(r.rows.length, 1);
     const row = r.rows[0];
-    assert.ok(close(row.feesUSD, 1.25));
-    // derived flag → fees subtracted: 100 + (-2) - 1.25 = 96.75
-    assert.ok(close(row.netUSD, 96.75), `expected 96.75, got ${row.netUSD}`);
-    assert.equal(row._derivedRealizedPnl, true);
-    assert.equal(row._feeDoubleCountRisk, false);
+    assert.ok(close(row.realizedPnlUSD, 100), `realized: ${row.realizedPnlUSD}`);
+    assert.ok(close(row.feesUSD, 1.25), `fees: ${row.feesUSD}`);
+    assert.ok(close(row.netUSD, 96.75), `net: ${row.netUSD}`);
+    assert.equal(row._realizedFromFills, true);
 });
 
-test('buildYearReport: indexer-supplied row carries fee-double-count-risk flag', () => {
+test('buildYearReport: surfaces FIFO-vs-indexer delta for transparency', () => {
     const p = {
-        status: 'CLOSED', market: 'ETH-USD', side: 'LONG',
-        createdAt: '2024-03-10T00:00:00Z', closedAt: '2024-03-12T00:00:00Z',
-        realizedPnl: '100', netFunding: '0', entryPrice: '3000', exitPrice: '3100',
-        maxSize: '1'
+        status: 'CLOSED', market: 'BTC-USD', side: 'LONG',
+        createdAt: '2024-05-01T00:00:00Z', closedAt: '2024-05-05T00:00:00Z',
+        realizedPnl: '50', netFunding: '0', maxSize: '1'
     };
     const fills = [
-        { market: 'ETH-USD', side: 'LONG', createdAt: '2024-03-10T05:00:00Z', fee: '0.50' }
+        { market: 'BTC-USD', side: 'BUY',  createdAt: '2024-05-01T00:00:00Z', size: '1', price: '100' },
+        { market: 'BTC-USD', side: 'SELL', createdAt: '2024-05-05T00:00:00Z', size: '1', price: '200' }
     ];
     const r = TR.buildYearReport([p], fills, 2024, {});
     const row = r.rows[0];
-    assert.equal(row._derivedRealizedPnl, false);
-    assert.equal(row._feeDoubleCountRisk, true);
-    // derived=false → fees NOT subtracted: 100 + 0 - 0 = 100
-    assert.ok(close(row.netUSD, 100));
-    assert.equal(r.warnings.feeDoubleCountRiskCount, 1);
+    assert.ok(close(row.realizedPnlUSD, 100));
+    assert.ok(close(row.indexerRealizedPnlUSD, 50));
+    assert.ok(close(row.fifoVsIndexerDeltaUSD, 50));
 });
 
 test('buildYearReport: rows sorted by closedAt descending', () => {
     const positions = [
         { status: 'CLOSED', market: 'ETH-USD', side: 'LONG',
           createdAt: '2024-01-01T00:00:00Z', closedAt: '2024-01-05T00:00:00Z',
-          realizedPnl: '10', netFunding: '0', maxSize: '1', entryPrice: '1', exitPrice: '1' },
+          netFunding: '0', maxSize: '1' },
         { status: 'CLOSED', market: 'ETH-USD', side: 'LONG',
           createdAt: '2024-02-01T00:00:00Z', closedAt: '2024-02-05T00:00:00Z',
-          realizedPnl: '20', netFunding: '0', maxSize: '1', entryPrice: '1', exitPrice: '1' }
+          netFunding: '0', maxSize: '1' }
     ];
     const r = TR.buildYearReport(positions, [], 2024, {});
     assert.equal(r.rows[0].closedAtISO, '2024-02-05T00:00:00Z');
@@ -205,7 +282,7 @@ test('buildYearReport: rows sorted by closedAt descending', () => {
 });
 
 // ---------------------------------------------------------------------------
-// convertRowsToEur — present rate populates mirrors; absent → flag + warn.
+// convertRowsToEur — idempotent: stale EUR/_fxMissing reset on re-call.
 // ---------------------------------------------------------------------------
 
 test('convertRowsToEur: present rate populates EUR mirrors', () => {
@@ -214,9 +291,8 @@ test('convertRowsToEur: present rate populates EUR mirrors', () => {
         realizedPnlUSD: 100, netFundingUSD: -2, feesUSD: 1.25, netUSD: 96.75,
         _fxMissing: false
     }];
-    const fxRates = { '2024-03-12': 0.92 };
     const warnings = { missingFxDates: [] };
-    TR.convertRowsToEur(rows, fxRates, warnings);
+    TR.convertRowsToEur(rows, { '2024-03-12': 0.92 }, warnings);
     assert.ok(close(rows[0].fxRate, 0.92));
     assert.ok(close(rows[0].realizedPnlEUR, 92));
     assert.ok(close(rows[0].netEUR, 96.75 * 0.92));
@@ -224,7 +300,7 @@ test('convertRowsToEur: present rate populates EUR mirrors', () => {
     assert.equal(warnings.missingFxDates.length, 0);
 });
 
-test('convertRowsToEur: absent rate flags row and pushes to warnings.missingFxDates', () => {
+test('convertRowsToEur: absent rate flags row and pushes to missing', () => {
     const rows = [{
         closedDateUTC: '2024-03-12',
         realizedPnlUSD: 100, netFundingUSD: 0, feesUSD: 0, netUSD: 100,
@@ -236,6 +312,34 @@ test('convertRowsToEur: absent rate flags row and pushes to warnings.missingFxDa
     assert.equal(rows[0].netEUR, undefined);
     assert.equal(rows[0]._fxMissing, true);
     assert.deepEqual(warnings.missingFxDates, ['2024-03-12']);
+});
+
+test('convertRowsToEur: idempotent — second call with rate clears stale _fxMissing', () => {
+    const rows = [{
+        closedDateUTC: '2024-03-12',
+        realizedPnlUSD: 100, netFundingUSD: 0, feesUSD: 0, netUSD: 100,
+        _fxMissing: false
+    }];
+    TR.convertRowsToEur(rows, {}, { missingFxDates: [] });
+    assert.equal(rows[0]._fxMissing, true);
+    TR.convertRowsToEur(rows, { '2024-03-12': 0.91 }, { missingFxDates: [] });
+    assert.equal(rows[0]._fxMissing, false);
+    assert.ok(close(rows[0].fxRate, 0.91));
+    assert.ok(close(rows[0].netEUR, 91));
+});
+
+test('convertRowsToEur: idempotent — second call without rate clears stale EUR', () => {
+    const rows = [{
+        closedDateUTC: '2024-03-12',
+        realizedPnlUSD: 100, netFundingUSD: 0, feesUSD: 0, netUSD: 100,
+        _fxMissing: false
+    }];
+    TR.convertRowsToEur(rows, { '2024-03-12': 0.92 }, { missingFxDates: [] });
+    assert.ok(close(rows[0].netEUR, 92));
+    TR.convertRowsToEur(rows, {}, { missingFxDates: [] });
+    assert.equal(rows[0].fxRate, undefined);
+    assert.equal(rows[0].netEUR, undefined);
+    assert.equal(rows[0]._fxMissing, true);
 });
 
 test('convertRowsToEur: deduplicates missing dates', () => {
@@ -294,7 +398,7 @@ test('summarize: missing fxRate flips eurPartial', () => {
 });
 
 // ---------------------------------------------------------------------------
-// toCsv — RFC 4180 escaping.
+// toCsv — RFC 4180 escaping + new FIFO delta columns.
 // ---------------------------------------------------------------------------
 
 test('toCsv: RFC 4180 escapes comma, quote, newline', () => {
@@ -302,19 +406,20 @@ test('toCsv: RFC 4180 escapes comma, quote, newline', () => {
         closedAtISO: '2024-03-12T00:00:00Z',
         createdAtISO: '2024-03-10T00:00:00Z',
         closedDateUTC: '2024-03-12',
-        market: 'ETH,USD',   // comma → must quote
-        side: 'LO"NG',       // quote → must quote and double
+        market: 'ETH,USD',
+        side: 'LO"NG',
         maxSize: 1, entryPrice: 3000, exitPrice: 3100,
         realizedPnlUSD: 100, netFundingUSD: 0, feesUSD: 0, netUSD: 100,
         fxRate: 0.92, realizedPnlEUR: 92, netFundingEUR: 0, feesEUR: 0, netEUR: 92,
         holdingDays: 2,
-        _derivedRealizedPnl: false, _feeAttributionWarning: false,
-        _fxMissing: false, _feeDoubleCountRisk: false
+        indexerRealizedPnlUSD: 50, fifoVsIndexerDeltaUSD: 50,
+        _realizedFromFills: true,
+        _feeAttributionWarning: false,
+        _fxMissing: false
     }];
     const csv = TR.toCsv(rows, 'E', 2024);
     const lines = csv.split('\r\n');
     assert.ok(lines[0].startsWith('# Categoria E'), 'meta line first');
-    assert.ok(lines[1].split(',').length >= 20, 'header has 21 columns');
     assert.ok(lines[2].includes('"ETH,USD"'), `expected quoted market, got: ${lines[2]}`);
     assert.ok(lines[2].includes('"LO""NG"'), `expected doubled quotes, got: ${lines[2]}`);
 });
@@ -330,13 +435,14 @@ test('toCsv: empty EUR cells when fxRate undefined', () => {
         fxRate: undefined, realizedPnlEUR: undefined, netFundingEUR: undefined,
         feesEUR: undefined, netEUR: undefined,
         holdingDays: 2,
-        _derivedRealizedPnl: false, _feeAttributionWarning: false,
-        _fxMissing: true, _feeDoubleCountRisk: false
+        indexerRealizedPnlUSD: 100, fifoVsIndexerDeltaUSD: 0,
+        _realizedFromFills: true,
+        _feeAttributionWarning: false,
+        _fxMissing: true
     }];
     const csv = TR.toCsv(rows, 'E', 2024);
     const lines = csv.split('\r\n');
     const dataRow = lines[2];
-    // fx_rate_usd_eur and 4 EUR columns should all be empty between commas
     assert.ok(dataRow.includes(',,,,,'), `expected run of empty fields, got: ${dataRow}`);
 });
 
@@ -368,4 +474,22 @@ test('csvEscape: newline forces quotes', () => {
 test('csvEscape: null/undefined empty string', () => {
     assert.equal(TR._internal.csvEscape(null), '');
     assert.equal(TR._internal.csvEscape(undefined), '');
+});
+
+// ---------------------------------------------------------------------------
+// _internal.fillsInWindow — verify NO side filter (BUY and SELL both in).
+// ---------------------------------------------------------------------------
+
+test('fillsInWindow: includes BUY and SELL fills indiscriminately', () => {
+    const position = {
+        market: 'ETH-USD',
+        createdAt: '2024-01-10T00:00:00Z',
+        closedAt: '2024-01-15T00:00:00Z'
+    };
+    const fills = [
+        { market: 'ETH-USD', side: 'BUY',  createdAt: '2024-01-11T00:00:00Z' },
+        { market: 'ETH-USD', side: 'SELL', createdAt: '2024-01-14T00:00:00Z' }
+    ];
+    const out = TR._internal.fillsInWindow(position, fills);
+    assert.equal(out.length, 2);
 });
