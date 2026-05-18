@@ -43,8 +43,53 @@
       }
     }
   },
-  "closedPositions": { "positions": [] },
-  "fills": { "fills": [] },
+  "closedPositions": {
+    "positions": [
+      {
+        "market": "BTC-USD",
+        "status": "CLOSED",
+        "side": "LONG",
+        "size": "0",
+        "maxSize": "1",
+        "sumOpen": "1",
+        "sumClose": "1",
+        "entryPrice": "100000",
+        "exitPrice": "105000",
+        "realizedPnl": "5000",
+        "unrealizedPnl": "0",
+        "netFunding": "0",
+        "createdAt": "2024-03-15T00:00:00Z",
+        "createdAtHeight": "1000",
+        "closedAt": "2024-03-16T00:00:00Z"
+      }
+    ]
+  },
+  "fills": {
+    "fills": [
+      {
+        "id": "fill-open-1",
+        "market": "BTC-USD",
+        "side": "BUY",
+        "size": "1",
+        "price": "100000",
+        "fee": "1.50",
+        "liquidity": "TAKER",
+        "createdAt": "2024-03-15T00:00:00.000Z",
+        "createdAtHeight": "1000"
+      },
+      {
+        "id": "fill-close-1",
+        "market": "BTC-USD",
+        "side": "SELL",
+        "size": "1",
+        "price": "105000",
+        "fee": "1.50",
+        "liquidity": "TAKER",
+        "createdAt": "2024-03-16T00:00:00.000Z",
+        "createdAtHeight": "2000"
+      }
+    ]
+  },
   "fundingPayments": { "fundingPayments": [] },
   "historicalPnl": { "historicalPnl": [] }
 }

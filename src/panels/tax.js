@@ -165,10 +165,11 @@
         closedTd.style.cursor = 'help';
         // Accessibility: a `title` tooltip alone is not reliably exposed
         // to keyboard or screen-reader users. Make the cell focusable
-        // and announce the warning text via aria-label so the dagger's
-        // meaning surfaces in every input modality.
+        // and announce the warning text via aria-label. Do NOT override
+        // role — `<td>` already has the implicit `cell` role and assistive
+        // tech relies on it for table-grid navigation; an explicit role
+        // here (e.g. `note`) would strip those semantics.
         closedTd.setAttribute('tabindex', '0');
-        closedTd.setAttribute('role', 'note');
         closedTd.setAttribute(
           'aria-label',
           dateText + ' — warning: ' + reasons.join(' ')
@@ -282,9 +283,17 @@
       renderTotals(window.TaxReport.summarize([], cls), cls);
       clearWarningStrip();
       const status = document.getElementById('taxStatus');
-      if (status) status.textContent = positions.length
-        ? 'No closed positions for any year.'
-        : 'Load an address to populate.';
+      // Distinguish "no address loaded yet" from "address loaded but
+      // has no closed positions". The previous text keyed only on
+      // positions.length and so wrongly told a legitimately-empty
+      // address to "Load an address to populate".
+      if (status) {
+        if (!_state.address) {
+          status.textContent = 'Load an address to populate.';
+        } else {
+          status.textContent = 'No closed positions for this address.';
+        }
+      }
       return;
     }
     const year = parseInt(sel.value, 10);

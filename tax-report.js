@@ -516,10 +516,27 @@
         return out.join('\r\n') + '\r\n';
     }
 
+    // JSON.stringify silently drops object properties whose value is
+    // undefined, so the export schema would otherwise vary with FX
+    // coverage (missing EUR fields disappear instead of reading null).
+    // Recursively replace undefined with explicit null so downstream
+    // consumers see a stable shape and can tell "absent" from
+    // "not part of this schema".
+    function jsonNullifyUndefined(value) {
+        if (value === undefined) return null;
+        if (Array.isArray(value)) return value.map(jsonNullifyUndefined);
+        if (value !== null && typeof value === 'object') {
+            const out = {};
+            Object.keys(value).forEach(k => { out[k] = jsonNullifyUndefined(value[k]); });
+            return out;
+        }
+        return value;
+    }
+
     function toJson(rows, totals, classification, year) {
         const cls = (classification && CLASSIFICATIONS[classification.id || classification])
             || CLASSIFICATIONS.E;
-        const payload = {
+        const payload = jsonNullifyUndefined({
             meta: {
                 classification: cls.id,
                 classificationLabel: cls.label,
@@ -529,7 +546,7 @@
             },
             totals,
             rows
-        };
+        });
         return JSON.stringify(payload, null, 2);
     }
 

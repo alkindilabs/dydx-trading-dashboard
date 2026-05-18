@@ -493,8 +493,7 @@ test('toCsv: RFC 4180 escapes comma, quote, newline', () => {
         maxSize: 1, entryPrice: 3000, exitPrice: 3100,
         realizedPnlUSD: 100, netFundingUSD: 0, feesUSD: 0, netUSD: 100,
         fxRate: 0.92, realizedPnlEUR: 92, netFundingEUR: 0, feesEUR: 0, netEUR: 92,
-        holdingDays: 2,
-        indexerRealizedPnlUSD: 50, fifoVsIndexerDeltaUSD: 50,
+        holdingDays: 2, fillCount: 2,
         _realizedFromFills: true,
         _feeAttributionWarning: false,
         _fxMissing: false
@@ -516,8 +515,7 @@ test('toCsv: empty EUR cells when fxRate undefined', () => {
         realizedPnlUSD: 100, netFundingUSD: 0, feesUSD: 0, netUSD: 100,
         fxRate: undefined, realizedPnlEUR: undefined, netFundingEUR: undefined,
         feesEUR: undefined, netEUR: undefined,
-        holdingDays: 2,
-        indexerRealizedPnlUSD: 100, fifoVsIndexerDeltaUSD: 0,
+        holdingDays: 2, fillCount: 2,
         _realizedFromFills: true,
         _feeAttributionWarning: false,
         _fxMissing: true
@@ -526,6 +524,29 @@ test('toCsv: empty EUR cells when fxRate undefined', () => {
     const lines = csv.split('\r\n');
     const dataRow = lines[2];
     assert.ok(dataRow.includes(',,,,,'), `expected run of empty fields, got: ${dataRow}`);
+});
+
+test('toJson: undefined fields serialize as null (stable schema across FX coverage)', () => {
+    // JSON.stringify silently drops undefined object values, so without
+    // explicit nullification a row with no EUR rate would lose its
+    // netEUR / fxRate keys entirely — making the exported shape vary
+    // with FX coverage and breaking downstream "is field present?"
+    // checks.
+    const rows = [{
+        closedAtISO: '2024-03-12T00:00:00Z',
+        market: 'ETH-USD', side: 'LONG',
+        realizedPnlUSD: 100, netFundingUSD: 0, feesUSD: 0, netUSD: 100,
+        fxRate: undefined, netEUR: undefined,
+        realizedPnlEUR: undefined, netFundingEUR: undefined, feesEUR: undefined
+    }];
+    const totals = TR.summarize(rows, 'E');
+    const out = JSON.parse(TR.toJson(rows, totals, 'E', 2024));
+    assert.equal(out.rows[0].fxRate, null, 'fxRate must be null, not absent');
+    assert.equal(out.rows[0].netEUR, null);
+    assert.equal(out.totals.netEUR, null, 'totals.netEUR must be null when no EUR coverage');
+    // Ensure the key actually exists (not just absent-and-defaulted)
+    assert.ok('fxRate' in out.rows[0]);
+    assert.ok('netEUR' in out.totals);
 });
 
 test('toCsv: ends with CRLF', () => {
