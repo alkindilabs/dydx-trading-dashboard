@@ -250,21 +250,22 @@ test('buildYearReport: netUSD = FIFO realized + netFunding − fees', () => {
     assert.equal(row._realizedFromFills, true);
 });
 
-test('buildYearReport: surfaces FIFO-vs-indexer delta for transparency', () => {
+test('buildYearReport: no fills in window flags row as not-from-FIFO', () => {
     const p = {
         status: 'CLOSED', market: 'BTC-USD', side: 'LONG',
         createdAt: '2024-05-01T00:00:00Z', closedAt: '2024-05-05T00:00:00Z',
-        realizedPnl: '50', netFunding: '0', maxSize: '1'
+        netFunding: '0', maxSize: '1'
     };
+    // Fills exist for the market but all OUTSIDE the window
     const fills = [
-        { market: 'BTC-USD', side: 'BUY',  createdAt: '2024-05-01T00:00:00Z', size: '1', price: '100' },
-        { market: 'BTC-USD', side: 'SELL', createdAt: '2024-05-05T00:00:00Z', size: '1', price: '200' }
+        { market: 'BTC-USD', side: 'BUY',  createdAt: '2024-04-01T00:00:00Z', size: '1', price: '100' },
+        { market: 'BTC-USD', side: 'SELL', createdAt: '2024-06-01T00:00:00Z', size: '1', price: '200' }
     ];
     const r = TR.buildYearReport([p], fills, 2024, {});
     const row = r.rows[0];
-    assert.ok(close(row.realizedPnlUSD, 100));
-    assert.ok(close(row.indexerRealizedPnlUSD, 50));
-    assert.ok(close(row.fifoVsIndexerDeltaUSD, 50));
+    assert.equal(row.realizedPnlUSD, 0);
+    assert.equal(row._realizedFromFills, false);
+    assert.equal(r.warnings.positionsWithoutFifoCount, 1);
 });
 
 test('buildYearReport: rows sorted by closedAt descending', () => {
@@ -385,6 +386,20 @@ test('summarize: classification only changes label', () => {
     assert.equal(e.netUSD, g.netUSD);
     assert.equal(e.count, g.count);
     assert.equal(e.winCount, g.winCount);
+});
+
+test('summarize: zero EUR coverage collapses EUR totals to undefined', () => {
+    const rows = [
+        { netUSD: 10, netEUR: undefined, feesUSD: 0, feesEUR: undefined, netFundingUSD: 0, netFundingEUR: undefined, fxRate: undefined },
+        { netUSD: 20, netEUR: undefined, feesUSD: 0, feesEUR: undefined, netFundingUSD: 0, netFundingEUR: undefined, fxRate: undefined }
+    ];
+    const s = TR.summarize(rows, 'E');
+    assert.equal(s.netEUR, undefined);
+    assert.equal(s.grossGainsEUR, undefined);
+    assert.equal(s.grossLossesEUR, undefined);
+    assert.equal(s.eurRowCount, 0);
+    assert.equal(s.eurMissingCount, 2);
+    assert.equal(s.eurPartial, false); // partial only when SOME rows have rate AND some don't
 });
 
 test('summarize: missing fxRate flips eurPartial', () => {

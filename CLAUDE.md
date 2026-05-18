@@ -147,9 +147,11 @@ A closed position belongs to tax year `Y` iff `new Date(position.closedAt).getUT
 Helper: `TaxReport.closedAtYearUTC(position)` returns `null` for invalid timestamps.
 
 ### Realized P&L source — FIFO from sliced /fills
-Per-row realized P&L is derived by running `RiskMetrics.computeRealizedFromFills` over the fills sliced to (`fill.market === position.market` AND `Date.parse(fill.createdAt) ∈ [position.createdAt, position.closedAt]`). The `/perpetualPositions.realizedPnl` field is NOT used as the source — it is known to undercount heavily-scaled accounts (the rest of the dashboard's P&L pipeline already treats FIFO-from-fills as authoritative; see comment at `risk-metrics.js:548` and `index.html:1240`). The indexer-supplied value is still emitted in the report as `indexerRealizedPnlUSD` with a `fifoVsIndexerDeltaUSD` column so the user can see the gap.
+Per-row realized P&L is derived by running `RiskMetrics.computeRealizedFromFills` over the fills sliced to (`fill.market === position.market` AND `Date.parse(fill.createdAt) ∈ [position.createdAt, position.closedAt]`). The `/perpetualPositions.realizedPnl` field is NOT used as the source — it is known to undercount heavily-scaled accounts AND is mutated upstream by `RiskMetrics.normalizeRealizedPnl` before the Tax panel sees it (so the post-pipeline value is not a clean indexer reference). The rest of the dashboard's P&L pipeline already treats FIFO-from-fills as authoritative; see comment at `risk-metrics.js:548` and `index.html:1240`.
 
-Helper: `TaxReport.realizedFromSlicedFills(position, fills)` returns `{ realized, fillCount, error? }`. When no fills land in the window, returns `realized: 0` and the row carries `_realizedFromFills: false`; the panel surfaces a "no fills found" warning.
+Helper: `TaxReport.realizedFromSlicedFills(position, fills)` returns `{ realized, fillCount, error? }`. When no fills land in the window, returns `realized: 0`, `error: 'no-fills-in-window'`, and the row carries `_realizedFromFills: false`; the panel surfaces a "no fills found" warning so the zero is visible rather than silent.
+
+`buildYearReport` runs an optimized batch path: fills are pre-grouped by market once, and overlap detection runs once per market (not per row), so per-row work stays O(market_fills) instead of O(total_fills × total_positions).
 
 ### Fee attribution
 Per-fill fees on `/v4/fills` are attributed to a closed position when BOTH hold: `fill.market === position.market` AND `Date.parse(fill.createdAt) ∈ [position.createdAt, position.closedAt]`. **No side filter** — `/v4/fills` exposes side as `BUY`/`SELL` while positions are `LONG`/`SHORT`, AND both sides legitimately belong to a position's lifecycle (BUY opens a LONG / closes a SHORT; SELL closes a LONG / opens a SHORT). A direct side equality check would never match a single fill.
@@ -166,9 +168,21 @@ Helper: `TaxReport.netRealizedPnl(realizedPnlUSD, netFundingUSD, feesUSD)`.
 ### Currency conversion
 USD → EUR via ECB daily reference rate on `closedDateUTC`. Source: `https://api.frankfurter.app/{date}?from=USD&to=EUR` (ECB-sourced, CORS-friendly, no auth). Weekend/holiday close dates inherit the nearest preceding business-day rate; the rate is stored in localStorage under the REQUESTED date so close-date lookups always hit. Cache key `fxRates:v1:USD-EUR`, indefinite TTL (historical reference rates do not change), independent of `dydxCache:v1` so `Forget` does not clear multi-year FX work.
 
-When a rate is unavailable for a row's close date, EUR cells render `—` and the row is excluded from EUR totals — never fall back to year-end rate. Single rule, no surprises. The totals card flips `eurPartial=true` so the user sees the partial coverage. `convertRowsToEur` is idempotent: each call resets EUR fields and `_fxMissing` on every row before re-applying so re-renders against fresh FX rates always produce a clean result.
+When a rate is unavailable for a row's close date, EUR cells render `—` and the row is excluded from EUR totals — never fall back to year-end rate. Single rule, no surprises. `summarize` distinguishes three EUR-coverage states so the on-screen card never reads a misleading `€0.00`:
+- `eurRowCount > 0 && eurMissingCount === 0` → full EUR totals.
+- `eurRowCount > 0 && eurMissingCount > 0` → numeric totals + `eurPartial: true` (label "partial — missing FX").
+- `eurRowCount === 0` → ALL EUR totals collapse to `undefined` (the card renders `—`; label "unavailable").
+
+`convertRowsToEur` is idempotent: each call resets EUR fields and `_fxMissing` on every row before re-applying so re-renders against fresh FX rates always produce a clean result.
 
 Helper: `FxRates.getRates(dates: string[]) -> Promise<{rates, missing}>`. The `dates` array is built from the report's unique `closedDateUTC` values. The Tax panel only invokes `FxRates.getRates` when the Tax tab is actually active (`isTaxTabActive()` check in `render()`); users who never open the tab never hit api.frankfurter.app.
+
+`fx-rates.js` defensive layer:
+- Every fetch has an `AbortController` timeout (`REQUEST_TIMEOUT_MS = 15000`) so a stalled ECB-proxy cannot leave the Tax tab stuck on "Fetching ECB rates…".
+- `fetchTimeseries` returns `{ rates, ok }` so the caller can distinguish a successful-empty range (entire range was weekend/holiday — fallback per-date is correct) from a network/HTTP failure (skip per-date fallback to avoid turning an outage into hundreds of duplicate requests).
+- Cache writes go through `mergeAndWriteCache`, which re-reads the LATEST cache snapshot before persisting so concurrent `getRates()` callers do not clobber each other's rate additions.
+
+The "Clear FX cache" button (formerly "Refresh FX") wipes the ENTIRE `fxRates:v1:USD-EUR` slot — its tooltip says so explicitly so the user knows it is not a per-year refresh.
 
 ### Classification (Categoria E vs G)
 The Portuguese fiscal category affects ONLY the totals card label preset and whether the Holding (days) column renders. Row data is identical. The 365-day holding exemption that applies to spot crypto under Categoria G is NOT automatically applied to perp gains: accountants decide on a case-by-case basis.
@@ -186,7 +200,7 @@ Helper: `TaxReport.summarize(rows, classificationId)` — `classificationId ∈ 
 Helpers: `TaxReport.toCsv(rows, classificationId, year)`, `TaxReport.toJson(rows, totals, classificationId, year)`.
 
 ### Tests
-`test/tax-report.test.js` pins year boundary in UTC, fee attribution (window + market, no side filter), per-position FIFO realized, FIFO-vs-indexer delta surface, idempotent EUR conversion, summarize bucketing, RFC 4180 CSV escaping. `test/fx-rates.test.js` exercises the cache + network paths against a stubbed `fetch`: cache hit, timeseries miss + persist, weekend single-date fallback, network-failure → `missing[]`. The Playwright smoke (`test/smoke.spec.mjs`) routes `api.frankfurter.app` to an empty-rates response so the Tax tab activates and exercises the async path without a live network call.
+`test/tax-report.test.js` pins year boundary in UTC, fee attribution (window + market, no side filter), per-position FIFO realized, no-fills-in-window flagged as `_realizedFromFills: false`, idempotent EUR conversion, summarize bucketing (including the `eurRowCount === 0 → undefined totals` rule), RFC 4180 CSV escaping. `test/fx-rates.test.js` exercises the cache + network paths against a stubbed `fetch`: cache hit, timeseries miss + persist, weekend single-date fallback, network-failure → `missing[]`, timeseries outage does NOT cascade into per-date fallback, concurrent `getRates` calls do not clobber each other's cache writes. The Playwright smoke (`test/smoke.spec.mjs`) routes `api.frankfurter.app` to an empty-rates response and waits for `#taxStatus` to leave the "Fetching ECB rates" state (deterministic) instead of a fixed timeout.
 
 ## Tests
 

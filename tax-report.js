@@ -12,8 +12,10 @@
  * Per-row realized P&L is derived from sliced /fills via FIFO
  * (RiskMetrics.computeRealizedFromFills), not from
  * /perpetualPositions.realizedPnl — the indexer field is known to
- * undercount heavily-scaled accounts and the rest of the dashboard's
- * P&L pipeline already treats fills as authoritative.
+ * undercount heavily-scaled accounts and is also mutated upstream by
+ * normalizeRealizedPnl, so its post-pipeline value is not a clean
+ * reference. FIFO over fills is the dashboard-wide authoritative
+ * source for realized P&L.
  *
  * Depends on window.RiskMetrics (computeRealizedFromFills must be
  * available at runtime; tax-report.js loads after risk-metrics.js).
@@ -74,7 +76,7 @@
         return [...seen].sort((a, b) => b - a);
     }
 
-    // Slice the global fills array down to those in (same market,
+    // Slice the fills array down to those in (same market,
     // [createdAt, closedAt] window). Side is intentionally NOT filtered:
     // /v4/fills sides are BUY/SELL while positions are LONG/SHORT, AND
     // both sides legitimately belong to a position's lifecycle (BUY
@@ -92,10 +94,21 @@
         });
     }
 
-    // Detect overlap with ANOTHER closed position in the same market.
-    // Side does not enter the check: when positions overlap in the same
-    // market regardless of side, the fee + realized-P&L attribution
-    // becomes ambiguous because their fills share the window.
+    // Internal slice helper: caller already filtered by market, so we
+    // only check the time window. Used by the optimized batch path in
+    // buildYearReport to avoid re-scanning the full global fills list
+    // for every closed position.
+    function fillsInWindowFromMarketSlice(position, marketFills) {
+        const openMs = tsMs(position.createdAt);
+        const closeMs = tsMs(position.closedAt);
+        if (openMs === null || closeMs === null) return [];
+        return (marketFills || []).filter(f => {
+            if (!f) return false;
+            const ms = tsMs(f.createdAt);
+            return ms !== null && ms >= openMs && ms <= closeMs;
+        });
+    }
+
     function hasOverlapInMarket(position, closedPositions) {
         if (!position) return false;
         const market = position.market;
@@ -123,28 +136,44 @@
         };
     }
 
+    function fifoRealizedForMarket(market, fills) {
+        const RM = (typeof window !== 'undefined' && window.RiskMetrics) || null;
+        if (!RM || typeof RM.computeRealizedFromFills !== 'function') {
+            return { realized: 0, error: 'no-RiskMetrics' };
+        }
+        const fifo = RM.computeRealizedFromFills(fills);
+        return { realized: (fifo.byMarket && fifo.byMarket[market]) || 0 };
+    }
+
     function realizedFromSlicedFills(position, fills) {
         const sliced = fillsInWindow(position, fills);
-        if (!sliced.length) return { realized: 0, fillCount: 0 };
-        const RM = window.RiskMetrics;
-        if (!RM || typeof RM.computeRealizedFromFills !== 'function') {
-            return { realized: 0, fillCount: sliced.length, error: 'no-RiskMetrics' };
+        if (!sliced.length) {
+            return { realized: 0, fillCount: 0, error: 'no-fills-in-window' };
         }
-        const fifo = RM.computeRealizedFromFills(sliced);
-        const realized = (fifo.byMarket && fifo.byMarket[position.market]) || 0;
-        return { realized, fillCount: sliced.length };
+        const r = fifoRealizedForMarket(position.market, sliced);
+        return { realized: r.realized, fillCount: sliced.length, error: r.error };
     }
 
     function netRealizedPnl(realizedPnlUSD, netFundingUSD, feesUSD) {
         return num(realizedPnlUSD) + num(netFundingUSD) - num(feesUSD);
     }
 
-    function buildRow(position, fills, closedPositions) {
-        const realizedAgg = realizedFromSlicedFills(position, fills);
-        const realizedPnlUSD = realizedAgg.realized;
+    // Build a row using pre-sliced fills (market filter already applied)
+    // and a pre-computed overlap flag. Internal — see buildYearReport.
+    function buildRowFromSlice(position, marketFills, overlap) {
+        const windowFills = fillsInWindowFromMarketSlice(position, marketFills);
+        let realizedPnlUSD = 0;
+        let realizedError = null;
+        if (!windowFills.length) {
+            realizedError = 'no-fills-in-window';
+        } else {
+            const r = fifoRealizedForMarket(position.market, windowFills);
+            realizedPnlUSD = r.realized;
+            if (r.error) realizedError = r.error;
+        }
+        let feesUSD = 0;
+        windowFills.forEach(f => { feesUSD += num(f.fee); });
         const netFundingUSD = num(position.netFunding);
-        const feeAgg = aggregateFeesForPosition(position, fills, closedPositions);
-        const feesUSD = feeAgg.totalFee;
         const netUSD = netRealizedPnl(realizedPnlUSD, netFundingUSD, feesUSD);
         const maxSize = Math.abs(num(position.maxSize || position.sumOpen || position.size));
         const entryPrice = num(position.entryPrice);
@@ -154,8 +183,6 @@
         const holdingDays = (openMs !== null && closeMs !== null && closeMs >= openMs)
             ? Math.floor((closeMs - openMs) / 86400000)
             : null;
-        const indexerRealized = num(position.realizedPnl);
-        const fifoDelta = realizedPnlUSD - indexerRealized;
         return {
             closedAtISO: position.closedAt || null,
             createdAtISO: position.createdAt || null,
@@ -169,23 +196,33 @@
             netFundingUSD,
             feesUSD,
             netUSD,
+            fillCount: windowFills.length,
             realizedPnlEUR: undefined,
             netFundingEUR: undefined,
             feesEUR: undefined,
             netEUR: undefined,
             fxRate: undefined,
             holdingDays,
-            indexerRealizedPnlUSD: indexerRealized,
-            fifoVsIndexerDeltaUSD: fifoDelta,
-            _feeAttributionWarning: feeAgg.warning === 'overlap',
-            _realizedFromFills: !realizedAgg.error,
+            _feeAttributionWarning: !!overlap,
+            _realizedFromFills: !realizedError,
             _fxMissing: false
         };
     }
 
+    // Public buildRow keeps the old signature for backward compatibility
+    // and unit tests. Internally uses the slice helper.
+    function buildRow(position, fills, closedPositions) {
+        const marketFills = (fills || []).filter(f => f && f.market === position.market);
+        return buildRowFromSlice(
+            position,
+            marketFills,
+            hasOverlapInMarket(position, closedPositions)
+        );
+    }
+
     // Idempotent: clears any prior EUR fields / _fxMissing flag before
     // re-applying so repeated calls on the same rows produce a clean
-    // result.
+    // result regardless of order of (rate-present, rate-missing).
     function convertRowsToEur(rows, fxRates, warnings) {
         const missing = (warnings && warnings.missingFxDates) || [];
         (rows || []).forEach(row => {
@@ -213,49 +250,66 @@
         return rows;
     }
 
+    // EUR totals collapse to `undefined` when no row had a usable rate
+    // — distinguishes "unconverted" from a real `€0.00` result.
     function summarize(rows, classification) {
         const cls = (classification && CLASSIFICATIONS[classification.id || classification])
             || CLASSIFICATIONS.E;
-        const out = {
-            label: cls.label,
-            classificationId: cls.id,
-            netUSD: 0,
-            netEUR: 0,
-            grossGainsUSD: 0,
-            grossGainsEUR: 0,
-            grossLossesUSD: 0,
-            grossLossesEUR: 0,
-            feesUSD: 0,
-            feesEUR: 0,
-            fundingUSD: 0,
-            fundingEUR: 0,
-            count: 0,
-            winCount: 0,
-            lossCount: 0,
-            scratchCount: 0,
-            eurPartial: false
-        };
+        let netUSD = 0, grossGainsUSD = 0, grossLossesUSD = 0;
+        let feesUSD = 0, fundingUSD = 0;
+        let netEUR = 0, grossGainsEUR = 0, grossLossesEUR = 0;
+        let feesEUR = 0, fundingEUR = 0;
+        let count = 0, winCount = 0, lossCount = 0, scratchCount = 0;
+        let eurRowCount = 0;
+        let eurMissingCount = 0;
         (rows || []).forEach(row => {
-            out.count++;
-            out.netUSD += row.netUSD;
-            out.feesUSD += row.feesUSD;
-            out.fundingUSD += row.netFundingUSD;
-            if (row.netUSD > 0) { out.grossGainsUSD += row.netUSD; out.winCount++; }
-            else if (row.netUSD < 0) { out.grossLossesUSD += row.netUSD; out.lossCount++; }
-            else { out.scratchCount++; }
+            count++;
+            netUSD += row.netUSD;
+            feesUSD += row.feesUSD;
+            fundingUSD += row.netFundingUSD;
+            if (row.netUSD > 0) { grossGainsUSD += row.netUSD; winCount++; }
+            else if (row.netUSD < 0) { grossLossesUSD += row.netUSD; lossCount++; }
+            else { scratchCount++; }
             if (isNumber(row.fxRate)) {
-                out.netEUR += row.netEUR;
-                out.feesEUR += row.feesEUR;
-                out.fundingEUR += row.netFundingEUR;
-                if (row.netEUR > 0) out.grossGainsEUR += row.netEUR;
-                else if (row.netEUR < 0) out.grossLossesEUR += row.netEUR;
+                eurRowCount++;
+                netEUR += row.netEUR;
+                feesEUR += row.feesEUR;
+                fundingEUR += row.netFundingEUR;
+                if (row.netEUR > 0) grossGainsEUR += row.netEUR;
+                else if (row.netEUR < 0) grossLossesEUR += row.netEUR;
             } else {
-                out.eurPartial = true;
+                eurMissingCount++;
             }
         });
-        return out;
+        const eurAvailable = eurRowCount > 0;
+        return {
+            label: cls.label,
+            classificationId: cls.id,
+            netUSD,
+            netEUR: eurAvailable ? netEUR : undefined,
+            grossGainsUSD,
+            grossGainsEUR: eurAvailable ? grossGainsEUR : undefined,
+            grossLossesUSD,
+            grossLossesEUR: eurAvailable ? grossLossesEUR : undefined,
+            feesUSD,
+            feesEUR: eurAvailable ? feesEUR : undefined,
+            fundingUSD,
+            fundingEUR: eurAvailable ? fundingEUR : undefined,
+            count,
+            winCount,
+            lossCount,
+            scratchCount,
+            eurRowCount,
+            eurMissingCount,
+            eurPartial: eurMissingCount > 0 && eurRowCount > 0
+        };
     }
 
+    // Pre-group fills by market AND pre-compute the per-market overlap
+    // set in a single pass each so per-row work stays O(market_fills + 1)
+    // instead of O(total_fills + total_positions). For accounts with
+    // thousands of fills across many positions this avoids freezing the
+    // browser on the Tax tab.
     function buildYearReport(positions, fills, year, fxRates) {
         const warnings = {
             feeAttributionAmbiguousCount: 0,
@@ -264,7 +318,48 @@
         };
         const closed = (positions || []).filter(p => p && p.status === 'CLOSED');
         const inYear = closed.filter(p => closedAtYearUTC(p) === year);
-        const rows = inYear.map(p => buildRow(p, fills, closed));
+
+        const fillsByMarket = {};
+        (fills || []).forEach(f => {
+            if (!f || !f.market) return;
+            if (!fillsByMarket[f.market]) fillsByMarket[f.market] = [];
+            fillsByMarket[f.market].push(f);
+        });
+
+        // Overlap detection: scan positions per-market only. Total work
+        // = sum over markets of (per-market positions)² — much smaller
+        // than total_closed² for users trading many markets.
+        const overlapSet = new WeakSet();
+        const closedByMarket = {};
+        closed.forEach(p => {
+            const m = p.market || 'Unknown';
+            if (!closedByMarket[m]) closedByMarket[m] = [];
+            closedByMarket[m].push(p);
+        });
+        Object.values(closedByMarket).forEach(list => {
+            for (let i = 0; i < list.length; i++) {
+                if (overlapSet.has(list[i])) continue;
+                const aOpen = tsMs(list[i].createdAt);
+                const aClose = tsMs(list[i].closedAt);
+                if (aOpen === null || aClose === null) continue;
+                for (let j = i + 1; j < list.length; j++) {
+                    const bOpen = tsMs(list[j].createdAt);
+                    const bClose = tsMs(list[j].closedAt);
+                    if (bOpen === null || bClose === null) continue;
+                    if (!(bClose < aOpen || bOpen > aClose)) {
+                        overlapSet.add(list[i]);
+                        overlapSet.add(list[j]);
+                        break;
+                    }
+                }
+            }
+        });
+
+        const rows = inYear.map(p => buildRowFromSlice(
+            p,
+            fillsByMarket[p.market] || [],
+            overlapSet.has(p)
+        ));
         rows.sort((a, b) => {
             const at = tsMs(a.closedAtISO) || 0;
             const bt = tsMs(b.closedAtISO) || 0;
@@ -311,8 +406,7 @@
             'fx_rate_usd_eur',
             'realized_pnl_eur', 'net_funding_eur', 'fees_eur', 'net_eur',
             'holding_days',
-            'indexer_realized_pnl_usd', 'fifo_vs_indexer_delta_usd',
-            'realized_from_fills', 'fee_attribution_warning', 'fx_missing'
+            'fill_count', 'realized_from_fills', 'fee_attribution_warning', 'fx_missing'
         ];
         const meta = `# Categoria ${cls.id} — ${cls.label} — Portugal tax year ${year}`;
         const out = [meta, header.map(csvEscape).join(',')];
@@ -335,8 +429,7 @@
                 fmtEur(row.feesEUR),
                 fmtEur(row.netEUR),
                 row.holdingDays === null ? '' : String(row.holdingDays),
-                fmtUsd(row.indexerRealizedPnlUSD),
-                fmtUsd(row.fifoVsIndexerDeltaUSD),
+                typeof row.fillCount === 'number' ? String(row.fillCount) : '',
                 row._realizedFromFills ? 'true' : 'false',
                 row._feeAttributionWarning ? 'true' : 'false',
                 row._fxMissing ? 'true' : 'false'

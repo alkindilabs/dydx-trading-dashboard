@@ -112,6 +112,35 @@ test('getRates: total network failure populates missing[]', async () => {
     assert.deepEqual(missing, ['2024-03-12']);
 });
 
+test('getRates: timeseries outage does NOT cascade into per-date fallback', async () => {
+    // Otherwise an api.frankfurter.app outage with N requested dates
+    // would issue N extra single-date requests, each also failing.
+    resetState();
+    globalThis.fetch.queue(() => null);
+    const dates = ['2024-03-12', '2024-03-13', '2024-03-14', '2024-03-15'];
+    const { missing } = await FX.getRates(dates);
+    assert.deepEqual(missing.sort(), dates.slice().sort());
+    // Exactly one fetch (the timeseries call). No per-date fallback.
+    assert.equal(globalThis.fetch.calls.length, 1);
+});
+
+test('getRates: concurrent calls do not lose each other\'s cache writes', async () => {
+    resetState();
+    // Two non-overlapping date sets, each fetched concurrently. Both
+    // must end up in the cache after both resolve.
+    globalThis.fetch.queueAppend(() => ({ rates: { '2024-03-12': { EUR: 0.92 } } }));
+    globalThis.fetch.queueAppend(() => ({ rates: { '2024-04-15': { EUR: 0.93 } } }));
+    const [a, b] = await Promise.all([
+        FX.getRates(['2024-03-12']),
+        FX.getRates(['2024-04-15'])
+    ]);
+    assert.equal(a.rates['2024-03-12'], 0.92);
+    assert.equal(b.rates['2024-04-15'], 0.93);
+    const cache = JSON.parse(globalThis.localStorage.getItem('fxRates:v1:USD-EUR'));
+    assert.equal(cache.rates['2024-03-12'], 0.92, 'cache must retain A\'s write');
+    assert.equal(cache.rates['2024-04-15'], 0.93, 'cache must retain B\'s write');
+});
+
 test('getRates: cache + network mix — only missing dates hit network', async () => {
     resetState();
     globalThis.localStorage.setItem('fxRates:v1:USD-EUR',

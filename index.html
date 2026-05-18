@@ -612,7 +612,7 @@
                         <input type="radio" name="taxClass" value="G">
                         Categoria G (cripto-ativos)
                     </label>
-                    <button id="taxRefreshFx" class="address-btn" type="button" title="Drop cached ECB rates and re-fetch for selected year">Refresh FX</button>
+                    <button id="taxRefreshFx" class="address-btn" type="button" title="Clear the entire fxRates:v1:USD-EUR localStorage cache (all years) and re-fetch rates for the selected year. Use when ECB data may have changed.">Clear FX cache</button>
                     <button id="taxDownloadCsv" class="address-btn" type="button">Download CSV</button>
                     <button id="taxDownloadJson" class="address-btn" type="button">Download JSON</button>
                 </div>
@@ -950,13 +950,10 @@
             if (e.metaKey || e.ctrlKey || e.altKey) return;
             const t = e.target;
             if (t && (t.matches('input, textarea, select') || t.isContentEditable)) return;
-            if (e.key >= '1' && e.key <= '6') {
-                const tabIndex = parseInt(e.key) - 1;
-                const tabs = document.querySelectorAll('.nav-tab');
-                if (tabs[tabIndex]) {
-                    tabs[tabIndex].click();
-                }
-            }
+            if (!/^[1-9]$/.test(e.key)) return;
+            const tabIndex = parseInt(e.key, 10) - 1;
+            const tabs = document.querySelectorAll('.nav-tab');
+            if (tabIndex >= 0 && tabIndex < tabs.length) tabs[tabIndex].click();
         });
 
         // dYdX API Configuration
@@ -1658,7 +1655,7 @@ Sample: ${rets.length} returns over ${(adq.years*12).toFixed(1)} months (${(adq.
                     : 'N/A');
 
             window.AppPanels.positions.render(allPositions, fillsArr, subaccount);
-            window.AppPanels.tax.render(allPositions, fillsArr);
+            window.AppPanels.tax.render(allPositions, fillsArr, currentAddress);
             window.AppPanels.performance.renderMetrics(allPositions, cls);
             window.AppPanels.behavior.renderTimeAnalysis(allPositions);
             window.AppPanels.behavior.renderActivityHeatmap(allPositions);

@@ -85,9 +85,12 @@ test.describe('dashboard smoke', () => {
     }
 
     // Tax tab activation kicks off an async FX fetch via window.FxRates.
-    // Give it a beat to settle so the post-await render doesn't throw
-    // unobserved.
-    await page.waitForTimeout(500);
+    // Wait for a deterministic terminal state instead of a fixed timeout:
+    // the status line transitions away from the "Fetching ECB rates…"
+    // message once the post-await render fires (success, missing-rate,
+    // or empty-state). This catches console errors that a fixed
+    // waitForTimeout might miss on a slow CI runner.
+    await expect(page.locator('#taxStatus')).not.toContainText('Fetching ECB rates', { timeout: 10000 });
 
     expect(errors, errors.join('\n')).toHaveLength(0);
   });

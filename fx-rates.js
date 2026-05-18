@@ -6,8 +6,12 @@
  * asked for that calendar date) and are stored under the REQUESTED date
  * so close-date lookups always hit.
  *
- * Network is defensive: every request is try/catch'd, callers receive
- * whatever is cached plus a `missing[]` array. No throws bubble up.
+ * Network is defensive: every request is try/catch'd, has a hard
+ * AbortController timeout so a stalled third-party request cannot leave
+ * the Tax tab stuck on "Fetching ECB rates…", and writeCache re-reads
+ * fresh state before persisting so a slower concurrent caller cannot
+ * clobber a faster caller's rates. Callers always receive a
+ * `{rates, missing}` payload; no throws bubble up.
  */
 
 ;(function () {
@@ -19,6 +23,7 @@
     const FROM = 'USD';
     const TO = 'EUR';
     const CONCURRENCY = 4;
+    const REQUEST_TIMEOUT_MS = 15000;
 
     function getStorage() {
         try {
@@ -44,11 +49,19 @@
         }
     }
 
-    function writeCache(cache) {
+    // Merge `newRates` into the LATEST cache snapshot before persisting.
+    // Without the merge, two concurrent getRates() calls that both read
+    // the cache at start and write at end would lose the slower writer's
+    // additions for dates the faster writer didn't fetch.
+    function mergeAndWriteCache(newRates) {
         const storage = getStorage();
         if (!storage) return;
+        const current = readCache();
+        Object.keys(newRates || {}).forEach(d => {
+            if (typeof newRates[d] === 'number') current.rates[d] = newRates[d];
+        });
         try {
-            storage.setItem(STORAGE_KEY, JSON.stringify(cache));
+            storage.setItem(STORAGE_KEY, JSON.stringify(current));
         } catch (_) {
             // Quota or disabled storage — silently drop. Next call refetches.
         }
@@ -58,31 +71,49 @@
         return typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s);
     }
 
+    // Returns { json, ok }. `ok=false` signals network/HTTP failure
+    // (treat as opaque outage); `ok=true` with `json` returned means
+    // the response was successfully parsed even if it carried no rates.
     async function fetchJson(url) {
+        const ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+        const timer = (ctrl && typeof setTimeout !== 'undefined')
+            ? setTimeout(() => { try { ctrl.abort(); } catch (_) {} }, REQUEST_TIMEOUT_MS)
+            : null;
         try {
-            const res = await fetch(url);
-            if (!res.ok) return null;
-            return await res.json();
+            const res = await fetch(url, ctrl ? { signal: ctrl.signal } : undefined);
+            if (timer) clearTimeout(timer);
+            if (!res || !res.ok) return { ok: false, json: null };
+            const json = await res.json();
+            return { ok: true, json };
         } catch (_) {
-            return null;
+            if (timer) clearTimeout(timer);
+            return { ok: false, json: null };
         }
     }
 
+    // Returns { rates, ok }. `ok=false` means the request failed (caller
+    // should NOT cascade into per-date fallbacks for every requested
+    // date — that turns an outage into hundreds of duplicate requests).
+    // `ok=true` with an empty rates map means the API succeeded but
+    // returned no business-day data in the range (entire range was
+    // weekend/holiday, which is when per-date fallback is appropriate).
     async function fetchTimeseries(startDate, endDate) {
         const url = `${BASE}/${startDate}..${endDate}?from=${FROM}&to=${TO}`;
-        const json = await fetchJson(url);
-        if (!json || !json.rates) return {};
+        const { ok, json } = await fetchJson(url);
+        if (!ok) return { rates: {}, ok: false };
         const flat = {};
-        Object.keys(json.rates).forEach(d => {
-            const rate = json.rates[d] && json.rates[d][TO];
-            if (typeof rate === 'number' && isFinite(rate)) flat[d] = rate;
-        });
-        return flat;
+        if (json && json.rates) {
+            Object.keys(json.rates).forEach(d => {
+                const rate = json.rates[d] && json.rates[d][TO];
+                if (typeof rate === 'number' && isFinite(rate)) flat[d] = rate;
+            });
+        }
+        return { rates: flat, ok: true };
     }
 
     async function fetchSingleDate(date) {
-        const json = await fetchJson(`${BASE}/${date}?from=${FROM}&to=${TO}`);
-        if (!json || !json.rates) return null;
+        const { ok, json } = await fetchJson(`${BASE}/${date}?from=${FROM}&to=${TO}`);
+        if (!ok || !json || !json.rates) return null;
         const rate = json.rates[TO];
         return (typeof rate === 'number' && isFinite(rate)) ? rate : null;
     }
@@ -116,27 +147,32 @@
         if (!stillMissing.length) return result;
 
         const sorted = stillMissing.slice().sort();
-        const flat = await fetchTimeseries(sorted[0], sorted[sorted.length - 1]);
-        Object.assign(cache.rates, flat);
-        Object.keys(flat).forEach(d => {
-            if (uniq.indexOf(d) !== -1) result.rates[d] = flat[d];
+        const ts = await fetchTimeseries(sorted[0], sorted[sorted.length - 1]);
+        Object.keys(ts.rates).forEach(d => {
+            if (uniq.indexOf(d) !== -1) result.rates[d] = ts.rates[d];
         });
-        writeCache(cache);
+        if (Object.keys(ts.rates).length) mergeAndWriteCache(ts.rates);
 
         // Weekend / holiday close dates are absent from the timeseries
         // response. Per-date fetch resolves them to the nearest preceding
-        // business day; we store under the REQUESTED date.
-        const gapDates = stillMissing.filter(d => !(d in result.rates));
-        if (gapDates.length) {
-            const fetched = await runWithConcurrency(gapDates, fetchSingleDate, CONCURRENCY);
-            gapDates.forEach((d, i) => {
-                const rate = fetched[i];
-                if (typeof rate === 'number') {
-                    cache.rates[d] = rate;
-                    result.rates[d] = rate;
-                }
-            });
-            writeCache(cache);
+        // business day; we store under the REQUESTED date. Skip the
+        // fallback when the timeseries request itself failed — turning
+        // an outage into one-request-per-date would be wasteful and
+        // doesn't surface a single missing date faster.
+        if (ts.ok) {
+            const gapDates = stillMissing.filter(d => !(d in result.rates));
+            if (gapDates.length) {
+                const fetched = await runWithConcurrency(gapDates, fetchSingleDate, CONCURRENCY);
+                const gained = {};
+                gapDates.forEach((d, i) => {
+                    const rate = fetched[i];
+                    if (typeof rate === 'number') {
+                        gained[d] = rate;
+                        result.rates[d] = rate;
+                    }
+                });
+                if (Object.keys(gained).length) mergeAndWriteCache(gained);
+            }
         }
 
         result.missing = uniq.filter(d => !(d in result.rates));
@@ -150,11 +186,9 @@
         }
         const start = `${y}-01-01`;
         const end = `${y}-12-31`;
-        const cache = readCache();
-        const flat = await fetchTimeseries(start, end);
-        Object.assign(cache.rates, flat);
-        writeCache(cache);
-        return { rates: Object.assign({}, flat), missing: [] };
+        const ts = await fetchTimeseries(start, end);
+        if (Object.keys(ts.rates).length) mergeAndWriteCache(ts.rates);
+        return { rates: Object.assign({}, ts.rates), missing: [] };
     }
 
     function clear() {

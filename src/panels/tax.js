@@ -14,7 +14,22 @@
 
   let _wired = false;
   let _renderToken = 0;
-  let _state = { positions: [], fills: [], lastReport: null };
+  let _state = { positions: [], fills: [], address: '', lastReport: null };
+
+  // Size formatter that preserves decimals — Format.fmtNum rounds
+  // |value| >= 1 to an integer (`Math.round`), so 1.75 → 2, which is
+  // material precision loss in a tax report. Up to 4 decimal places,
+  // trailing zeros stripped, sign preserved.
+  function fmtSizePrecise(value) {
+    if (value === null || value === undefined || value === '') return '-';
+    const n = parseFloat(value);
+    if (!isFinite(n)) return '-';
+    const sign = n < 0 ? '-' : '';
+    const a = Math.abs(n);
+    if (a === 0) return '0';
+    const rounded = Number(a.toFixed(4));
+    return sign + String(rounded);
+  }
 
   function isTaxTabActive() {
     const el = document.getElementById('tax');
@@ -105,9 +120,6 @@
       if (!row._realizedFromFills) reasons.push('No fills found in window — realized P&L falls back to 0.');
       if (row._feeAttributionWarning) reasons.push('Another closed position in this market overlaps the window — fee/realized attribution is approximate.');
       if (row._fxMissing) reasons.push('FX rate unavailable for ' + (row.closedDateUTC || 'close date') + '.');
-      if (typeof row.fifoVsIndexerDeltaUSD === 'number' && Math.abs(row.fifoVsIndexerDeltaUSD) > 0.01) {
-        reasons.push('FIFO realized differs from indexer by $' + row.fifoVsIndexerDeltaUSD.toFixed(2) + '. FIFO is authoritative.');
-      }
 
       const closedTd = D.appendCell(tr, row.closedDateUTC || '—', ['mono']);
       if (reasons.length) {
@@ -117,7 +129,7 @@
       }
       D.appendCell(tr, row.market || '—', ['mono']);
       D.appendCell(tr, row.side || '—', ['mono']);
-      D.appendCell(tr, F.fmtNum(row.maxSize), ['mono']);
+      D.appendCell(tr, fmtSizePrecise(row.maxSize), ['mono']);
       D.appendCell(tr, F.formatPrice(row.entryPrice), ['mono']);
       D.appendCell(tr, F.formatPrice(row.exitPrice), ['mono']);
       D.appendCell(tr, fmtUsdSigned(row.realizedPnlUSD), ['mono', row.realizedPnlUSD >= 0 ? 'profit' : 'loss']);
@@ -140,12 +152,17 @@
     D.updateElement('taxFlatRate', (cls.flatRate * 100).toFixed(0) + '%');
 
     const eurOrDash = n => (typeof n === 'number' && isFinite(n)) ? fmtEurSigned(n) : '—';
-    const eurPartialNote = totals.eurPartial ? ' (partial — missing FX)' : '';
+    let eurDetailNote = 'ECB daily rate';
+    if (totals.eurRowCount === 0 && totals.count > 0) {
+      eurDetailNote += ' · unavailable';
+    } else if (totals.eurPartial) {
+      eurDetailNote += ' (partial — missing FX)';
+    }
 
     D.updateElement('taxNetUsd', fmtUsdSigned(totals.netUSD));
     D.updateElement('taxNetUsdDetail', totals.count + ' trades');
     D.updateElement('taxNetEur', eurOrDash(totals.netEUR));
-    D.updateElement('taxNetEurDetail', 'ECB daily rate' + eurPartialNote);
+    D.updateElement('taxNetEurDetail', eurDetailNote);
     D.updateElement('taxGrossGainsUsd', fmtUsdSigned(totals.grossGainsUSD));
     D.updateElement('taxGrossGainsEur', eurOrDash(totals.grossGainsEUR));
     D.updateElement('taxGrossLossesUsd', fmtUsdSigned(totals.grossLossesUSD));
@@ -185,15 +202,17 @@
   async function refresh() {
     if (!window.TaxReport || !window.FxRates) return;
     // Bump the token on every entry: any prior in-flight FX fetch
-    // becomes obsolete and its post-await render is suppressed.
+    // becomes obsolete and its post-await render is suppressed. The
+    // lastReport is also cleared upfront so a Download click during
+    // the FX window can't emit the previous year's data.
     const token = ++_renderToken;
+    _state.lastReport = null;
     const positions = _state.positions;
     const fills = _state.fills;
     populateYearSelect(positions);
 
     const sel = document.getElementById('taxYear');
     if (!sel || !sel.value) {
-      _state.lastReport = null;
       renderRows([], 'E');
       renderTotals(window.TaxReport.summarize([], 'E'), 'E');
       clearWarningStrip();
@@ -208,8 +227,12 @@
     const classification = getClassification();
     try { localStorage.setItem('taxClassification', classification); } catch (_) {}
 
-    const dry = window.TaxReport.buildYearReport(positions, fills, year, {});
-    const dates = [...new Set(dry.rows.map(r => r.closedDateUTC).filter(Boolean))];
+    // Build the report ONCE without FX. After rates arrive we mutate
+    // the same rows in-place via the idempotent convertRowsToEur, then
+    // re-summarize. Avoids running FIFO + fee attribution twice per
+    // refresh — important on accounts with thousands of fills.
+    const report = window.TaxReport.buildYearReport(positions, fills, year, null);
+    const dates = [...new Set(report.rows.map(r => r.closedDateUTC).filter(Boolean))];
 
     const status = document.getElementById('taxStatus');
     if (status) status.textContent = 'Fetching ECB rates for ' + dates.length + ' date(s)…';
@@ -217,7 +240,7 @@
     const { rates } = await window.FxRates.getRates(dates);
     if (token !== _renderToken) return;
 
-    const report = window.TaxReport.buildYearReport(positions, fills, year, rates);
+    window.TaxReport.convertRowsToEur(report.rows, rates, report.warnings);
     const totals = window.TaxReport.summarize(report.rows, classification);
     renderRows(report.rows, classification);
     renderTotals(totals, classification);
@@ -240,7 +263,10 @@
   function download(format) {
     const snap = _state.lastReport;
     if (!snap) return;
-    const addr = String(window.currentAddress || 'wallet').slice(0, 10);
+    // currentAddress lives as a top-level `let` inside the inline IIFE
+    // in index.html, so it is NOT on window. Read it from panel state,
+    // which is seeded from the data pipeline via render(positions, fills, address).
+    const addr = String(_state.address || 'wallet').slice(0, 10) || 'wallet';
     const base = 'dydx-tax-' + addr + '-' + snap.year + '-cat' + snap.classification;
     if (format === 'csv') {
       downloadBlob(window.TaxReport.toCsv(snap.rows, snap.classification, snap.year),
@@ -277,9 +303,10 @@
     if (jsonBtn) jsonBtn.addEventListener('click', () => download('json'));
   }
 
-  function render(positions, fills) {
+  function render(positions, fills, address) {
     _state.positions = Array.isArray(positions) ? positions : [];
     _state.fills = Array.isArray(fills) ? fills : [];
+    _state.address = typeof address === 'string' ? address : (_state.address || '');
     // Stale lastReport from the prior address must not be downloadable.
     _state.lastReport = null;
     // Token bump cancels any in-flight FX render against the old data.
