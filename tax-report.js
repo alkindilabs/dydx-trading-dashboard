@@ -155,10 +155,34 @@
         return { realized: (fifo.byMarket && fifo.byMarket[market]) || 0 };
     }
 
+    // True iff the signed BUY/SELL sizes across the slice sum to ~0,
+    // i.e. the slice contains a complete open + close history for the
+    // position. Tolerance covers float drift on scaled trades.
+    function fillsNetFlat(windowFills) {
+        let netSize = 0;
+        for (let i = 0; i < windowFills.length; i++) {
+            const f = windowFills[i];
+            const sz = Math.abs(parseFloat(f && f.size));
+            if (!isNumber(sz) || sz <= 0) continue;
+            const s = (f.side || '').toUpperCase();
+            if (s === 'BUY') netSize += sz;
+            else if (s === 'SELL') netSize -= sz;
+        }
+        return Math.abs(netSize) <= 1e-6;
+    }
+
     function realizedFromSlicedFills(position, fills) {
         const sliced = fillsInWindow(position, fills);
         if (!sliced.length) {
             return { realized: 0, fillCount: 0, error: 'no-fills-in-window' };
+        }
+        // Same gate buildYearReport uses: a slice that does not flatten
+        // the position cannot produce an authoritative realized P&L —
+        // FIFO would silently return 0 for the orphan inventory. Keep
+        // the public helper and the batch path consistent so future
+        // callers cannot reintroduce the silent-zero bug.
+        if (!fillsNetFlat(sliced)) {
+            return { realized: 0, fillCount: sliced.length, error: 'partial-fill-slice' };
         }
         const r = fifoRealizedForMarket(position.market, sliced);
         return { realized: r.realized, fillCount: sliced.length, error: r.error };
@@ -185,25 +209,12 @@
         // $0 realized total.
         if (!windowFills.length) {
             realizedError = 'no-fills-in-window';
+        } else if (!fillsNetFlat(windowFills)) {
+            realizedError = 'partial-fill-slice';
         } else {
-            let netSize = 0;
-            for (let i = 0; i < windowFills.length; i++) {
-                const f = windowFills[i];
-                const sz = Math.abs(parseFloat(f && f.size));
-                if (!isNumber(sz) || sz <= 0) continue;
-                const s = (f.side || '').toUpperCase();
-                if (s === 'BUY') netSize += sz;
-                else if (s === 'SELL') netSize -= sz;
-            }
-            // Tolerance for float drift on scaled trades. 1e-6 is well
-            // below the smallest meaningful position size on dYdX v4.
-            if (Math.abs(netSize) > 1e-6) {
-                realizedError = 'partial-fill-slice';
-            } else {
-                const r = fifoRealizedForMarket(position.market, windowFills);
-                realizedPnlUSD = r.realized;
-                if (r.error) realizedError = r.error;
-            }
+            const r = fifoRealizedForMarket(position.market, windowFills);
+            realizedPnlUSD = r.realized;
+            if (r.error) realizedError = r.error;
         }
         let feesUSD = 0;
         windowFills.forEach(f => { feesUSD += num(f.fee); });

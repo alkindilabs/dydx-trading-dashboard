@@ -153,7 +153,14 @@
     rows.forEach(row => {
       const tr = document.createElement('tr');
       const reasons = [];
-      if (!row._realizedFromFills) reasons.push('No fills found in window — realized P&L falls back to 0.');
+      if (!row._realizedFromFills) {
+        if (!row.fillCount) {
+          reasons.push('No fills found in window — realized P&L falls back to 0.');
+        } else {
+          reasons.push('Incomplete fill slice (window has ' + row.fillCount
+            + ' fill(s) but they do not flatten the position) — realized P&L falls back to 0.');
+        }
+      }
       if (row._feeAttributionWarning) reasons.push('Another closed position in this market overlaps the window — fee/realized attribution is approximate.');
       if (row._fxMissing) reasons.push('FX rate unavailable for ' + (row.closedDateUTC || 'close date') + '.');
 
@@ -243,14 +250,14 @@
       const parts = ['Year ' + year, rowCount + ' closed positions'];
       if (warnings.feeAttributionAmbiguousCount) parts.push(warnings.feeAttributionAmbiguousCount + ' attribution-ambiguous (fees + realized)');
       if (warnings.missingFxDates.length) parts.push(warnings.missingFxDates.length + ' missing FX dates');
-      if (warnings.positionsWithoutFifoCount) parts.push(warnings.positionsWithoutFifoCount + ' no-FIFO-data');
+      if (warnings.positionsWithoutFifoCount) parts.push(warnings.positionsWithoutFifoCount + ' no/incomplete FIFO data');
       status.textContent = parts.join(' · ');
     }
     const strip = document.getElementById('taxWarningStrip');
     if (!strip) return;
     if (warnings.positionsWithoutFifoCount > 0) {
       strip.style.display = '';
-      strip.textContent = 'Some positions have no fills available in the indexer window. Realized P&L for those rows shows $0 and may not reflect the actual gain or loss. Reload the page or click the address Forget/Load buttons to re-fetch a complete fills history before relying on these totals.';
+      strip.textContent = 'Some positions could not be FIFO-derived from the available fills — either no fills landed in the indexer window, or the fills present do not flatten the position. Realized P&L for those rows shows $0 and may not reflect the actual gain or loss. Reload the page or click the address Forget/Load buttons to re-fetch a complete fills history before relying on these totals.';
     } else if (warnings.feeAttributionAmbiguousCount > 0) {
       strip.style.display = '';
       strip.textContent = 'Two or more closed positions overlap in time within the same market for ' + warnings.feeAttributionAmbiguousCount + ' row(s). Fees and realized P&L for those rows are attributed by best effort and may not match what a dYdX FIFO accounting on the raw fills would produce. Treat affected rows as approximations and verify against fills if the totals matter for your filing.';
@@ -307,19 +314,22 @@
     const report = window.TaxReport.buildYearReport(positions, fills, year, null);
     const dates = [...new Set(report.rows.map(r => r.closedDateUTC).filter(Boolean))];
 
-    // Paint the USD-only report immediately. Prior renders (different
-    // year, different address, post-clear-cache) must not linger on
-    // screen for the duration of the FX await — a slow or timed-out
-    // FX request could otherwise leave stale figures visible under
-    // the new fetching status. EUR cells render `—` here and fill in
-    // when rates arrive.
+    // Paint the USD-only report immediately so prior renders cannot
+    // linger on screen during the FX await. lastReport is NOT set yet
+    // — a Download click during the "Fetching ECB rates…" window would
+    // otherwise export EUR cells as blank/null even though rates may
+    // land seconds later. download() falls back to no-op when
+    // lastReport is null.
     const totalsUSD = window.TaxReport.summarize(report.rows, classification);
     renderRows(report.rows, classification);
     renderTotals(totalsUSD, classification);
     renderStatus(year, report.warnings, report.rows.length);
-    _state.lastReport = { rows: report.rows, totals: totalsUSD, year, classification };
 
-    if (dates.length === 0) return; // nothing to convert; USD render is final
+    if (dates.length === 0) {
+      // No FX to fetch — snapshot the USD-only report as final.
+      _state.lastReport = { rows: report.rows, totals: totalsUSD, year, classification };
+      return;
+    }
 
     const status = document.getElementById('taxStatus');
     const baseStatus = status ? status.textContent : '';
@@ -328,12 +338,17 @@
     const { rates } = await window.FxRates.getRates(dates);
     if (token !== _renderToken) return;
 
+    // Re-read the classification radio post-await so a Categoria
+    // change made during the FX window is honored. Otherwise the
+    // stale captured `classification` would overwrite a fresh
+    // reclassify() result.
+    const liveCls = getClassification();
     window.TaxReport.convertRowsToEur(report.rows, rates, report.warnings);
-    const totals = window.TaxReport.summarize(report.rows, classification);
-    renderRows(report.rows, classification);
-    renderTotals(totals, classification);
+    const totals = window.TaxReport.summarize(report.rows, liveCls);
+    renderRows(report.rows, liveCls);
+    renderTotals(totals, liveCls);
     renderStatus(year, report.warnings, report.rows.length);
-    _state.lastReport = { rows: report.rows, totals, year, classification };
+    _state.lastReport = { rows: report.rows, totals, year, classification: liveCls };
   }
 
   function downloadBlob(text, mime, filename) {

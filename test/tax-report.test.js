@@ -152,6 +152,26 @@ test('realizedFromSlicedFills: scaled-in LONG resolves via FIFO', () => {
     assert.ok(close(r.realized, 300), `expected 300, got ${r.realized}`);
 });
 
+test('realizedFromSlicedFills: partial slice flagged with error matching buildYearReport', () => {
+    // Public helper must apply the same net-flat gate as the optimized
+    // batch path in buildYearReport, otherwise a future caller (or
+    // regression in either path) could silently re-introduce the
+    // FIFO-returns-0-for-orphan-inventory bug.
+    const position = {
+        market: 'BTC-USD',
+        createdAt: '2024-01-10T00:00:00Z',
+        closedAt: '2024-01-15T00:00:00Z'
+    };
+    const fills = [
+        { market: 'BTC-USD', createdAt: '2024-01-11T00:00:00Z', side: 'BUY', size: '1', price: '100' }
+        // SELL missing — net != 0
+    ];
+    const r = TR.realizedFromSlicedFills(position, fills);
+    assert.equal(r.realized, 0);
+    assert.equal(r.fillCount, 1);
+    assert.equal(r.error, 'partial-fill-slice');
+});
+
 test('realizedFromSlicedFills: ignores fills outside window or in other markets', () => {
     const position = {
         market: 'BTC-USD',
