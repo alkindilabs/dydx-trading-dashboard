@@ -1,10 +1,10 @@
 /**
- * USD→EUR FX rates from ECB (via api.frankfurter.app), cached indefinitely
- * in localStorage by YYYY-MM-DD. Historical reference rates never change,
- * so any cache hit is authoritative. Weekend/holiday close dates inherit
- * the nearest preceding business-day rate (frankfurter returns it when
- * asked for that calendar date) and are stored under the REQUESTED date
- * so close-date lookups always hit.
+ * USD→EUR FX rates from ECB (via api.frankfurter.dev/v1), cached
+ * indefinitely in localStorage by YYYY-MM-DD. Historical reference rates
+ * never change, so any cache hit is authoritative. Weekend/holiday close
+ * dates inherit the nearest preceding business-day rate (frankfurter
+ * returns it when asked for that calendar date) and are stored under the
+ * REQUESTED date so close-date lookups always hit.
  *
  * Network is defensive: every request is try/catch'd, has a hard
  * AbortController timeout so a stalled third-party request cannot leave
@@ -19,7 +19,10 @@
 
     const STORAGE_KEY = 'fxRates:v1:USD-EUR';
     const SCHEMA_VERSION = 1;
-    const BASE = 'https://api.frankfurter.app';
+    // frankfurter.app served 301 → frankfurter.dev/v1 in 2026. The legacy
+    // host stopped returning JSON, which silently emptied the rates map
+    // and tripped _fxMissing on every row.
+    const BASE = 'https://api.frankfurter.dev/v1';
     const FROM = 'USD';
     const TO = 'EUR';
     const CONCURRENCY = 4;

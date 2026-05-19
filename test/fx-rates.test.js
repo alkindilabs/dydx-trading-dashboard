@@ -1,10 +1,10 @@
 'use strict';
 
-// FxRates tests. The module hits a remote ECB-proxy (frankfurter.app),
-// so the tests inject a controllable fetch stub and an in-memory
-// localStorage before requiring the module. Covers: cache hits,
-// timeseries miss + persist, weekend single-date fallback, network
-// failure → missing[], and `clear()` semantics.
+// FxRates tests. The module hits a remote ECB-proxy
+// (frankfurter.dev/v1), so the tests inject a controllable fetch stub
+// and an in-memory localStorage before requiring the module. Covers:
+// cache hits, timeseries miss + persist, weekend single-date fallback,
+// network failure → missing[], and `clear()` semantics.
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -207,7 +207,7 @@ test('getRates: body that NEVER resolves is aborted by the request timeout', asy
 });
 
 test('getRates: timeseries outage does NOT cascade into per-date fallback', async () => {
-    // Otherwise an api.frankfurter.app outage with N requested dates
+    // Otherwise an api.frankfurter.dev outage with N requested dates
     // would issue N extra single-date requests, each also failing.
     resetState();
     globalThis.fetch.queue(() => null);
