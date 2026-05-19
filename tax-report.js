@@ -269,11 +269,17 @@
     function buildRowFromWindowFills(position, windowFills, overlap, attribution) {
         let realizedPnlUSD = 0;
         let realizedError = null;
+        // hasInvalidFill is tracked independently of realizedError because
+        // a partial slice can ALSO contain invalid fills; if we only set
+        // 'invalid-fill-in-slice' when the slice nets flat, the partial
+        // case would silently hide the FIFO-skip risk that understates
+        // totals.
+        const hasInvalidFill = windowFills.length > 0 && !allFillsFifoUsable(windowFills);
         if (!windowFills.length) {
             realizedError = 'no-fills-in-window';
         } else if (!fillsNetFlat(windowFills)) {
             realizedError = 'partial-fill-slice';
-        } else if (!allFillsFifoUsable(windowFills)) {
+        } else if (hasInvalidFill) {
             realizedError = 'invalid-fill-in-slice';
         }
         let feesUSD = 0;
@@ -341,6 +347,7 @@
             // from `fillCount`. One of: null | 'no-fills-in-window' |
             // 'partial-fill-slice' | 'invalid-fill-in-slice'.
             _realizedFillError: realizedError,
+            _hasInvalidFill: hasInvalidFill,
             _fxMissing: false
         };
     }
@@ -615,7 +622,7 @@
         rows.forEach(r => {
             if (r._feeAttributionWarning) warnings.feeAttributionAmbiguousCount++;
             if (!r._realizedFromFills) warnings.positionsWithoutFifoCount++;
-            if (r._realizedFillError === 'invalid-fill-in-slice') warnings.positionsWithInvalidFillCount++;
+            if (r._hasInvalidFill) warnings.positionsWithInvalidFillCount++;
         });
         if (fxRates) convertRowsToEur(rows, fxRates, warnings);
         const totals = summarize(rows, null);

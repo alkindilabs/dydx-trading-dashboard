@@ -194,6 +194,28 @@ test('buildYearReport: invalid-price fill in flat slice → invalid-fill-in-slic
         'invalid-fill rows must increment the separate counter so the panel can warn the totals may be understated');
 });
 
+test('buildYearReport: invalid fill in a partial slice still flips the invalid-fill counter', () => {
+    // Slice has only a BUY (not net flat → partial-fill-slice), but the
+    // BUY's price is NaN. realizedError settles on 'partial-fill-slice'
+    // (first-failing gate), but the invalid-fill condition is independent
+    // and must still be counted — otherwise the panel would show "totals
+    // exact" while continuous FIFO has silently skipped the invalid fill.
+    const p = {
+        status: 'CLOSED', market: 'BTC-USD', side: 'LONG',
+        createdAt: '2024-01-10T00:00:00Z', closedAt: '2024-01-15T00:00:00Z',
+        netFunding: '0', maxSize: '1'
+    };
+    const fills = [
+        { market: 'BTC-USD', createdAt: '2024-01-11T00:00:00Z', side: 'BUY', size: '1', price: 'NaN' }
+    ];
+    const r = TR.buildYearReport([p], fills, 2024, {});
+    assert.equal(r.rows[0]._realizedFillError, 'partial-fill-slice');
+    assert.equal(r.rows[0]._hasInvalidFill, true);
+    assert.equal(r.warnings.positionsWithoutFifoCount, 1);
+    assert.equal(r.warnings.positionsWithInvalidFillCount, 1,
+        'invalid-fill must be tracked independently of net-flat: the FIFO-skip risk applies regardless of slice completeness');
+});
+
 test('buildYearReport: dense overlap (all positions overlap each other) marks all', () => {
     // Stress the sweep: N positions whose windows all intersect at the
     // same instant. With the unmarkedCount optimization this should
