@@ -570,11 +570,18 @@
         const closed = (positions || []).filter(p => p && p.status === 'CLOSED');
         const inYear = closed.filter(p => closedAtYearUTC(p) === year);
 
+        // Keep one parseable-fills subset shared by the FIFO walk AND the
+        // per-market window index. Fills with unparseable createdAt would
+        // otherwise mutate FIFO inventory yet never land in any window
+        // slice — their realized contribution would leak out of the row
+        // totals.
+        const parseableFills = [];
         const fillsByMarket = {};
         (fills || []).forEach(f => {
             if (!f || !f.market) return;
             const ms = tsMs(f.createdAt);
             if (ms === null) return;
+            parseableFills.push(f);
             if (!fillsByMarket[f.market]) fillsByMarket[f.market] = [];
             fillsByMarket[f.market].push({ f, ms });
         });
@@ -582,7 +589,7 @@
 
         const RM = (typeof window !== 'undefined' && window.RiskMetrics) || null;
         const byFillResult = (RM && typeof RM.computeRealizedByFill === 'function')
-            ? RM.computeRealizedByFill(fills || [])
+            ? RM.computeRealizedByFill(parseableFills)
             : null;
         const realizedByFill = byFillResult ? byFillResult.byFill : null;
         const fillOwner = realizedByFill ? buildFillOwnershipMap(closed, fillsByMarket) : null;
@@ -662,6 +669,7 @@
             'realized_pnl_eur', 'net_funding_eur', 'fees_eur', 'net_eur',
             'holding_days',
             'fill_count', 'realized_from_fills', 'realized_fill_error',
+            'invalid_fill_in_window',
             'attribution_warning', 'fx_missing'
         ];
         const meta = `# Categoria ${cls.id} — ${cls.label} — Portugal tax year ${year}`;
@@ -688,6 +696,7 @@
                 typeof row.fillCount === 'number' ? String(row.fillCount) : '',
                 row._realizedFromFills ? 'true' : 'false',
                 row._realizedFillError || '',
+                row._hasInvalidFill ? 'true' : 'false',
                 row._feeAttributionWarning ? 'true' : 'false',
                 row._fxMissing ? 'true' : 'false'
             ].map(csvEscape).join(','));

@@ -793,6 +793,63 @@ test('toJson: undefined fields serialize as null (stable schema across FX covera
     assert.ok('netEUR' in out.totals);
 });
 
+test('toCsv: invalid_fill_in_window column reflects _hasInvalidFill independent of error tag', () => {
+    // Partial+invalid combo: _realizedFillError settles on partial-fill-slice
+    // but the row still carries _hasInvalidFill=true. The CSV must surface
+    // that flag so external consumers can branch on it without re-deriving
+    // the condition from `realized_fill_error`.
+    const rows = [{
+        closedAtISO: '2024-01-15T00:00:00Z',
+        createdAtISO: '2024-01-10T00:00:00Z',
+        closedDateUTC: '2024-01-15',
+        market: 'BTC-USD', side: 'LONG',
+        maxSize: 1, entryPrice: 100, exitPrice: 0,
+        realizedPnlUSD: 0, netFundingUSD: 0, feesUSD: 0, netUSD: 0,
+        fxRate: undefined, realizedPnlEUR: undefined, netFundingEUR: undefined,
+        feesEUR: undefined, netEUR: undefined,
+        holdingDays: 5, fillCount: 1,
+        _realizedFromFills: false,
+        _realizedFillError: 'partial-fill-slice',
+        _hasInvalidFill: true,
+        _feeAttributionWarning: false,
+        _fxMissing: true
+    }];
+    const csv = TR.toCsv(rows, 'E', 2024);
+    const lines = csv.split('\r\n');
+    const header = lines[1].split(',');
+    const dataRow = lines[2].split(',');
+    const idx = header.indexOf('invalid_fill_in_window');
+    assert.ok(idx >= 0, 'header must include invalid_fill_in_window column');
+    assert.equal(dataRow[idx], 'true',
+        'partial+invalid row must export invalid_fill_in_window=true even when realized_fill_error is partial-fill-slice');
+});
+
+test('buildYearReport: fills with unparseable createdAt do not leak realized into byFill', () => {
+    // computeRealizedByFill was previously called on the unfiltered `fills`
+    // array, but window slicing rejected fills with null tsMs. A fill with
+    // invalid createdAt would mutate the FIFO inventory yet never be
+    // attributed to a row, silently dropping its realized contribution.
+    // buildYearReport must filter both consumers to the same parseable set.
+    const p = {
+        status: 'CLOSED', market: 'BTC-USD', side: 'LONG',
+        createdAt: '2024-01-10T00:00:00Z', closedAt: '2024-01-15T00:00:00Z',
+        netFunding: '0', maxSize: '1'
+    };
+    const fills = [
+        // unparseable createdAt — must be ignored by BOTH FIFO + windowing
+        { market: 'BTC-USD', createdAt: 'not-a-date',           side: 'BUY',  size: '999', price: '1' },
+        { market: 'BTC-USD', createdAt: '2024-01-11T00:00:00Z', side: 'BUY',  size: '1',   price: '100' },
+        { market: 'BTC-USD', createdAt: '2024-01-14T00:00:00Z', side: 'SELL', size: '1',   price: '150' }
+    ];
+    const r = TR.buildYearReport([p], fills, 2024, {});
+    assert.equal(r.rows.length, 1);
+    // If the bad fill leaked into FIFO, the BUY 999@1 would consume the
+    // SELL and produce ~-149,851 of attributed realized. With the filter,
+    // we expect a clean +50.
+    assert.ok(close(r.rows[0].realizedPnlUSD, 50),
+        `unparseable-createdAt fill must NOT affect FIFO inventory; expected 50, got ${r.rows[0].realizedPnlUSD}`);
+});
+
 test('toCsv: ends with CRLF', () => {
     const csv = TR.toCsv([], 'E', 2024);
     assert.ok(csv.endsWith('\r\n'));
