@@ -160,7 +160,7 @@
             break;
           case 'invalid-fill-in-slice':
             reasons.push('Window has ' + row.fillCount
-              + ' fill(s) but at least one carries an invalid price / size / side — that fill was skipped by the continuous-FIFO walk.');
+              + ' fill(s) but at least one carries an invalid price / size / side — that fill was skipped by the continuous-FIFO walk, so realized totals may be understated.');
             break;
           case 'partial-fill-slice':
           default:
@@ -168,6 +168,13 @@
               + ' fill(s) but they do not net flat in isolation. Realized P&L still uses continuous-FIFO attribution across position boundaries, so the row total is correct — but per-position attribution is approximate when inventory state crosses the boundary.');
             break;
         }
+      }
+      // _hasInvalidFill is independent of _realizedFillError: a partial
+      // slice CAN also contain an invalid fill, in which case the gate
+      // cascade settles on 'partial-fill-slice' and the invalid-fill
+      // caveat would be silent without this second check.
+      if (row._hasInvalidFill && row._realizedFillError !== 'invalid-fill-in-slice') {
+        reasons.push('At least one fill in this window carries an invalid price / size / side — the continuous-FIFO walk skipped it, so the realized total above may be understated.');
       }
       if (row._feeAttributionWarning) reasons.push('Another closed position in this market overlaps the window — per-position fee and realized attribution is approximate, though the year total is exact.');
       if (row._fxMissing) reasons.push('FX rate unavailable for ' + (row.closedDateUTC || 'close date') + '.');
