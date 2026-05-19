@@ -267,9 +267,12 @@
     }
     const strip = document.getElementById('taxWarningStrip');
     if (!strip) return;
-    if (warnings.positionsWithoutFifoCount > 0) {
+    if (warnings.positionsWithInvalidFillCount > 0) {
       strip.style.display = '';
-      strip.textContent = 'Some rows are flagged with † because their fill slice is incomplete: either no fills landed in the indexer window, the fills present do not net flat (boundary does not align with a true size=0 moment), or at least one fill carried an invalid price / size / side. The year totals still reconcile to the equity curve because realized P&L is attributed via continuous FIFO across position boundaries — only the per-position split on flagged rows is approximate. Hover the date column for the specific reason on each row.';
+      strip.textContent = 'Some rows are flagged with † because at least one fill in their window carried an invalid price / size / side. The continuous-FIFO walk skipped those fills, so realized totals may be understated relative to the true account history and may not reconcile to the equity curve. Inspect affected rows before relying on the totals; reload the page to re-fetch fills in case the indexer corrects the field.';
+    } else if (warnings.positionsWithoutFifoCount > 0) {
+      strip.style.display = '';
+      strip.textContent = 'Some rows are flagged with † because their fill slice is incomplete: either no fills landed in the indexer window, or the fills present do not net flat (boundary does not align with a true size=0 moment). The year totals still reconcile to the equity curve because realized P&L is attributed via continuous FIFO across position boundaries — only the per-position split on flagged rows is approximate. Hover the date column for the specific reason on each row.';
     } else if (warnings.feeAttributionAmbiguousCount > 0) {
       strip.style.display = '';
       const n = warnings.feeAttributionAmbiguousCount;

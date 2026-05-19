@@ -158,10 +158,13 @@
     // Unique-assigns each fill to the smallest-openMs closed position whose
     // [open, close] contains it (ties: smaller closeMs). Without this,
     // boundary fills land in two adjacent windows and double-count.
-    function buildFillOwnershipMap(closedPositions, fills) {
+    //
+    // fillsByMarket must be `{ [market]: [{ f, ms }] }` already sorted by
+    // ms ascending — buildYearReport produces it once and shares.
+    function buildFillOwnershipMap(closedPositions, fillsByMarket) {
         const owner = new Map();
         if (!Array.isArray(closedPositions) || !closedPositions.length) return owner;
-        if (!Array.isArray(fills) || !fills.length) return owner;
+        if (!fillsByMarket) return owner;
 
         const positionsByMarket = {};
         closedPositions.forEach(p => {
@@ -176,16 +179,6 @@
         Object.values(positionsByMarket).forEach(arr =>
             arr.sort((a, b) => a.openMs - b.openMs || a.closeMs - b.closeMs)
         );
-
-        const fillsByMarket = {};
-        fills.forEach(f => {
-            if (!f || !f.market) return;
-            const ms = tsMs(f.createdAt);
-            if (ms === null) return;
-            if (!fillsByMarket[f.market]) fillsByMarket[f.market] = [];
-            fillsByMarket[f.market].push({ f, ms });
-        });
-        Object.values(fillsByMarket).forEach(arr => arr.sort((a, b) => a.ms - b.ms));
 
         Object.entries(positionsByMarket).forEach(([market, plist]) => {
             const marketFills = fillsByMarket[market];
@@ -564,7 +557,8 @@
         const warnings = {
             feeAttributionAmbiguousCount: 0,
             missingFxDates: [],
-            positionsWithoutFifoCount: 0
+            positionsWithoutFifoCount: 0,
+            positionsWithInvalidFillCount: 0
         };
         const closed = (positions || []).filter(p => p && p.status === 'CLOSED');
         const inYear = closed.filter(p => closedAtYearUTC(p) === year);
@@ -584,7 +578,7 @@
             ? RM.computeRealizedByFill(fills || [])
             : null;
         const realizedByFill = byFillResult ? byFillResult.byFill : null;
-        const fillOwner = realizedByFill ? buildFillOwnershipMap(closed, fills || []) : null;
+        const fillOwner = realizedByFill ? buildFillOwnershipMap(closed, fillsByMarket) : null;
         const attribution = (realizedByFill && fillOwner)
             ? { realizedByFill, fillOwner }
             : null;
@@ -621,6 +615,7 @@
         rows.forEach(r => {
             if (r._feeAttributionWarning) warnings.feeAttributionAmbiguousCount++;
             if (!r._realizedFromFills) warnings.positionsWithoutFifoCount++;
+            if (r._realizedFillError === 'invalid-fill-in-slice') warnings.positionsWithInvalidFillCount++;
         });
         if (fxRates) convertRowsToEur(rows, fxRates, warnings);
         const totals = summarize(rows, null);

@@ -190,6 +190,8 @@ test('buildYearReport: invalid-price fill in flat slice → invalid-fill-in-slic
     assert.equal(r.rows[0]._realizedFromFills, false);
     assert.equal(r.rows[0]._realizedFillError, 'invalid-fill-in-slice');
     assert.equal(r.warnings.positionsWithoutFifoCount, 1);
+    assert.equal(r.warnings.positionsWithInvalidFillCount, 1,
+        'invalid-fill rows must increment the separate counter so the panel can warn the totals may be understated');
 });
 
 test('buildYearReport: dense overlap (all positions overlap each other) marks all', () => {
