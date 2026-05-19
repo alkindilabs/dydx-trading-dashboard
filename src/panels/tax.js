@@ -156,20 +156,20 @@
       if (!row._realizedFromFills) {
         switch (row._realizedFillError) {
           case 'no-fills-in-window':
-            reasons.push('No fills found in window — realized P&L falls back to 0.');
+            reasons.push('No fills found in this position\'s window — realized P&L is 0 because no fills were attributed to it.');
             break;
           case 'invalid-fill-in-slice':
             reasons.push('Window has ' + row.fillCount
-              + ' fill(s) but at least one carries an invalid price / size / side — realized P&L falls back to 0.');
+              + ' fill(s) but at least one carries an invalid price / size / side — that fill was skipped by the continuous-FIFO walk.');
             break;
           case 'partial-fill-slice':
           default:
-            reasons.push('Incomplete fill slice (window has ' + row.fillCount
-              + ' fill(s) but they do not flatten the position) — realized P&L falls back to 0.');
+            reasons.push('Window has ' + row.fillCount
+              + ' fill(s) but they do not net flat in isolation. Realized P&L still uses continuous-FIFO attribution across position boundaries, so the row total is correct — but per-position attribution is approximate when inventory state crosses the boundary.');
             break;
         }
       }
-      if (row._feeAttributionWarning) reasons.push('Another closed position in this market overlaps the window — fee/realized attribution is approximate.');
+      if (row._feeAttributionWarning) reasons.push('Another closed position in this market overlaps the window — per-position fee and realized attribution is approximate, though the year total is exact.');
       if (row._fxMissing) reasons.push('FX rate unavailable for ' + (row.closedDateUTC || 'close date') + '.');
 
       const closedTd = D.appendCell(tr, row.closedDateUTC || '—', ['mono']);
@@ -269,12 +269,12 @@
     if (!strip) return;
     if (warnings.positionsWithoutFifoCount > 0) {
       strip.style.display = '';
-      strip.textContent = 'Some positions could not be FIFO-derived from the available fills — either no fills landed in the indexer window, the fills present do not flatten the position, or at least one fill carried an invalid price / size / side. Realized P&L for those rows shows $0 and may not reflect the actual gain or loss. Reload the page or click the address Forget/Load buttons to re-fetch a complete fills history before relying on these totals.';
+      strip.textContent = 'Some rows are flagged with † because their fill slice does not net flat in isolation (the indexer\'s position boundary does not align with a true size=0 moment). The year totals still reconcile to the equity curve because realized P&L is attributed via continuous FIFO across position boundaries — only the per-position split on flagged rows is approximate. Hover the date column for details.';
     } else if (warnings.feeAttributionAmbiguousCount > 0) {
       strip.style.display = '';
       const n = warnings.feeAttributionAmbiguousCount;
       const noun = n === 1 ? 'row' : 'rows';
-      strip.textContent = 'Two or more closed positions overlap in time within the same market for ' + n + ' ' + noun + '. Fees and realized P&L for those rows are attributed by best effort and may not match what a dYdX FIFO accounting on the raw fills would produce. Treat affected rows as approximations and verify against fills if the totals matter for your filing.';
+      strip.textContent = 'Two or more closed positions overlap in time within the same market for ' + n + ' ' + noun + '. The year totals are exact (continuous-FIFO attribution unique-assigns each fill), but per-position split on flagged rows is approximate. Verify against raw fills if individual row attribution matters for your filing.';
     } else {
       strip.style.display = 'none';
       strip.textContent = '';

@@ -449,6 +449,95 @@ test('buildYearReport: chained overlaps mark every member of the chain', () => {
     assert.equal(r.warnings.feeAttributionAmbiguousCount, 3);
 });
 
+test('buildYearReport: boundary fill attributed to closer, not double-counted', () => {
+    // Two positions whose windows touch at a single timestamp T:
+    //   A: open 10:00, close 11:00
+    //   B: open 11:00, close 12:00
+    // The 11:00 fills land in BOTH windows under inclusive [open, close]
+    // semantics. Old per-window code summed each fill's fee into both
+    // positions; the attribution rule (smallest-openMs claims it) places
+    // the boundary fill into A alone.
+    const a = {
+        status: 'CLOSED', market: 'BTC-USD', side: 'LONG',
+        createdAt: '2024-01-10T10:00:00Z', closedAt: '2024-01-10T11:00:00Z',
+        netFunding: '0', maxSize: '1'
+    };
+    const b = {
+        status: 'CLOSED', market: 'BTC-USD', side: 'LONG',
+        createdAt: '2024-01-10T11:00:00Z', closedAt: '2024-01-10T12:00:00Z',
+        netFunding: '0', maxSize: '1'
+    };
+    // BUY 1@100 opens A. SELL 1@110 closes A (flip-out). BUY 1@110 opens
+    // B. SELL 1@120 closes B.
+    const fills = [
+        { market: 'BTC-USD', side: 'BUY',  createdAt: '2024-01-10T10:00:00Z', size: '1', price: '100', fee: '0.10' },
+        { market: 'BTC-USD', side: 'SELL', createdAt: '2024-01-10T11:00:00Z', size: '1', price: '110', fee: '0.20' },
+        { market: 'BTC-USD', side: 'BUY',  createdAt: '2024-01-10T11:00:00Z', size: '1', price: '110', fee: '0.20' },
+        { market: 'BTC-USD', side: 'SELL', createdAt: '2024-01-10T12:00:00Z', size: '1', price: '120', fee: '0.10' }
+    ];
+    const r = TR.buildYearReport([a, b], fills, 2024, {});
+    // Total realized = (110-100)*1 + (120-110)*1 = 20. Total fees over
+    // all 4 fills = 0.60. Net = 20 - 0.60 = 19.40. Old code would either
+    // gate-zero the rows (slice not flat in isolation) or double-count
+    // boundary fees.
+    const sumRealized = r.rows.reduce((s, row) => s + row.realizedPnlUSD, 0);
+    const sumFees = r.rows.reduce((s, row) => s + row.feesUSD, 0);
+    const sumNet = r.rows.reduce((s, row) => s + row.netUSD, 0);
+    assert.ok(close(sumRealized, 20), `realized sum: ${sumRealized}`);
+    assert.ok(close(sumFees, 0.60), `fees sum: ${sumFees}`);
+    assert.ok(close(sumNet, 19.40), `net sum: ${sumNet}`);
+});
+
+test('buildYearReport: realized attributed by continuous FIFO across position boundaries', () => {
+    // Pathological-but-real scenario from a heavily-scaled live account:
+    // the indexer marks position A CLOSED at 11:00 with only its opening
+    // BUY in its slice (closing fill landed at 12:00 inside B's window).
+    // Continuous FIFO (BUY 2@100 → SELL 2@160) realizes 120 at the SELL.
+    // The SELL is in B's window only, so it's attributed to B.
+    //
+    // Old per-window code: A's slice not flat → realized=0; B's slice
+    // not flat → realized=0; total = 0. Wrong by $120.
+    // New: A's realized=0 (only extending fill), B's realized=120.
+    const a = {
+        status: 'CLOSED', market: 'BTC-USD', side: 'LONG',
+        createdAt: '2024-01-10T10:00:00Z', closedAt: '2024-01-10T11:00:00Z',
+        netFunding: '0', maxSize: '2'
+    };
+    const b = {
+        status: 'CLOSED', market: 'BTC-USD', side: 'LONG',
+        createdAt: '2024-01-10T10:30:00Z', closedAt: '2024-01-10T12:00:00Z',
+        netFunding: '0', maxSize: '2'
+    };
+    const fills = [
+        { market: 'BTC-USD', side: 'BUY',  createdAt: '2024-01-10T10:00:00Z', size: '2', price: '100' },
+        { market: 'BTC-USD', side: 'SELL', createdAt: '2024-01-10T12:00:00Z', size: '2', price: '160' }
+    ];
+    const r = TR.buildYearReport([a, b], fills, 2024, {});
+    const sumRealized = r.rows.reduce((s, row) => s + row.realizedPnlUSD, 0);
+    assert.ok(close(sumRealized, 120),
+        `continuous FIFO must surface the 120 realized at the closing SELL even though neither slice is flat in isolation; got ${sumRealized}`);
+});
+
+test('buildYearReport: heavy-scaling LONG matches continuous FIFO realized', () => {
+    // Single LONG position, scaled in twice then exited in two SELLs.
+    // FIFO: (150-100)*2 + (160-120)*3 = 100 + 120 = 220.
+    const p = {
+        status: 'CLOSED', market: 'BTC-USD', side: 'LONG',
+        createdAt: '2024-01-01T00:00:00Z', closedAt: '2024-01-10T00:00:00Z',
+        netFunding: '0', maxSize: '5'
+    };
+    const fills = [
+        { market: 'BTC-USD', side: 'BUY',  createdAt: '2024-01-01T00:00:00Z', size: '2', price: '100' },
+        { market: 'BTC-USD', side: 'BUY',  createdAt: '2024-01-02T00:00:00Z', size: '3', price: '120' },
+        { market: 'BTC-USD', side: 'SELL', createdAt: '2024-01-08T00:00:00Z', size: '2', price: '150' },
+        { market: 'BTC-USD', side: 'SELL', createdAt: '2024-01-10T00:00:00Z', size: '3', price: '160' }
+    ];
+    const r = TR.buildYearReport([p], fills, 2024, {});
+    assert.equal(r.rows.length, 1);
+    assert.ok(close(r.rows[0].realizedPnlUSD, 220),
+        `expected 220, got ${r.rows[0].realizedPnlUSD}`);
+});
+
 test('buildYearReport: rows sorted by closedAt descending', () => {
     const positions = [
         { status: 'CLOSED', market: 'ETH-USD', side: 'LONG',
