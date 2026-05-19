@@ -744,18 +744,10 @@
     return { total, byMarket };
   }
 
-  // Same FIFO walk as computeRealizedFromFills but also records each fill's
-  // individual realized contribution. Returned `byFill` lets callers
-  // attribute realized P&L to specific fills (and via fill timestamps, to
-  // specific closed positions). Keyed by the fill object reference so
-  // synthetic test fills (no `id` field) still attribute correctly.
-  //
-  // This is the authoritative source for per-position realized P&L in the
-  // Tax report: per-position windowed FIFO (FIFO restarted at zero
-  // inventory per position window) double-counts at position boundaries
-  // and silently understates heavily-scaled positions. Continuous FIFO
-  // over all fills, with per-fill attribution, reconciles to the
-  // equity-based /historical-pnl curve.
+  // Same FIFO walk as computeRealizedFromFills, plus per-fill realized
+  // contributions keyed by fill object reference. Lets callers attribute
+  // realized P&L across position boundaries without restarting inventory
+  // per window.
   function computeRealizedByFill(fills) {
     if (!Array.isArray(fills) || fills.length === 0) {
       return { total: 0, byMarket: {}, byFill: new Map() };

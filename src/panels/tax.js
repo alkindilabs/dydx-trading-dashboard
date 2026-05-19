@@ -269,7 +269,7 @@
     if (!strip) return;
     if (warnings.positionsWithoutFifoCount > 0) {
       strip.style.display = '';
-      strip.textContent = 'Some rows are flagged with † because their fill slice does not net flat in isolation (the indexer\'s position boundary does not align with a true size=0 moment). The year totals still reconcile to the equity curve because realized P&L is attributed via continuous FIFO across position boundaries — only the per-position split on flagged rows is approximate. Hover the date column for details.';
+      strip.textContent = 'Some rows are flagged with † because their fill slice is incomplete: either no fills landed in the indexer window, the fills present do not net flat (boundary does not align with a true size=0 moment), or at least one fill carried an invalid price / size / side. The year totals still reconcile to the equity curve because realized P&L is attributed via continuous FIFO across position boundaries — only the per-position split on flagged rows is approximate. Hover the date column for the specific reason on each row.';
     } else if (warnings.feeAttributionAmbiguousCount > 0) {
       strip.style.display = '';
       const n = warnings.feeAttributionAmbiguousCount;

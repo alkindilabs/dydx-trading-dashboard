@@ -155,19 +155,9 @@
         return { realized: (fifo.byMarket && fifo.byMarket[market]) || 0 };
     }
 
-    // Build the fill-ownership map: each closed fill is attributed to the
-    // closed position with the smallest openMs whose [openMs, closeMs]
-    // window contains it. Resolves the boundary-fill double-count: when
-    // position A closes at T and position B opens at T, the fill at T is
-    // claimed by A (the closer), not duplicated into both.
-    //
-    // Sweep per market: positions sorted by openMs, fills sorted by ms.
-    // Maintain an active list of positions whose window currently contains
-    // the cursor. Owner = first active entry (oldest open). O((P+F) log)
-    // overall.
-    //
-    // Returns Map<fillObject, position> keyed by fill reference so
-    // synthetic test fills (no `id`) still attribute correctly.
+    // Unique-assigns each fill to the smallest-openMs closed position whose
+    // [open, close] contains it (ties: smaller closeMs). Without this,
+    // boundary fills land in two adjacent windows and double-count.
     function buildFillOwnershipMap(closedPositions, fills) {
         const owner = new Map();
         if (!Array.isArray(closedPositions) || !closedPositions.length) return owner;
@@ -200,30 +190,19 @@
         Object.entries(positionsByMarket).forEach(([market, plist]) => {
             const marketFills = fillsByMarket[market];
             if (!marketFills || !marketFills.length) return;
-            let pIdx = 0;
-            const active = []; // sorted by openMs (insertion order)
+            let nextUnopenedIdx = 0;
+            const activeByOpenMs = [];
             for (let i = 0; i < marketFills.length; i++) {
                 const fm = marketFills[i].ms;
-                while (pIdx < plist.length && plist[pIdx].openMs <= fm) {
-                    active.push(plist[pIdx]);
-                    pIdx++;
+                while (nextUnopenedIdx < plist.length && plist[nextUnopenedIdx].openMs <= fm) {
+                    activeByOpenMs.push(plist[nextUnopenedIdx]);
+                    nextUnopenedIdx++;
                 }
-                for (let k = active.length - 1; k >= 0; k--) {
-                    if (active[k].closeMs < fm) active.splice(k, 1);
+                for (let k = activeByOpenMs.length - 1; k >= 0; k--) {
+                    if (activeByOpenMs[k].closeMs < fm) activeByOpenMs.splice(k, 1);
                 }
-                if (!active.length) continue;
-                // active is sorted by openMs ascending (push order). The
-                // smallest-openMs entry is at index 0; on ties, prefer the
-                // smaller closeMs (the position closing sooner takes the
-                // boundary fill).
-                let pick = active[0];
-                for (let k = 1; k < active.length; k++) {
-                    if (active[k].openMs < pick.openMs ||
-                        (active[k].openMs === pick.openMs && active[k].closeMs < pick.closeMs)) {
-                        pick = active[k];
-                    }
-                }
-                owner.set(marketFills[i].f, pick.p);
+                if (!activeByOpenMs.length) continue;
+                owner.set(marketFills[i].f, activeByOpenMs[0].p);
             }
         });
         return owner;
@@ -290,42 +269,13 @@
         return num(realizedPnlUSD) + num(netFundingUSD) - num(feesUSD);
     }
 
-    // Build a row from a window-bound, market-bound, time-sorted fill
-    // slice. Caller is responsible for slicing — buildYearReport runs
-    // the optimized batch path (sort fills once per market, binary-
-    // search window bounds per row) and feeds the final slice in.
-    //
-    // attribution (optional): { realizedByFill: Map, fillOwner: Map }
-    //   - realizedByFill: per-fill realized contribution from
-    //     RiskMetrics.computeRealizedByFill over the FULL fills array,
-    //     i.e. continuous FIFO (correct cost basis across positions).
-    //   - fillOwner: Map<fillObject, position> identifying which closed
-    //     position owns each fill (smallest-openMs claims it).
-    // When provided, realized + fees are summed ONLY over fills owned by
-    // `position`, and the realized contribution comes from the continuous
-    // FIFO map — not from per-window FIFO. This eliminates two bugs:
-    //   1) per-window FIFO restarts inventory at zero per position, which
-    //      over- or under-counts whenever inventory state actually crosses
-    //      position boundaries (heavily-scaled accounts);
-    //   2) boundary fills landing in both adjacent windows get
-    //      double-counted by per-window code.
-    //
-    // When attribution is absent (legacy single-position callers like
-    // `buildRow`), the function falls back to per-window FIFO with the
-    // historical gates (`fillsNetFlat` + `allFillsFifoUsable` zero out
-    // realized when the slice is suspect). That path is still correct for
-    // isolated, well-formed positions; only the year-report engine relies
-    // on continuous-FIFO attribution to reconcile to the equity curve.
+    // With `attribution`, realized + fees come from the continuous-FIFO
+    // ownership map (year totals reconcile to /historical-pnl). Without
+    // it (single-position callers), falls back to per-window FIFO with
+    // gates that zero realized on suspect slices.
     function buildRowFromWindowFills(position, windowFills, overlap, attribution) {
         let realizedPnlUSD = 0;
         let realizedError = null;
-        // Detect partial fill slices: a CLOSED position should be
-        // flattened by the time its closedAt arrives, so the sum of
-        // signed BUY/SELL sizes in the window must net to ~0. Used as
-        // an audit flag for downstream UI; under per-fill attribution
-        // it does not zero out the realized total (continuous FIFO
-        // attributes correctly even when the slice itself isn't a
-        // clean cycle in isolation).
         if (!windowFills.length) {
             realizedError = 'no-fills-in-window';
         } else if (!fillsNetFlat(windowFills)) {
@@ -338,19 +288,11 @@
             const { realizedByFill, fillOwner } = attribution;
             windowFills.forEach(f => {
                 if (!f) return;
-                if (fillOwner.has(f) && fillOwner.get(f) !== position) {
-                    return; // owned by a different (typically boundary-sharing) position
-                }
-                if (realizedByFill.has(f)) {
-                    realizedPnlUSD += realizedByFill.get(f);
-                }
+                if (fillOwner.has(f) && fillOwner.get(f) !== position) return;
+                if (realizedByFill.has(f)) realizedPnlUSD += realizedByFill.get(f);
                 feesUSD += num(f.fee);
             });
         } else {
-            // Legacy single-position path: per-window FIFO with the
-            // historical gates. Used when the caller has no global
-            // attribution context (e.g. `buildRow` from external callers
-            // or unit tests).
             if (!realizedError) {
                 const r = fifoRealizedForMarket(position.market, windowFills);
                 realizedPnlUSD = r.realized;
@@ -627,7 +569,6 @@
         const closed = (positions || []).filter(p => p && p.status === 'CLOSED');
         const inYear = closed.filter(p => closedAtYearUTC(p) === year);
 
-        // { [market]: [{ f, ms }, ...] sorted by ms ascending }
         const fillsByMarket = {};
         (fills || []).forEach(f => {
             if (!f || !f.market) return;
@@ -638,14 +579,6 @@
         });
         Object.values(fillsByMarket).forEach(arr => arr.sort((a, b) => a.ms - b.ms));
 
-        // Continuous-FIFO over ALL fills produces the per-fill realized
-        // contributions used for per-position attribution. Per-position
-        // windowed FIFO (the old approach) restarts inventory at zero for
-        // each position window, which double-counts/under-counts whenever
-        // inventory state actually crosses position boundaries — verified
-        // against /historical-pnl: on a heavily-scaled live account, the
-        // old code reported +$28k profit while the equity curve showed a
-        // $76k loss.
         const RM = (typeof window !== 'undefined' && window.RiskMetrics) || null;
         const byFillResult = (RM && typeof RM.computeRealizedByFill === 'function')
             ? RM.computeRealizedByFill(fills || [])
