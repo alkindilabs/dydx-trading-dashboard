@@ -39,9 +39,10 @@ test.describe('dashboard smoke', () => {
       });
     });
     // Stub the ECB-proxy used by the Tax tab so the smoke run never
-    // hits the live api.frankfurter.dev endpoint. Return a real-looking
-    // rate for the fixture's single closed-position close-date so the
-    // Tax tab's render exercises the success path end-to-end.
+    // hits the live api.frankfurter.dev/v1 endpoint. Return a
+    // real-looking rate for the fixture's single closed-position
+    // close-date so the Tax tab's render exercises the success path
+    // end-to-end.
     await page.route(/api\.frankfurter\.dev/, async (route) => {
       const url = route.request().url();
       const body = url.includes('..')
