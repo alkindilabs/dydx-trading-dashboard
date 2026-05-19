@@ -39,10 +39,10 @@ test.describe('dashboard smoke', () => {
       });
     });
     // Stub the ECB-proxy used by the Tax tab so the smoke run never
-    // hits the live api.frankfurter.app endpoint. Return a real-looking
+    // hits the live api.frankfurter.dev endpoint. Return a real-looking
     // rate for the fixture's single closed-position close-date so the
     // Tax tab's render exercises the success path end-to-end.
-    await page.route(/api\.frankfurter\.app/, async (route) => {
+    await page.route(/api\.frankfurter\.dev/, async (route) => {
       const url = route.request().url();
       const body = url.includes('..')
         ? { rates: { '2024-03-16': { EUR: 0.92 } } }
@@ -83,7 +83,7 @@ test.describe('dashboard smoke', () => {
     page.on('pageerror', e => errors.push(`pageerror: ${e.message}`));
     page.on('console', m => { if (m.type() === 'error') errors.push(`console: ${m.text()}`); });
     page.on('request', req => {
-      if (/api\.frankfurter\.app/.test(req.url())) fxCalls.push(req.url());
+      if (/api\.frankfurter\.dev/.test(req.url())) fxCalls.push(req.url());
     });
 
     await page.goto(`/?address=${ADDRESS}`);
@@ -107,7 +107,7 @@ test.describe('dashboard smoke', () => {
     // resolve that date — guards against a regression where the panel
     // would silently skip the FX path (e.g. wrong fixture, deferred
     // render that never re-fires on tab activation).
-    expect(fxCalls.length, `expected api.frankfurter.app to be called, got ${fxCalls.length}`)
+    expect(fxCalls.length, `expected api.frankfurter.dev to be called, got ${fxCalls.length}`)
       .toBeGreaterThan(0);
 
     expect(errors, errors.join('\n')).toHaveLength(0);
