@@ -744,6 +744,82 @@
     return { total, byMarket };
   }
 
+  // Same FIFO walk as computeRealizedFromFills, plus per-fill realized
+  // contributions keyed by fill object reference. Lets callers attribute
+  // realized P&L across position boundaries without restarting inventory
+  // per window.
+  function computeRealizedByFill(fills) {
+    if (!Array.isArray(fills) || fills.length === 0) {
+      return { total: 0, byMarket: {}, byFill: new Map() };
+    }
+    const buckets = {};
+    for (const f of fills) {
+      if (!f) continue;
+      const m = f.market || 'Unknown';
+      if (!buckets[m]) buckets[m] = [];
+      buckets[m].push(f);
+    }
+    let total = 0;
+    const byMarket = {};
+    const byFill = new Map();
+    Object.entries(buckets).forEach(([market, mfills]) => {
+      mfills.sort((a, b) => {
+        const ta = a.createdAt || '';
+        const tb = b.createdAt || '';
+        if (ta !== tb) return ta < tb ? -1 : 1;
+        const ha = parseInt(a.createdAtHeight || '0', 10);
+        const hb = parseInt(b.createdAtHeight || '0', 10);
+        if (ha !== hb) return ha - hb;
+        const ia = a.id || '';
+        const ib = b.id || '';
+        return ia < ib ? -1 : ia > ib ? 1 : 0;
+      });
+      const inventory = [];
+      let netSize = 0;
+      let realized = 0;
+      for (const f of mfills) {
+        const sz = Math.abs(parseFloat(f.size));
+        const px = parseFloat(f.price);
+        if (!isNumber(sz) || sz <= 0 || !isNumber(px)) continue;
+        const side = (f.side || '').toUpperCase();
+        if (side !== 'BUY' && side !== 'SELL') continue;
+        const signed = side === 'BUY' ? sz : -sz;
+        const extending =
+          netSize === 0 ||
+          (netSize > 0 && signed > 0) ||
+          (netSize < 0 && signed < 0);
+        let fillRealized = 0;
+        if (extending) {
+          inventory.push({ size: sz, price: px });
+          netSize += signed;
+        } else {
+          const closingLong = netSize > 0;
+          let remaining = sz;
+          while (remaining > 0 && inventory.length > 0) {
+            const lot = inventory[0];
+            const matched = Math.min(remaining, lot.size);
+            const pnl = closingLong
+              ? (px - lot.price) * matched
+              : (lot.price - px) * matched;
+            fillRealized += pnl;
+            lot.size -= matched;
+            remaining -= matched;
+            if (lot.size <= 1e-12) inventory.shift();
+          }
+          netSize += signed;
+          if (remaining > 1e-12) {
+            inventory.push({ size: remaining, price: px });
+          }
+        }
+        realized += fillRealized;
+        byFill.set(f, fillRealized);
+      }
+      byMarket[market] = realized;
+      total += realized;
+    });
+    return { total, byMarket, byFill };
+  }
+
   // Sum of trading fees across every fill. dYdX v4 indexer convention:
   // `fill.fee` is a string USD amount where POSITIVE = paid by the user
   // (taker fees and most maker fills) and NEGATIVE = maker rebate received.
@@ -911,6 +987,7 @@
     feesTotal,
     marketFees,
     computeRealizedFromFills,
+    computeRealizedByFill,
     activeChildSubaccounts,
     histPnlMonthly,
     crossMarginLiqPrice,
