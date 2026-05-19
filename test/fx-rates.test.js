@@ -116,6 +116,47 @@ test('getRates: timeseries call fills missing dates and persists to cache', asyn
     assert.equal(stored.rates['2024-03-12'], 0.92);
 });
 
+test('getRates: provisional same-day rate (response.date != requested) not cached under requested', async () => {
+    // Setup: request a date in the future (recent / not settled).
+    // Frankfurter returns a different date in the response — this is
+    // the "current weekday before ECB publishes today's rate" scenario.
+    // The implementation must:
+    //   - cache the rate under the RESPONSE date (it's a real ECB value)
+    //   - NOT cache under the REQUESTED date (the final rate hasn't published)
+    //   - leave the requested date in `missing[]`
+    // Otherwise the previous-day rate would be pinned under the future
+    // date and served indefinitely on every later call.
+    resetState();
+    const futureDate = '2099-12-31';
+    const earlierDate = '2099-12-28';
+    globalThis.fetch.queueAppend(() => ({ rates: {} })); // timeseries (empty)
+    globalThis.fetch.queueAppend(() => ({ rates: { EUR: 0.92 }, date: earlierDate }));
+    const { rates, missing } = await FX.getRates([futureDate]);
+    assert.deepEqual(rates, {}, 'requested date must not be in result rates');
+    assert.deepEqual(missing, [futureDate], 'requested date stays missing');
+    const cache = JSON.parse(globalThis.localStorage.getItem('fxRates:v1:USD-EUR'));
+    assert.equal(cache.rates[earlierDate], 0.92, 'response date IS cached');
+    assert.equal(cache.rates[futureDate], undefined, 'requested date NOT cached under provisional rate');
+});
+
+test('getRates: settled past date with mismatched response.date still caches under requested', async () => {
+    // Symmetric: a weekend close date from years ago. Frankfurter
+    // returns Friday's rate; the requested Saturday is "settled" (too
+    // old for ECB to publish a new value), so caching under the
+    // requested date is permanently correct.
+    resetState();
+    const requested = '2020-03-21'; // Saturday, definitely past
+    const responseDate = '2020-03-20'; // Friday
+    globalThis.fetch.queueAppend(() => ({ rates: {} })); // timeseries
+    globalThis.fetch.queueAppend(() => ({ rates: { EUR: 0.93 }, date: responseDate }));
+    const { rates, missing } = await FX.getRates([requested]);
+    assert.equal(rates[requested], 0.93);
+    assert.deepEqual(missing, []);
+    const cache = JSON.parse(globalThis.localStorage.getItem('fxRates:v1:USD-EUR'));
+    assert.equal(cache.rates[requested], 0.93);
+    assert.equal(cache.rates[responseDate], 0.93);
+});
+
 test('getRates: weekend gap-fills via single-date call after timeseries', async () => {
     resetState();
     // Timeseries returns weekday only; weekend missing.
@@ -231,6 +272,19 @@ test('getRates: rejects malformed date strings; valid date still fetched', async
     // Malformed silently dropped; only the valid date hits network
     assert.equal(globalThis.fetch.calls.length, 1);
     assert.ok(/2024-03-12\.\.2024-03-12/.test(globalThis.fetch.calls[0]));
+});
+
+test('getRates: non-array input returns empty result without throwing', async () => {
+    resetState();
+    const a = await FX.getRates('2024-03-12');         // string
+    const b = await FX.getRates({ date: '2024-03-12' }); // object
+    const c = await FX.getRates(undefined);
+    const d = await FX.getRates(null);
+    for (const r of [a, b, c, d]) {
+        assert.deepEqual(r.rates, {});
+        assert.deepEqual(r.missing, []);
+    }
+    assert.equal(globalThis.fetch.calls.length, 0);
 });
 
 test('getRates: empty input returns empty result with no network', async () => {

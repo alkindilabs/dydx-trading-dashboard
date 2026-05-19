@@ -152,6 +152,61 @@ test('realizedFromSlicedFills: scaled-in LONG resolves via FIFO', () => {
     assert.ok(close(r.realized, 300), `expected 300, got ${r.realized}`);
 });
 
+test('realizedFromSlicedFills: invalid fill in flat slice → invalid-fill-in-slice error', () => {
+    // RiskMetrics.computeRealizedFromFills silently skips fills with
+    // invalid price/size/side. A flat slice with a bad fill would
+    // produce realized=0 with no error if we trusted FIFO blindly.
+    const position = {
+        market: 'BTC-USD',
+        createdAt: '2024-01-10T00:00:00Z',
+        closedAt: '2024-01-15T00:00:00Z'
+    };
+    const fills = [
+        { market: 'BTC-USD', createdAt: '2024-01-11T00:00:00Z', side: 'BUY',  size: '1', price: '100' },
+        { market: 'BTC-USD', createdAt: '2024-01-12T00:00:00Z', side: 'BUY',  size: '1', price: 'NaN' }, // invalid price
+        { market: 'BTC-USD', createdAt: '2024-01-13T00:00:00Z', side: 'SELL', size: '2', price: '150' }
+    ];
+    const r = TR.realizedFromSlicedFills(position, fills);
+    assert.equal(r.error, 'invalid-fill-in-slice');
+    assert.equal(r.realized, 0);
+});
+
+test('buildYearReport: invalid fill in slice → not-FIFO + warning counted', () => {
+    const p = {
+        status: 'CLOSED', market: 'BTC-USD', side: 'LONG',
+        createdAt: '2024-01-10T00:00:00Z', closedAt: '2024-01-15T00:00:00Z',
+        netFunding: '0', maxSize: '1'
+    };
+    const fills = [
+        { market: 'BTC-USD', createdAt: '2024-01-11T00:00:00Z', side: 'BUY',     size: '1', price: '100' },
+        { market: 'BTC-USD', createdAt: '2024-01-15T00:00:00Z', side: 'INVALID', size: '1', price: '150' }
+    ];
+    const r = TR.buildYearReport([p], fills, 2024, {});
+    assert.equal(r.rows[0]._realizedFromFills, false);
+    assert.equal(r.warnings.positionsWithoutFifoCount, 1);
+});
+
+test('buildYearReport: dense overlap (all positions overlap each other) marks all', () => {
+    // Stress the sweep: N positions whose windows all intersect at the
+    // same instant. With the unmarkedCount optimization this should
+    // still mark every position even though the inner walk only runs
+    // once.
+    const positions = [];
+    for (let i = 0; i < 8; i++) {
+        positions.push({
+            status: 'CLOSED', market: 'ETH-USD', side: 'LONG',
+            createdAt: `2024-01-${String(10 + i).padStart(2, '0')}T00:00:00Z`,
+            closedAt:  `2024-02-${String(10 + i).padStart(2, '0')}T00:00:00Z`,
+            netFunding: '0', maxSize: '1'
+        });
+    }
+    const r = TR.buildYearReport(positions, [], 2024, {});
+    assert.equal(r.rows.length, 8);
+    assert.equal(r.rows.every(row => row._feeAttributionWarning), true,
+        'every overlapping position must be marked');
+    assert.equal(r.warnings.feeAttributionAmbiguousCount, 8);
+});
+
 test('realizedFromSlicedFills: partial slice flagged with error matching buildYearReport', () => {
     // Public helper must apply the same net-flat gate as the optimized
     // batch path in buildYearReport, otherwise a future caller (or

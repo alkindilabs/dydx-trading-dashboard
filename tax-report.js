@@ -171,18 +171,42 @@
         return Math.abs(netSize) <= 1e-6;
     }
 
+    // RiskMetrics.computeRealizedFromFills silently SKIPS fills with
+    // invalid price/size/side. A flat slice can still contain such
+    // fills; FIFO then returns 0 from the orphan inventory of the
+    // SKIPPED fills, and the caller would have no way to know the
+    // realized total is understated. Reject those slices explicitly
+    // so the row drops to the no-FIFO warning path.
+    function allFillsFifoUsable(windowFills) {
+        for (let i = 0; i < windowFills.length; i++) {
+            const f = windowFills[i];
+            if (!f) return false;
+            const sz = Math.abs(parseFloat(f.size));
+            if (!isNumber(sz) || sz <= 0) return false;
+            const px = parseFloat(f.price);
+            if (!isNumber(px)) return false;
+            const side = (f.side || '').toUpperCase();
+            if (side !== 'BUY' && side !== 'SELL') return false;
+        }
+        return true;
+    }
+
     function realizedFromSlicedFills(position, fills) {
         const sliced = fillsInWindow(position, fills);
         if (!sliced.length) {
             return { realized: 0, fillCount: 0, error: 'no-fills-in-window' };
         }
-        // Same gate buildYearReport uses: a slice that does not flatten
-        // the position cannot produce an authoritative realized P&L —
-        // FIFO would silently return 0 for the orphan inventory. Keep
-        // the public helper and the batch path consistent so future
-        // callers cannot reintroduce the silent-zero bug.
+        // Same two gates buildYearReport uses:
+        //   1) the slice must net flat (open + close fills both present)
+        //   2) every fill must be FIFO-usable (valid price/size/side)
+        // so the helper and the batch path return the same authoritative
+        // / not-authoritative verdict and a future caller cannot
+        // re-introduce a silent-zero by skipping either check.
         if (!fillsNetFlat(sliced)) {
             return { realized: 0, fillCount: sliced.length, error: 'partial-fill-slice' };
+        }
+        if (!allFillsFifoUsable(sliced)) {
+            return { realized: 0, fillCount: sliced.length, error: 'invalid-fill-in-slice' };
         }
         const r = fifoRealizedForMarket(position.market, sliced);
         return { realized: r.realized, fillCount: sliced.length, error: r.error };
@@ -211,6 +235,8 @@
             realizedError = 'no-fills-in-window';
         } else if (!fillsNetFlat(windowFills)) {
             realizedError = 'partial-fill-slice';
+        } else if (!allFillsFifoUsable(windowFills)) {
+            realizedError = 'invalid-fill-in-slice';
         } else {
             const r = fifoRealizedForMarket(position.market, windowFills);
             realizedPnlUSD = r.realized;
@@ -386,12 +412,18 @@
         return lo;
     }
 
-    // Sweep-based overlap detection. Sort by createdAt, maintain an
-    // "active" list of positions whose closeMs is still ahead of the
-    // current cursor; every new entry marks itself + every active entry
-    // as overlapping. O(n log n) for the sort plus O(n + total_overlap)
-    // for the sweep — handles chained overlaps (A↔B↔C) correctly because
-    // each new entry compares against every still-active prior entry.
+    // Sweep-based overlap detection. Sort by createdAt; for each new
+    // entry, drop expired actives (closeMs < cur.openMs), then if any
+    // active remains it overlaps cur on the time axis (and so does
+    // every other still-active entry).
+    //
+    // Implementation detail: track `unmarkedCount` so the inner walk
+    // that marks actives only runs when at least one active is still
+    // unmarked. Once an entry is marked, subsequent new entries that
+    // overlap it just mark themselves — they do not re-walk the entire
+    // active list, which is what made the prior version quadratic on
+    // dense overlap sets. Total work is O(n log n) for the sort plus
+    // O(n + total_initial_markings) for the sweep.
     function sweepOverlapsPerMarket(closedByMarket, overlapSet) {
         Object.values(closedByMarket).forEach(list => {
             const items = [];
@@ -399,26 +431,34 @@
                 const openMs = tsMs(list[i].createdAt);
                 const closeMs = tsMs(list[i].closedAt);
                 if (openMs === null || closeMs === null) continue;
-                items.push({ p: list[i], openMs, closeMs });
+                items.push({ p: list[i], openMs, closeMs, marked: false });
             }
             items.sort((a, b) => a.openMs - b.openMs);
             const active = [];
+            let unmarkedCount = 0;
             for (let i = 0; i < items.length; i++) {
                 const cur = items[i];
-                // Drop expired actives (closeMs strictly before cur.openMs
-                // means the intervals are disjoint).
                 for (let k = active.length - 1; k >= 0; k--) {
                     if (active[k].closeMs < cur.openMs) {
+                        if (!active[k].marked) unmarkedCount--;
                         active.splice(k, 1);
                     }
                 }
                 if (active.length > 0) {
                     overlapSet.add(cur.p);
-                    for (let k = 0; k < active.length; k++) {
-                        overlapSet.add(active[k].p);
+                    cur.marked = true;
+                    if (unmarkedCount > 0) {
+                        for (let k = 0; k < active.length; k++) {
+                            if (!active[k].marked) {
+                                overlapSet.add(active[k].p);
+                                active[k].marked = true;
+                            }
+                        }
+                        unmarkedCount = 0;
                     }
                 }
                 active.push(cur);
+                if (!cur.marked) unmarkedCount++;
             }
         });
     }

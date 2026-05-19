@@ -138,11 +138,35 @@
         return { rates: flat, ok: true };
     }
 
+    // Returns the rate + the date Frankfurter actually served. When a
+    // request date has no published ECB rate (weekend, holiday, or
+    // current business day before the ~16:00 CET publish), Frankfurter
+    // substitutes the nearest preceding business day's rate. The
+    // caller uses `responseDate` to decide whether caching under the
+    // REQUESTED date is safe (settled past date) or provisional
+    // (current/future date that has not yet received its final rate).
     async function fetchSingleDate(date) {
         const { ok, json } = await fetchJson(`${BASE}/${date}?from=${FROM}&to=${TO}`);
         if (!ok || !json || !json.rates) return null;
         const rate = json.rates[TO];
-        return (typeof rate === 'number' && isFinite(rate)) ? rate : null;
+        if (typeof rate !== 'number' || !isFinite(rate)) return null;
+        const responseDate = typeof json.date === 'string' ? json.date : null;
+        return { rate, responseDate };
+    }
+
+    // A requested date is "settled" when it is more than RECENT_THRESHOLD_MS
+    // in the past. For a settled date Frankfurter cannot suddenly publish
+    // a new rate, so caching the served rate under the requested date is
+    // permanently correct (handles weekend/holiday close dates). For a
+    // current-or-future date Frankfurter may serve yesterday's rate as
+    // a provisional value until the ~16:00 CET publish; the caller must
+    // NOT cache that under the requested date or the previous-day value
+    // will be served forever.
+    const RECENT_THRESHOLD_MS = 2 * 24 * 60 * 60 * 1000;
+    function isSettledPastDate(dateStr) {
+        const reqMs = Date.parse(dateStr + 'T00:00:00Z');
+        if (!Number.isFinite(reqMs)) return false;
+        return reqMs < Date.now() - RECENT_THRESHOLD_MS;
     }
 
     async function runWithConcurrency(items, worker, limit) {
@@ -162,8 +186,15 @@
     }
 
     async function getRates(dates) {
+        // The module contract is no-throw: malformed callers (passing a
+        // string, object, etc.) must get an empty result, not a rejected
+        // promise. `.filter` on a non-array would throw before we ever
+        // reach the validation pass.
+        if (!Array.isArray(dates)) {
+            return { rates: {}, missing: [] };
+        }
         const cache = readCache();
-        const want = (dates || []).filter(isValidIsoDate);
+        const want = dates.filter(isValidIsoDate);
         const uniq = [...new Set(want)];
         const result = { rates: {}, missing: [] };
 
@@ -192,10 +223,22 @@
                 const fetched = await runWithConcurrency(gapDates, fetchSingleDate, CONCURRENCY);
                 const gained = {};
                 gapDates.forEach((d, i) => {
-                    const rate = fetched[i];
-                    if (typeof rate === 'number') {
-                        gained[d] = rate;
-                        result.rates[d] = rate;
+                    const r = fetched[i];
+                    if (!r) return;
+                    // Cache the served rate under Frankfurter's response
+                    // date when known — that one is always a real ECB
+                    // business-day value.
+                    if (r.responseDate) gained[r.responseDate] = r.rate;
+                    // Cache under the REQUESTED date only when it is
+                    // settled (>2 days old). For a current-or-future
+                    // requested date, the rate may be provisional
+                    // (yesterday's value served before today's publish);
+                    // do not pin that under the requested date or the
+                    // cache would serve the stale value indefinitely.
+                    const sameDate = !r.responseDate || r.responseDate === d;
+                    if (sameDate || isSettledPastDate(d)) {
+                        gained[d] = r.rate;
+                        result.rates[d] = r.rate;
                     }
                 });
                 if (Object.keys(gained).length) mergeAndWriteCache(gained);

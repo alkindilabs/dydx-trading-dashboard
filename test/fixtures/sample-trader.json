@@ -1,5 +1,5 @@
 {
-  "_comment": "Minimal-but-valid dYdX v4 indexer response shapes for the Playwright smoke test. Each top-level key maps to an endpoint the dashboard fetches. Empty position/fill/funding/historical arrays let every renderer take the no-data path and render '—' placeholders without throwing.",
+  "_comment": "Minimal-but-valid dYdX v4 indexer response shapes for the Playwright smoke test. Each top-level key maps to an endpoint the dashboard fetches. Includes a single closed BTC-USD position (2024-03-15 → 2024-03-16) plus matching BUY/SELL fills so the Tax tab exercises the full FIFO + FX path. Funding payments and historical-pnl arrays stay empty — those panels render the no-data path so the smoke test still verifies their renderers don't throw.",
   "address": "dydx1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq",
   "subaccount": {
     "subaccount": {
