@@ -597,9 +597,9 @@
 
         <!-- Tax Tab -->
         <div class="tab-content" id="tax">
-            <div class="chart-container">
-                <div class="chart-header" style="display:flex; flex-wrap:wrap; gap:16px; align-items:center;">
-                    <div class="chart-title">Capital Gains Report</div>
+            <div class="table-container">
+                <div class="table-header" style="flex-wrap:wrap; gap:16px; align-items:center;">
+                    <div class="table-title">Capital Gains Report</div>
                     <label class="mono" style="font-size:12px;">
                         Year
                         <select id="taxYear" class="mono" style="margin-left:6px;"></select>
@@ -616,8 +616,10 @@
                     <button id="taxDownloadCsv" class="address-btn" type="button">Download CSV</button>
                     <button id="taxDownloadJson" class="address-btn" type="button">Download JSON</button>
                 </div>
-                <div id="taxStatus" class="mono" role="status" aria-live="polite" aria-atomic="true" style="font-size:11px; color:var(--ink-3); margin:4px 0 12px;">Load an address to populate.</div>
-                <div id="taxWarningStrip" class="mono" role="status" aria-live="polite" aria-atomic="true" style="display:none; font-size:11px; padding:8px 12px; border-left:3px solid var(--warning); background:var(--paper-2); margin-bottom:12px;"></div>
+                <div style="padding: 0.875rem 1.5rem 1.125rem;">
+                    <div id="taxStatus" class="mono" role="status" aria-live="polite" aria-atomic="true" style="font-size:11px; color:var(--ink-3); margin:0 0 12px;">Load an address to populate.</div>
+                    <div id="taxWarningStrip" class="mono" role="status" aria-live="polite" aria-atomic="true" style="display:none; font-size:11px; padding:8px 12px; border-left:3px solid var(--warning); background:var(--paper-3); margin:0;"></div>
+                </div>
             </div>
 
             <div class="metrics-grid">
@@ -663,12 +665,12 @@
                 </div>
             </div>
 
-            <div class="chart-container">
-                <div class="chart-header">
-                    <div class="chart-title">Closed Positions</div>
-                    <div class="chart-subtitle mono" style="font-size:11px; color:var(--ink-3);">One row per CLOSED position whose <em>closedAt</em> falls in the selected UTC year. Sorted newest → oldest.</div>
+            <div class="table-container">
+                <div class="table-header">
+                    <div class="table-title">Closed Positions</div>
+                    <div class="mono" style="font-size:11px; color:var(--ink-3); text-align:right; max-width: 28rem;">One row per CLOSED position whose <em>closedAt</em> falls in the selected UTC year. Sorted newest → oldest.</div>
                 </div>
-                <table class="broadsheet-table">
+                <table>
                     <thead>
                         <tr>
                             <th>CLOSED (UTC)</th>
