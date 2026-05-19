@@ -154,11 +154,19 @@
       const tr = document.createElement('tr');
       const reasons = [];
       if (!row._realizedFromFills) {
-        if (!row.fillCount) {
-          reasons.push('No fills found in window — realized P&L falls back to 0.');
-        } else {
-          reasons.push('Incomplete fill slice (window has ' + row.fillCount
-            + ' fill(s) but they do not flatten the position) — realized P&L falls back to 0.');
+        switch (row._realizedFillError) {
+          case 'no-fills-in-window':
+            reasons.push('No fills found in window — realized P&L falls back to 0.');
+            break;
+          case 'invalid-fill-in-slice':
+            reasons.push('Window has ' + row.fillCount
+              + ' fill(s) but at least one carries an invalid price / size / side — realized P&L falls back to 0.');
+            break;
+          case 'partial-fill-slice':
+          default:
+            reasons.push('Incomplete fill slice (window has ' + row.fillCount
+              + ' fill(s) but they do not flatten the position) — realized P&L falls back to 0.');
+            break;
         }
       }
       if (row._feeAttributionWarning) reasons.push('Another closed position in this market overlaps the window — fee/realized attribution is approximate.');
@@ -223,7 +231,7 @@
     }
 
     D.updateElement('taxNetUsd', fmtUsdSigned(totals.netUSD));
-    D.updateElement('taxNetUsdDetail', totals.count + ' trades');
+    D.updateElement('taxNetUsdDetail', totals.count + (totals.count === 1 ? ' trade' : ' trades'));
     D.updateElement('taxNetEur', eurOrDash(totals.netEUR));
     D.updateElement('taxNetEurDetail', eurDetailNote);
     D.updateElement('taxGrossGainsUsd', fmtUsdSigned(totals.grossGainsUSD));
@@ -247,20 +255,26 @@
   function renderStatus(year, warnings, rowCount) {
     const status = document.getElementById('taxStatus');
     if (status) {
-      const parts = ['Year ' + year, rowCount + ' closed positions'];
-      if (warnings.feeAttributionAmbiguousCount) parts.push(warnings.feeAttributionAmbiguousCount + ' attribution-ambiguous (fees + realized)');
-      if (warnings.missingFxDates.length) parts.push(warnings.missingFxDates.length + ' missing FX dates');
-      if (warnings.positionsWithoutFifoCount) parts.push(warnings.positionsWithoutFifoCount + ' no/incomplete FIFO data');
+      const positionsNoun = rowCount === 1 ? 'closed position' : 'closed positions';
+      const parts = ['Year ' + year, rowCount + ' ' + positionsNoun];
+      const ambig = warnings.feeAttributionAmbiguousCount;
+      if (ambig) parts.push(ambig + (ambig === 1 ? ' row' : ' rows') + ' attribution-ambiguous (fees + realized)');
+      const mfx = warnings.missingFxDates.length;
+      if (mfx) parts.push(mfx + (mfx === 1 ? ' missing FX date' : ' missing FX dates'));
+      const noFifo = warnings.positionsWithoutFifoCount;
+      if (noFifo) parts.push(noFifo + (noFifo === 1 ? ' row' : ' rows') + ' no/incomplete FIFO data');
       status.textContent = parts.join(' · ');
     }
     const strip = document.getElementById('taxWarningStrip');
     if (!strip) return;
     if (warnings.positionsWithoutFifoCount > 0) {
       strip.style.display = '';
-      strip.textContent = 'Some positions could not be FIFO-derived from the available fills — either no fills landed in the indexer window, or the fills present do not flatten the position. Realized P&L for those rows shows $0 and may not reflect the actual gain or loss. Reload the page or click the address Forget/Load buttons to re-fetch a complete fills history before relying on these totals.';
+      strip.textContent = 'Some positions could not be FIFO-derived from the available fills — either no fills landed in the indexer window, the fills present do not flatten the position, or at least one fill carried an invalid price / size / side. Realized P&L for those rows shows $0 and may not reflect the actual gain or loss. Reload the page or click the address Forget/Load buttons to re-fetch a complete fills history before relying on these totals.';
     } else if (warnings.feeAttributionAmbiguousCount > 0) {
       strip.style.display = '';
-      strip.textContent = 'Two or more closed positions overlap in time within the same market for ' + warnings.feeAttributionAmbiguousCount + ' row(s). Fees and realized P&L for those rows are attributed by best effort and may not match what a dYdX FIFO accounting on the raw fills would produce. Treat affected rows as approximations and verify against fills if the totals matter for your filing.';
+      const n = warnings.feeAttributionAmbiguousCount;
+      const noun = n === 1 ? 'row' : 'rows';
+      strip.textContent = 'Two or more closed positions overlap in time within the same market for ' + n + ' ' + noun + '. Fees and realized P&L for those rows are attributed by best effort and may not match what a dYdX FIFO accounting on the raw fills would produce. Treat affected rows as approximations and verify against fills if the totals matter for your filing.';
     } else {
       strip.style.display = 'none';
       strip.textContent = '';

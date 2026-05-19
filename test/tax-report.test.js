@@ -171,18 +171,24 @@ test('realizedFromSlicedFills: invalid fill in flat slice → invalid-fill-in-sl
     assert.equal(r.realized, 0);
 });
 
-test('buildYearReport: invalid fill in slice → not-FIFO + warning counted', () => {
+test('buildYearReport: invalid-price fill in flat slice → invalid-fill-in-slice + warning counted', () => {
+    // Net-flat (BUY 1 + BUY 1 + SELL 2) so the partial-fill-slice gate
+    // doesn't trip. One fill carries a NaN price, which
+    // computeRealizedFromFills would silently skip — the new
+    // allFillsFifoUsable gate must catch it instead.
     const p = {
         status: 'CLOSED', market: 'BTC-USD', side: 'LONG',
         createdAt: '2024-01-10T00:00:00Z', closedAt: '2024-01-15T00:00:00Z',
-        netFunding: '0', maxSize: '1'
+        netFunding: '0', maxSize: '2'
     };
     const fills = [
-        { market: 'BTC-USD', createdAt: '2024-01-11T00:00:00Z', side: 'BUY',     size: '1', price: '100' },
-        { market: 'BTC-USD', createdAt: '2024-01-15T00:00:00Z', side: 'INVALID', size: '1', price: '150' }
+        { market: 'BTC-USD', createdAt: '2024-01-11T00:00:00Z', side: 'BUY',  size: '1', price: '100' },
+        { market: 'BTC-USD', createdAt: '2024-01-12T00:00:00Z', side: 'BUY',  size: '1', price: 'NaN' },
+        { market: 'BTC-USD', createdAt: '2024-01-13T00:00:00Z', side: 'SELL', size: '2', price: '150' }
     ];
     const r = TR.buildYearReport([p], fills, 2024, {});
     assert.equal(r.rows[0]._realizedFromFills, false);
+    assert.equal(r.rows[0]._realizedFillError, 'invalid-fill-in-slice');
     assert.equal(r.warnings.positionsWithoutFifoCount, 1);
 });
 

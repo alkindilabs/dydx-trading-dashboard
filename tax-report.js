@@ -281,8 +281,17 @@
             netEUR: undefined,
             fxRate: undefined,
             holdingDays,
+            // Flag name is historical; the same overlap makes BOTH fee
+            // and realized P&L attribution ambiguous (see CLAUDE.md
+            // Tax-report section). Downstream UI/CSV/JSON must treat it
+            // as a combined attribution warning.
             _feeAttributionWarning: !!overlap,
             _realizedFromFills: !realizedError,
+            // Reason that downstream renderers (panel tooltip, status
+            // strip, CSV consumers) can branch on instead of guessing
+            // from `fillCount`. One of: null | 'no-fills-in-window' |
+            // 'partial-fill-slice' | 'invalid-fill-in-slice'.
+            _realizedFillError: realizedError,
             _fxMissing: false
         };
     }
@@ -412,18 +421,21 @@
         return lo;
     }
 
-    // Sweep-based overlap detection. Sort by createdAt; for each new
-    // entry, drop expired actives (closeMs < cur.openMs), then if any
-    // active remains it overlaps cur on the time axis (and so does
-    // every other still-active entry).
+    // Sweep-based overlap detection. Sort by createdAt; per cur:
+    //   1. prune expired actives via in-place compaction (only when
+    //      `minActiveClose < cur.openMs`, so non-expiring iterations
+    //      cost O(1) instead of O(active.length))
+    //   2. if any active remains, all of them overlap cur — mark cur,
+    //      then walk only the `unmarkedActive` sub-list to mark any
+    //      still-unmarked entries (avoids re-walking already-marked
+    //      ones on every iteration)
     //
-    // Implementation detail: track `unmarkedCount` so the inner walk
-    // that marks actives only runs when at least one active is still
-    // unmarked. Once an entry is marked, subsequent new entries that
-    // overlap it just mark themselves — they do not re-walk the entire
-    // active list, which is what made the prior version quadratic on
-    // dense overlap sets. Total work is O(n log n) for the sort plus
-    // O(n + total_initial_markings) for the sweep.
+    // Each item is pushed to active and unmarkedActive once, removed
+    // from each at most once, and marked at most once, so total sweep
+    // work is O(n) amortized. With the per-market sort that gives
+    // O(n log n) overall — even on degenerate "all positions overlap"
+    // datasets that previously degraded to O(n²) work in two places
+    // (the linear expiry scan + the linear active-mark walk).
     function sweepOverlapsPerMarket(closedByMarket, overlapSet) {
         Object.values(closedByMarket).forEach(list => {
             const items = [];
@@ -434,31 +446,53 @@
                 items.push({ p: list[i], openMs, closeMs, marked: false });
             }
             items.sort((a, b) => a.openMs - b.openMs);
-            const active = [];
-            let unmarkedCount = 0;
+
+            const active = [];           // every currently-active item
+            const unmarkedActive = [];   // sub-list still not in overlapSet
+            let minActiveClose = Infinity;
+
             for (let i = 0; i < items.length; i++) {
                 const cur = items[i];
-                for (let k = active.length - 1; k >= 0; k--) {
-                    if (active[k].closeMs < cur.openMs) {
-                        if (!active[k].marked) unmarkedCount--;
-                        active.splice(k, 1);
+                if (active.length > 0 && minActiveClose < cur.openMs) {
+                    // In-place compaction. Each kept item gets copied
+                    // forward to writeIdx; expired items are dropped.
+                    let writeIdx = 0;
+                    let newMin = Infinity;
+                    for (let k = 0; k < active.length; k++) {
+                        const a = active[k];
+                        if (a.closeMs >= cur.openMs) {
+                            active[writeIdx++] = a;
+                            if (a.closeMs < newMin) newMin = a.closeMs;
+                        }
                     }
+                    active.length = writeIdx;
+                    minActiveClose = newMin;
+                    // Same compaction on unmarkedActive
+                    let uw = 0;
+                    for (let k = 0; k < unmarkedActive.length; k++) {
+                        if (unmarkedActive[k].closeMs >= cur.openMs) {
+                            unmarkedActive[uw++] = unmarkedActive[k];
+                        }
+                    }
+                    unmarkedActive.length = uw;
                 }
                 if (active.length > 0) {
                     overlapSet.add(cur.p);
                     cur.marked = true;
-                    if (unmarkedCount > 0) {
-                        for (let k = 0; k < active.length; k++) {
-                            if (!active[k].marked) {
-                                overlapSet.add(active[k].p);
-                                active[k].marked = true;
+                    if (unmarkedActive.length > 0) {
+                        for (let k = 0; k < unmarkedActive.length; k++) {
+                            const u = unmarkedActive[k];
+                            if (!u.marked) {
+                                overlapSet.add(u.p);
+                                u.marked = true;
                             }
                         }
-                        unmarkedCount = 0;
+                        unmarkedActive.length = 0;
                     }
                 }
                 active.push(cur);
-                if (!cur.marked) unmarkedCount++;
+                if (cur.closeMs < minActiveClose) minActiveClose = cur.closeMs;
+                if (!cur.marked) unmarkedActive.push(cur);
             }
         });
     }
@@ -560,7 +594,8 @@
             'fx_rate_usd_eur',
             'realized_pnl_eur', 'net_funding_eur', 'fees_eur', 'net_eur',
             'holding_days',
-            'fill_count', 'realized_from_fills', 'fee_attribution_warning', 'fx_missing'
+            'fill_count', 'realized_from_fills', 'realized_fill_error',
+            'attribution_warning', 'fx_missing'
         ];
         const meta = `# Categoria ${cls.id} — ${cls.label} — Portugal tax year ${year}`;
         const out = [meta, header.map(csvEscape).join(',')];
@@ -585,6 +620,7 @@
                 row.holdingDays === null ? '' : String(row.holdingDays),
                 typeof row.fillCount === 'number' ? String(row.fillCount) : '',
                 row._realizedFromFills ? 'true' : 'false',
+                row._realizedFillError || '',
                 row._feeAttributionWarning ? 'true' : 'false',
                 row._fxMissing ? 'true' : 'false'
             ].map(csvEscape).join(','));
