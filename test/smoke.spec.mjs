@@ -22,6 +22,12 @@ const ROUTE_RULES = [
   { match: /\/v4\/fills\?/,                                         key: 'fills' },
   { match: /\/v4\/fundingPayments\?/,                               key: 'fundingPayments' },
   { match: /\/v4\/historical-pnl\?/,                                key: 'historicalPnl' },
+  // Market-wide endpoints used by the Market Structure tab's funding
+  // history chart. Lazy-loaded on tab activation; the fixture has no
+  // data for these so the smoke verifies the empty-state path doesn't
+  // throw and doesn't log network errors.
+  { match: /\/v4\/historicalFunding\//,                             empty: { historicalFunding: [] } },
+  { match: /\/v4\/candles\/perpetualMarkets\//,                     empty: { candles: [] } },
 ];
 
 test.describe('dashboard smoke', () => {
@@ -32,10 +38,11 @@ test.describe('dashboard smoke', () => {
       if (!rule) {
         return route.fulfill({ status: 404, contentType: 'application/json', body: '{}' });
       }
+      const body = rule.key ? fixture[rule.key] : rule.empty;
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify(fixture[rule.key]),
+        body: JSON.stringify(body),
       });
     });
     // Stub the ECB-proxy used by the Tax tab so the smoke run never

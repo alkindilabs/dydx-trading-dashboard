@@ -100,7 +100,7 @@
         }
     }
 
-    function read(address) {
+    function readMeta(address) {
         const storage = getStorage();
         const lz = getLZ();
         if (!storage || !lz) return null;
@@ -116,12 +116,16 @@
             if (!json) throw new Error('decompress returned empty');
             const parsed = JSON.parse(json);
             const ok = unpack(parsed, address);
-            return ok ? ok.data : null;
+            return ok ? { data: ok.data, fetchedAt: ok.fetchedAt } : null;
         } catch (e) {
             console.warn('[dydx-cache] read failed:', (e && e.message) || e);
             try { storage.removeItem(KEY); } catch (_) {}
             return null;
         }
+    }
+    function read(address) {
+        const meta = readMeta(address);
+        return meta ? meta.data : null;
     }
 
     function attemptStore(storage, lz, packed) {
@@ -186,6 +190,7 @@
 
     const api = {
         read,
+        readMeta,
         write,
         clear,
         KEY,
