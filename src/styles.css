@@ -444,6 +444,9 @@
         .data-age[hidden] { display: none; }
         .data-age.stale { color: var(--warn); }
         .data-age.refreshing { color: var(--gold); }
+        /* While a fetch is in-flight, the .fetch-caption owns the slot;
+           the age caption would otherwise overlap it at the same y. */
+        .fetch-caption.active ~ .data-age { display: none; }
 
         /* NAV TABS */
         .nav-tabs {

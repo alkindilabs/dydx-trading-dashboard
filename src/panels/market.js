@@ -200,9 +200,14 @@
 
   const CHART_FRESH_TTL_MS = 10 * 60 * 1000;
   const ChartState = {
-    data: new Map(),    // ticker → { fundingRows, candleRows, fetchedAt }
+    data: new Map(),     // ticker → { fundingRows, candleRows, fetchedAt }
     currentTicker: null,
-    inflight: null,     // AbortController for the active fetch
+    activeRequest: null, // Symbol() — latest-token-wins. The underlying
+                         // DydxApi helpers don't accept a signal, so we
+                         // can't cancel the network; instead we tag each
+                         // call with a token and discard the result if
+                         // the token has been superseded by a newer call
+                         // (rapid picker changes).
     pickerInit: false
   };
 
@@ -315,7 +320,7 @@
     });
   }
 
-  async function fetchChartData(ticker, signal) {
+  async function fetchChartData(ticker) {
     const C = window.AppConstants;
     const maxDays = C.FUNDING_CHART_MAX_DAYS;
     const fromMs = Date.now() - maxDays * C.MS_PER_DAY;
@@ -324,9 +329,6 @@
       window.DydxApi.fetchHistoricalFunding(ticker, { maxRows }),
       window.DydxApi.fetchCandles(ticker, '1HOUR', { fromMs })
     ]);
-    if (signal && signal.aborted) {
-      const err = new Error('aborted'); err.name = 'AbortError'; throw err;
-    }
     return {
       fundingRows: fundingRes.historicalFunding || [],
       candleRows: candleRes.candles || [],
@@ -343,26 +345,27 @@
       setChartStatus('', null);
       return;
     }
-    if (ChartState.inflight) {
-      try { ChartState.inflight.abort(); } catch (_) {}
-    }
-    const ctrl = new AbortController();
-    ChartState.inflight = ctrl;
+    const token = Symbol(ticker);
+    ChartState.activeRequest = token;
     setChartStatus('Fetching…', 'fetching');
     setChartEmpty(null);
     try {
-      const data = await fetchChartData(ticker, ctrl.signal);
-      if (ctrl.signal.aborted) return;
+      const data = await fetchChartData(ticker);
+      // Token mismatch = a newer call superseded us; drop the stale
+      // result without touching state. The network bandwidth was
+      // already spent — that's an honest cost of having no cancelable
+      // signal in the DydxApi helpers today.
+      if (ChartState.activeRequest !== token) return;
       ChartState.data.set(ticker, data);
       renderChartFromCache(ticker);
       setChartStatus('', null);
     } catch (e) {
-      if (e && e.name === 'AbortError') return;
+      if (ChartState.activeRequest !== token) return;
       console.warn('[funding-chart] fetch failed', e && e.message);
       setChartStatus('Fetch failed', 'error');
       setChartEmpty('Fetch failed — try a different market');
     } finally {
-      if (ChartState.inflight === ctrl) ChartState.inflight = null;
+      if (ChartState.activeRequest === token) ChartState.activeRequest = null;
     }
   }
 
@@ -392,9 +395,22 @@
     renderFundingAnalysis(marketsMap, payments);
     populateChartPicker(payments, marketsMap);
     initChartPicker();
-    // Re-render chart from cache (covers window-pill clicks). The
-    // initial fetch happens via ensureChartLoaded on tab activation.
-    if (ChartState.currentTicker) renderChartFromCache(ChartState.currentTicker);
+    // When Market tab is the currently-active tab, route through
+    // ensureChartLoaded so the initial fetch fires AFTER the picker
+    // has populated ChartState.currentTicker. (activateTab('market')
+    // also calls ensureChartLoaded, but it runs BEFORE loadDashboard
+    // populates the picker when 'market' is the restored tab — the
+    // pre-render call no-ops on a null currentTicker, so this call is
+    // the one that actually starts the load.) For non-active tabs,
+    // just re-render from cache so pill clicks still take effect.
+    if (ChartState.currentTicker) {
+      const marketTab = document.getElementById('market');
+      if (marketTab && marketTab.classList.contains('active')) {
+        ensureChartLoaded();
+      } else {
+        renderChartFromCache(ChartState.currentTicker);
+      }
+    }
   }
 
   // Window-toggle pills. Takes a no-arg rerender callback so the panel
