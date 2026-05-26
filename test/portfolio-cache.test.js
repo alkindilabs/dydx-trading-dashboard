@@ -208,6 +208,24 @@ test('clear removes the slot', () => {
     assert.equal(Cache.read('dydx1abc'), null);
 });
 
+test('readMeta returns data + fetchedAt timestamp on cache hit', () => {
+    globalThis.localStorage = makeLocalStorage();
+    const before = Date.now();
+    Cache.write('dydx1abc', { a: 1 });
+    const after = Date.now();
+    const meta = Cache.readMeta('dydx1abc');
+    assert.deepEqual(meta.data, { a: 1 });
+    assert.ok(typeof meta.fetchedAt === 'number');
+    assert.ok(meta.fetchedAt >= before && meta.fetchedAt <= after);
+});
+
+test('readMeta returns null on miss / address mismatch', () => {
+    globalThis.localStorage = makeLocalStorage();
+    assert.equal(Cache.readMeta('dydx1abc'), null);
+    Cache.write('dydx1aaa', { a: 1 });
+    assert.equal(Cache.readMeta('dydx1bbb'), null);
+});
+
 test('write degrades to no-op when LZString is unavailable', () => {
     globalThis.localStorage = makeLocalStorage();
     const lz = globalThis.LZString;
