@@ -33,7 +33,7 @@
 
   // dYdX v4 settles funding hourly; each row carries the position size
   // and oracle price at settlement. Sum |size × price| over rows =
-  // notional-hours of exposure. APR = (Σ payment / Σ notional-hours) ×
+  // dollar-hours of exposure. APR = (Σ payment / Σ dollar-hours) ×
   // HOURS_PER_YEAR. Closed-position gaps produce no rows, so
   // hoursDeployed counts only the time the trader was actually exposed.
   function computeFundingHero(payments) {
@@ -101,7 +101,7 @@
     apr.classList.toggle('loss', metrics.apr < 0);
 
     D.updateElement('fundingCaption',
-      `${F.formatCurrency(metrics.net)} net on ${F.fmtNotional(metrics.notionalHours)} notional·hours`);
+      `${F.formatCurrency(metrics.net)} net on ${F.fmtNum(metrics.notionalHours)} dollar·hours`);
     D.updateElement('fundingPeriod',
       `${F.fmtDateShort(metrics.periodStart)} → ${F.fmtDateShort(metrics.periodEnd)}`);
     D.updateElement('fundingAvgNotional', F.fmtNotional(metrics.avgNotional));
@@ -190,11 +190,211 @@
     D.tagCells('fundingAnalysisBody');
   }
 
+  // ─────────────────────────────────────────────────────────────────
+  // Funding rate · price history chart
+  // ─────────────────────────────────────────────────────────────────
+  // Lazy-loaded on tab activation. In-memory cache keyed by ticker so
+  // switching markets or returning to the tab doesn't refetch within
+  // the freshness window. Refetch is triggered by: picker change, tab
+  // re-activation when stale, or explicit consumer call.
+
+  const CHART_FRESH_TTL_MS = 10 * 60 * 1000;
+  const ChartState = {
+    data: new Map(),    // ticker → { fundingRows, candleRows, fetchedAt }
+    currentTicker: null,
+    inflight: null,     // AbortController for the active fetch
+    pickerInit: false
+  };
+
+  function isChartFresh(entry) {
+    return entry && (Date.now() - entry.fetchedAt) < CHART_FRESH_TTL_MS;
+  }
+
+  function pickDefaultTicker(payments, marketsMap) {
+    // Most-traded market by funding-payment count, scoped to tickers
+    // still listed by /perpetualMarkets so we never offer a delisted
+    // symbol the indexer will 404 on.
+    const counts = new Map();
+    (payments || []).forEach(p => {
+      const tk = p.ticker || p.market;
+      if (!tk || !marketsMap || !marketsMap[tk]) return;
+      counts.set(tk, (counts.get(tk) || 0) + 1);
+    });
+    if (counts.size === 0) {
+      if (marketsMap && marketsMap['ETH-USD']) return 'ETH-USD';
+      const keys = Object.keys(marketsMap || {});
+      return keys.length ? keys.sort()[0] : null;
+    }
+    let best = null, bestCount = -1;
+    for (const [tk, c] of counts) {
+      if (c > bestCount) { bestCount = c; best = tk; }
+    }
+    return best;
+  }
+
+  function populateChartPicker(payments, marketsMap) {
+    const sel = document.getElementById('fundingChartTicker');
+    if (!sel) return;
+    const traded = new Set();
+    (payments || []).forEach(p => {
+      const tk = p.ticker || p.market;
+      if (tk && marketsMap && marketsMap[tk]) traded.add(tk);
+    });
+    const all = Object.keys(marketsMap || {});
+    const choices = Array.from(new Set([...traded, ...all])).sort();
+    const prevSelection = ChartState.currentTicker || sel.value;
+    sel.innerHTML = '';
+    choices.forEach(tk => {
+      const opt = document.createElement('option');
+      opt.value = tk;
+      opt.textContent = tk;
+      sel.appendChild(opt);
+    });
+    if (prevSelection && choices.includes(prevSelection)) {
+      sel.value = prevSelection;
+      ChartState.currentTicker = prevSelection;
+    } else {
+      const def = pickDefaultTicker(payments, marketsMap) || choices[0] || null;
+      if (def) { sel.value = def; ChartState.currentTicker = def; }
+    }
+  }
+
+  function initChartPicker() {
+    const sel = document.getElementById('fundingChartTicker');
+    if (!sel || ChartState.pickerInit) return;
+    ChartState.pickerInit = true;
+    sel.addEventListener('change', () => {
+      loadChartForTicker(sel.value);
+    });
+  }
+
+  function setChartStatus(text, mode) {
+    const el = document.getElementById('fundingChartStatus');
+    if (!el) return;
+    el.textContent = text || '';
+    el.classList.toggle('fetching', mode === 'fetching');
+    el.classList.toggle('error', mode === 'error');
+  }
+
+  function setChartEmpty(text) {
+    const empty = document.getElementById('fundingChartEmpty');
+    if (!empty) return;
+    if (text) { empty.hidden = false; empty.textContent = text; }
+    else      { empty.hidden = true;  empty.textContent = '—'; }
+  }
+
+  function currentChartCutoff() {
+    const C = window.AppConstants;
+    const w = getFundingWindowDays();
+    const days = w === 'all'
+      ? C.FUNDING_CHART_MAX_DAYS
+      : Math.min(parseInt(w, 10), C.FUNDING_CHART_MAX_DAYS);
+    return Date.now() - days * C.MS_PER_DAY;
+  }
+
+  function renderChartFromCache(ticker) {
+    if (!window.AppCharts || !window.AppCharts.fundingRate) return;
+    const entry = ChartState.data.get(ticker);
+    if (!entry) { window.AppCharts.fundingRate.clear(); return; }
+    const cutoffMs = currentChartCutoff();
+    const hasFunding = (entry.fundingRows || []).some(r => {
+      const t = Date.parse(r.effectiveAt);
+      return !isNaN(t) && t >= cutoffMs;
+    });
+    if (!hasFunding) {
+      window.AppCharts.fundingRate.clear();
+      setChartEmpty(`No funding history for ${ticker} in window`);
+      return;
+    }
+    setChartEmpty(null);
+    window.AppCharts.fundingRate.render({
+      ticker,
+      fundingRows: entry.fundingRows,
+      candleRows: entry.candleRows,
+      cutoffMs
+    });
+  }
+
+  async function fetchChartData(ticker, signal) {
+    const C = window.AppConstants;
+    const maxDays = C.FUNDING_CHART_MAX_DAYS;
+    const fromMs = Date.now() - maxDays * C.MS_PER_DAY;
+    const maxRows = maxDays * 24; // 1-hour cadence; +1 page slack handled by paginator
+    const [fundingRes, candleRes] = await Promise.all([
+      window.DydxApi.fetchHistoricalFunding(ticker, { maxRows }),
+      window.DydxApi.fetchCandles(ticker, '1HOUR', { fromMs })
+    ]);
+    if (signal && signal.aborted) {
+      const err = new Error('aborted'); err.name = 'AbortError'; throw err;
+    }
+    return {
+      fundingRows: fundingRes.historicalFunding || [],
+      candleRows: candleRes.candles || [],
+      fetchedAt: Date.now()
+    };
+  }
+
+  async function loadChartForTicker(ticker) {
+    if (!ticker) return;
+    ChartState.currentTicker = ticker;
+    const entry = ChartState.data.get(ticker);
+    if (isChartFresh(entry)) {
+      renderChartFromCache(ticker);
+      setChartStatus('', null);
+      return;
+    }
+    if (ChartState.inflight) {
+      try { ChartState.inflight.abort(); } catch (_) {}
+    }
+    const ctrl = new AbortController();
+    ChartState.inflight = ctrl;
+    setChartStatus('Fetching…', 'fetching');
+    setChartEmpty(null);
+    try {
+      const data = await fetchChartData(ticker, ctrl.signal);
+      if (ctrl.signal.aborted) return;
+      ChartState.data.set(ticker, data);
+      renderChartFromCache(ticker);
+      setChartStatus('', null);
+    } catch (e) {
+      if (e && e.name === 'AbortError') return;
+      console.warn('[funding-chart] fetch failed', e && e.message);
+      setChartStatus('Fetch failed', 'error');
+      setChartEmpty('Fetch failed — try a different market');
+    } finally {
+      if (ChartState.inflight === ctrl) ChartState.inflight = null;
+    }
+  }
+
+  // Called by activateTab('market'). Idempotent: re-renders from cache
+  // when the data is still fresh; refetches when stale or absent.
+  function ensureChartLoaded() {
+    const tk = ChartState.currentTicker;
+    if (!tk) return;
+    const entry = ChartState.data.get(tk);
+    if (isChartFresh(entry)) {
+      renderChartFromCache(tk);
+    } else {
+      loadChartForTicker(tk);
+    }
+  }
+
+  // Invoked by the dashboard's auto-refresh path. Drops the cache so
+  // the next render/tab-activation refetches.
+  function invalidateChartCache() {
+    ChartState.data.clear();
+  }
+
   // Single entry point for the Market Structure tab.
   function render(payments, marketsMap) {
     renderFundingHero(computeFundingHero(payments));
     renderFundingKpiCards(payments);
     renderFundingAnalysis(marketsMap, payments);
+    populateChartPicker(payments, marketsMap);
+    initChartPicker();
+    // Re-render chart from cache (covers window-pill clicks). The
+    // initial fetch happens via ensureChartLoaded on tab activation.
+    if (ChartState.currentTicker) renderChartFromCache(ChartState.currentTicker);
   }
 
   // Window-toggle pills. Takes a no-arg rerender callback so the panel
@@ -220,6 +420,9 @@
     initToggle,
     getFundingWindowDays,
     getFundingCutoff,
-    getFundingWindowLabel
+    getFundingWindowLabel,
+    ensureChartLoaded,
+    invalidateChartCache,
+    _internal: { pickDefaultTicker }
   };
 })();

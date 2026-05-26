@@ -87,10 +87,13 @@
                     <span id="fetchCaptionPage" hidden></span>
                     <span class="sep">·</span>
                     <span id="fetchCaptionTally">0/0</span>
-                    <span class="dots" aria-hidden="true"></span>
                 </div>
+                <div id="dataAge" class="data-age" role="status" aria-live="polite" title="Data refreshes automatically every 10 minutes while the tab is visible." hidden>—</div>
             </div>
-            <div id="fetchRule" class="fetch-rule" aria-hidden="true"></div>
+            <div id="fetchBar" class="fetch-bar" aria-hidden="true">
+                <div class="fetch-bar__track"></div>
+                <div class="fetch-bar__fill"></div>
+            </div>
         </div>
 
         <!-- Disclosure / Notice strip -->
@@ -573,6 +576,29 @@
                 </div>
             </div>
 
+            <section class="funding-chart" id="fundingChartSection" aria-label="Funding rate and price history">
+                <header class="funding-chart__head">
+                    <div class="funding-chart__title-block">
+                        <div class="funding-chart__title">Funding Rate · Price History</div>
+                        <div class="funding-chart__sub" id="fundingChartSub">Hourly funding rate (bars) and close price (line). All-time window caps to last 90 days.</div>
+                    </div>
+                    <div class="funding-chart__controls">
+                        <label class="funding-chart__select-label" for="fundingChartTicker">Market</label>
+                        <select id="fundingChartTicker" class="funding-chart__select" aria-label="Market to chart"></select>
+                        <span id="fundingChartStatus" class="funding-chart__status" aria-live="polite"></span>
+                    </div>
+                </header>
+                <div class="funding-chart__canvas-wrap">
+                    <canvas id="fundingRateChart" aria-label="Historical funding rate over price"></canvas>
+                    <div id="fundingChartEmpty" class="funding-chart__empty" hidden>—</div>
+                </div>
+                <div class="funding-chart__legend" aria-hidden="true">
+                    <span class="funding-chart__legend-item"><span class="funding-chart__swatch funding-chart__swatch--gain"></span>Funding rate &gt; 0 (longs pay shorts)</span>
+                    <span class="funding-chart__legend-item"><span class="funding-chart__swatch funding-chart__swatch--loss"></span>Funding rate &lt; 0 (shorts pay longs)</span>
+                    <span class="funding-chart__legend-item"><span class="funding-chart__swatch funding-chart__swatch--price"></span>Close price (right axis)</span>
+                </div>
+            </section>
+
             <div class="table-container">
                 <div class="table-header">
                     <div class="table-title">Funding Rate Analysis by Asset</div>
@@ -737,6 +763,7 @@
     <script src="./src/format.js"></script>
     <script src="./src/charts/pnl-chart.js"></script>
     <script src="./src/charts/market-chart.js"></script>
+    <script src="./src/charts/funding-rate-chart.js"></script>
     <script src="./src/dom.js"></script>
     <script src="./src/panels/positions.js"></script>
     <script src="./src/panels/behavior.js"></script>
@@ -777,6 +804,10 @@
                 if (tabId === 'tax' && window.AppPanels && window.AppPanels.tax) {
                     window.AppPanels.tax.refresh();
                 }
+                if (tabId === 'market' && window.AppPanels && window.AppPanels.market
+                    && typeof window.AppPanels.market.ensureChartLoaded === 'function') {
+                    window.AppPanels.market.ensureChartLoaded();
+                }
             }
         }
         document.querySelectorAll('.nav-tab').forEach(tab => {
@@ -797,22 +828,53 @@
         });
 
         // Fetch progress controller. Drives the FETCHING badge state, the
-        // hairline sweep under the masthead, and the small endpoint caption
-        // so a user staring at a slow indexer page knows the load is alive.
+        // determinate bar under the masthead, and the small endpoint caption
+        // so a user staring at a slow indexer page knows the load is alive
+        // AND how much remains. Per-label weight map: single-page endpoints
+        // are 0 until taskDone snaps to 1; paginated endpoints accrue partial
+        // weight via a diminishing-returns estimator (page count is unknown
+        // upfront — pagination walks until empty). The bar can never lie its
+        // way to 100% on a paginated endpoint; the snap to 1 belongs to
+        // taskDone alone.
         const FetchProgress = (() => {
             const badge   = document.getElementById('statusBadge');
-            const rule    = document.getElementById('fetchRule');
+            const bar     = document.getElementById('fetchBar');
+            const barFill = bar && bar.querySelector('.fetch-bar__fill');
             const caption = document.getElementById('fetchCaption');
             const elLabel = document.getElementById('fetchCaptionLabel');
             const elPageSep = document.getElementById('fetchCaptionPageSep');
             const elPage  = document.getElementById('fetchCaptionPage');
             const elTally = document.getElementById('fetchCaptionTally');
             const elVerb  = document.getElementById('fetchCaptionVerb');
-            let total = 0;
-            let done  = 0;
-            let active = false;
 
-            function paint(label, page) {
+            // Asymptote tunable: partial(p) = 1 - 1/(1 + p/PAGE_K).
+            // p=1 → 0.25, p=3 → 0.50, p=9 → 0.75, p=27 → 0.90, p→∞ → 1.
+            // Never reaches 1; snap is taskDone's job. Reasonable for dYdX
+            // accounts that typically paginate 2–20 pages per endpoint.
+            const PAGE_K = 3;
+            const SETTLE_OK_MS = 250;
+            const SETTLE_PARTIAL_MS = 800;
+            const partial = (p) => (p > 0 ? 1 - 1 / (1 + p / PAGE_K) : 0);
+
+            let weights = new Map();
+            let total = 0;
+            let done = 0;
+            let active = false;
+            let settleTimer = null;
+
+            function progress() {
+                if (!total) return 0;
+                let sum = 0;
+                weights.forEach(v => { sum += v; });
+                return Math.max(0, Math.min(1, sum / total));
+            }
+
+            function paintBar() {
+                if (!barFill) return;
+                barFill.style.transform = `scaleX(${progress()})`;
+            }
+
+            function paintCaption(label, page) {
                 if (elLabel) elLabel.textContent = label || 'connecting';
                 if (page && page > 1) {
                     if (elPageSep) elPageSep.hidden = false;
@@ -824,46 +886,142 @@
                 if (elTally) elTally.textContent = `${done}/${total}`;
             }
 
-            function begin(taskCount) {
-                total = taskCount | 0;
-                done  = 0;
+            function begin(labelsOrCount) {
+                if (settleTimer) { clearTimeout(settleTimer); settleTimer = null; }
+                const labels = Array.isArray(labelsOrCount)
+                    ? labelsOrCount.slice()
+                    : Array.from({ length: labelsOrCount | 0 }, (_, i) => `task-${i}`);
+                weights = new Map(labels.map(k => [k, 0]));
+                total = labels.length;
+                done = 0;
                 active = true;
                 if (badge) {
                     badge.classList.remove('fresh', 'offline');
                     badge.classList.add('fetching');
                     badge.textContent = 'FETCHING';
                 }
-                if (rule)    rule.classList.add('active');
+                if (bar) {
+                    bar.classList.remove('settling-partial');
+                    // Reset to 0 BEFORE adding .active so the fade-in doesn't
+                    // animate a residual fill from a prior cycle.
+                    if (barFill) barFill.style.transform = 'scaleX(0)';
+                    bar.classList.add('active');
+                }
                 if (caption) caption.classList.add('active');
                 if (elVerb)  elVerb.textContent = 'Fetching';
-                paint('connecting', 0);
+                paintCaption('connecting', 0);
+                paintBar();
             }
             function update(label, page) {
                 if (!active) return;
-                paint(label, page);
+                if (label && weights.has(label) && page > 0) {
+                    const next = partial(page);
+                    const prev = weights.get(label) || 0;
+                    if (next > prev) weights.set(label, next);
+                }
+                paintCaption(label, page);
+                paintBar();
             }
             function taskDone(label) {
                 if (!active) return;
+                if (label && weights.has(label)) {
+                    weights.set(label, 1);
+                }
                 done = Math.min(done + 1, total);
-                paint(label || elLabel.textContent, 0);
+                paintCaption(label || (elLabel && elLabel.textContent), 0);
+                paintBar();
             }
             function end(state /* 'ok' | 'partial' | 'offline' */) {
                 active = false;
-                if (rule)    rule.classList.remove('active');
                 if (caption) caption.classList.remove('active');
-                if (!badge) return;
-                badge.classList.remove('fetching');
-                if (state === 'offline') {
-                    badge.classList.remove('fresh');
-                    badge.classList.add('offline');
-                    badge.textContent = 'OFFLINE';
+                if (badge) {
+                    badge.classList.remove('fetching');
+                    if (state === 'offline') {
+                        badge.classList.remove('fresh');
+                        badge.classList.add('offline');
+                        badge.textContent = 'OFFLINE';
+                    } else {
+                        badge.classList.remove('offline');
+                        badge.classList.add('fresh');
+                        badge.textContent = state === 'partial' ? 'FRESH · PARTIAL' : 'FRESH';
+                    }
+                }
+                if (!bar) return;
+                if (settleTimer) { clearTimeout(settleTimer); settleTimer = null; }
+                if (state === 'ok') {
+                    // Snap every bucket to 1 so the bar reaches full on
+                    // success even if some pages never reported (e.g. a
+                    // paginated endpoint that returned 0 pages was settled
+                    // by taskDone but its bucket might already be 1 — this
+                    // is the belt-and-braces).
+                    weights.forEach((_, k) => weights.set(k, 1));
+                    paintBar();
+                    settleTimer = setTimeout(() => {
+                        bar.classList.remove('active');
+                        settleTimer = null;
+                    }, SETTLE_OK_MS);
                 } else {
-                    badge.classList.remove('offline');
-                    badge.classList.add('fresh');
-                    badge.textContent = state === 'partial' ? 'FRESH · PARTIAL' : 'FRESH';
+                    // Hold at actual fraction, shift to rust, then fade. The
+                    // bar telling the truth about WHERE the load broke is
+                    // the whole point of the partial state.
+                    bar.classList.add('settling-partial');
+                    paintBar();
+                    settleTimer = setTimeout(() => {
+                        bar.classList.remove('active');
+                        settleTimer = null;
+                    }, SETTLE_PARTIAL_MS);
                 }
             }
             return { begin, update, taskDone, end };
+        })();
+
+        // Freshness controller. Tracks lastFetchAt so the user always knows
+        // how old the rendered snapshot is. Drives the small "Updated Xm
+        // ago" caption under the masthead and the isStale() check that the
+        // auto-refresh interval queries.
+        const DataFreshness = (() => {
+            const REFRESH_INTERVAL_MS = 10 * 60 * 1000;
+            const TICK_INTERVAL_MS = 30 * 1000;
+            const el = document.getElementById('dataAge');
+            let lastFetchAt = 0;
+            let tickTimer = null;
+
+            function formatAge(ms) {
+                if (ms < 45_000) return 'Updated just now';
+                if (ms < 90_000) return 'Updated 1m ago';
+                const mins = Math.round(ms / 60_000);
+                if (mins < 60) return `Updated ${mins}m ago`;
+                const hrs = Math.round(mins / 60);
+                if (hrs < 24) return `Updated ${hrs}h ago`;
+                const days = Math.round(hrs / 24);
+                return `Updated ${days}d ago`;
+            }
+            function paint() {
+                if (!el || !lastFetchAt) return;
+                const age = Date.now() - lastFetchAt;
+                const stale = age > REFRESH_INTERVAL_MS;
+                el.textContent = formatAge(age) + (stale ? ' · stale' : '');
+                el.classList.toggle('stale', stale);
+            }
+            function mark(timestamp) {
+                lastFetchAt = timestamp || Date.now();
+                if (el) { el.hidden = false; el.classList.remove('refreshing'); }
+                paint();
+                if (!tickTimer) tickTimer = setInterval(paint, TICK_INTERVAL_MS);
+            }
+            function setRefreshing(on) {
+                if (!el) return;
+                el.classList.toggle('refreshing', !!on);
+                // Don't reveal the slot until the first successful mark()
+                // has populated it — an empty "—" caption during the very
+                // first load is noise the user can't act on.
+                if (on && lastFetchAt > 0) el.hidden = false;
+            }
+            function isStale() {
+                return lastFetchAt > 0 && (Date.now() - lastFetchAt) > REFRESH_INTERVAL_MS;
+            }
+            function lastFetch() { return lastFetchAt; }
+            return { mark, paint, setRefreshing, isStale, lastFetch, REFRESH_INTERVAL_MS };
         })();
 
         // Banner used by the load handler and dashboard fetcher to surface
@@ -998,7 +1156,8 @@
             }
         }
         // Load real dashboard data
-        async function loadDashboard() {
+        async function loadDashboard(opts) {
+            const skipCache = !!(opts && opts.skipCache);
             const urlParams = new URLSearchParams(window.location.search);
             let address = (urlParams.get('address') || '').trim().toLowerCase();
             let storedAddress = '';
@@ -1063,14 +1222,20 @@
 
             // Stale-while-revalidate hydrate. Paint cached snapshot before
             // any network call so reloads of a known address feel instant.
-            // The fresh-fetch path below always runs and overwrites.
+            // The fresh-fetch path below always runs and overwrites. The
+            // skipCache opt is set by the auto-refresh interval so a poll
+            // never momentarily reverts the screen to an older snapshot
+            // before painting fresh data over it.
             let hadCache = false;
-            if (window.PortfolioCache) {
-                const cached = window.PortfolioCache.read(address);
-                if (cached) {
-                    allData = cached;
+            if (!skipCache && window.PortfolioCache) {
+                const cachedMeta = window.PortfolioCache.readMeta
+                    ? window.PortfolioCache.readMeta(address)
+                    : (window.PortfolioCache.read(address) ? { data: window.PortfolioCache.read(address), fetchedAt: 0 } : null);
+                if (cachedMeta && cachedMeta.data) {
+                    allData = cachedMeta.data;
                     if (renderFromAllData({ silent: true })) {
                         hadCache = true;
+                        if (cachedMeta.fetchedAt) DataFreshness.mark(cachedMeta.fetchedAt);
                     } else {
                         // Cached payload no longer renders cleanly (schema
                         // drift between releases). Drop it and continue.
@@ -1107,7 +1272,10 @@
                 ['historicalPnl',   () => fetchAllHistoricalPnl(encodedAddress, onPageProgress)]
             ];
 
-            FetchProgress.begin(SINGLE_PAGE.length + PAGINATED.length);
+            FetchProgress.begin([
+                ...SINGLE_PAGE.map(([k]) => k),
+                ...PAGINATED.map(([k]) => k)
+            ]);
             // Each task tags FetchProgress as it settles so the X/Y tally
             // ticks even when paginated tasks finish out of declaration order.
             const tagged = (label, p) => p.then(
@@ -1154,6 +1322,10 @@
             }
 
             FetchProgress.end(failed.length > 0 ? 'partial' : 'ok');
+            // Mark the freshness clock on any path where at least one
+            // endpoint succeeded. Partial counts — the user is still
+            // looking at newer data than the cache.
+            DataFreshness.mark();
 
             // Persist only after a successful load so a typo never replaces a
             // known-good address.
@@ -1689,6 +1861,39 @@ Sample: ${rets.length} returns over ${(adq.years*12).toFixed(1)} months (${(adq.
             const payments = (allData.fundingPayments && (allData.fundingPayments.fundingPayments || [])) || [];
             window.AppPanels.market.render(payments, marketsMap);
         }
+        // Reentrance guard + auto-refresh orchestrator. loadDashboard runs
+        // on page load AND on a 30s tick (or visibility resume) once the
+        // freshness clock crosses REFRESH_INTERVAL_MS. The guard prevents a
+        // manual reload from racing with the interval, which would double
+        // the indexer load and double-paint the dashboard.
+        let isFetching = false;
+        async function refreshDashboard(opts) {
+            if (isFetching) return;
+            isFetching = true;
+            DataFreshness.setRefreshing(true);
+            try {
+                await loadDashboard(opts);
+                // Drop the funding-chart's in-memory cache so the next
+                // tab activation refetches alongside the rest of the
+                // dashboard — keeps the chart on the same freshness
+                // clock as the headline numbers.
+                if (window.AppPanels && window.AppPanels.market
+                    && typeof window.AppPanels.market.invalidateChartCache === 'function') {
+                    window.AppPanels.market.invalidateChartCache();
+                }
+            } finally {
+                isFetching = false;
+                DataFreshness.setRefreshing(false);
+            }
+        }
+        const REFRESH_POLL_MS = 30 * 1000;
+        function maybeAutoRefresh() {
+            if (!currentAddress) return;
+            if (document.visibilityState !== 'visible') return;
+            if (!DataFreshness.isStale()) return;
+            refreshDashboard({ skipCache: true });
+        }
+
         // Auto-load real data on page load and restore last active tab.
         // loadDashboard now owns rendering the cumulative-PnL chart on both
         // the cache-hydrate and post-fetch paths, so no extra render here.
@@ -1706,7 +1911,13 @@ Sample: ${rets.length} returns over ${(adq.years*12).toFixed(1)} months (${(adq.
                     window.AppPanels.market.render(payments, marketsMap);
                 }
             });
-            await loadDashboard();
+            await refreshDashboard();
+            // Begin the freshness watchdog only after the first load resolves
+            // so a stuck initial fetch can't get re-fired before it settles.
+            setInterval(maybeAutoRefresh, REFRESH_POLL_MS);
+            document.addEventListener('visibilitychange', () => {
+                if (document.visibilityState === 'visible') maybeAutoRefresh();
+            });
         });
     </script>
 </body>
