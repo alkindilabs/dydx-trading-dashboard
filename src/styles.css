@@ -325,37 +325,73 @@
         }
         .status-badge.offline::before { background: var(--loss); }
 
-        /* hairline sweep along masthead bottom rule */
-        .fetch-rule {
+        /* Determinate fetch progress bar — replaces the indefinite sweep.
+           Sits in the masthead's bottom-rule slot. Track is a low-contrast
+           hairline that fades in with the bar so the slot reads as a clean
+           divider when idle; fill is a 2px gold band that scales horizontally
+           from origin-left, driven by FetchProgress in index.html. */
+        .fetch-bar {
             position: absolute;
             left: 0; right: 0;
             bottom: -4px;
-            height: 1px;
+            height: 2px;
             overflow: hidden;
             pointer-events: none;
-            opacity: 0;
-            transition: opacity 0.25s ease-out;
             z-index: 2;
         }
-        .fetch-rule.active { opacity: 1; }
-        .fetch-rule::before {
-            content: '';
+        .fetch-bar__track {
             position: absolute;
-            inset: 0;
+            left: 0; right: 0; bottom: 0;
+            height: 1px;
             background: linear-gradient(
                 90deg,
-                transparent 0%,
-                rgba(215,172,96,0) 28%,
-                rgba(215,172,96,0.95) 50%,
-                rgba(215,172,96,0) 72%,
-                transparent 100%
+                rgba(92, 79, 58, 0)   0%,
+                rgba(92, 79, 58, 0.6) 12%,
+                rgba(92, 79, 58, 0.6) 88%,
+                rgba(92, 79, 58, 0)  100%
             );
-            background-size: 220% 100%;
-            animation: sweep 1.6s linear infinite;
+            opacity: 0;
+            transition: opacity 0.25s ease-out;
         }
-        @keyframes sweep {
-            from { background-position: 100% 0; }
-            to   { background-position: -120% 0; }
+        .fetch-bar__fill {
+            position: absolute;
+            inset: 0;
+            transform-origin: left center;
+            transform: scaleX(0);
+            background: linear-gradient(
+                180deg,
+                rgba(215, 172, 96, 0.95),
+                rgba(215, 172, 96, 0.55)
+            );
+            box-shadow:
+                0 0 6px rgba(215, 172, 96, 0.45),
+                0 0 1px rgba(215, 172, 96, 0.9);
+            opacity: 0;
+            transition:
+                transform 0.55s cubic-bezier(0.2, 0.7, 0.1, 1),
+                opacity   0.25s ease-out,
+                background 0.4s ease-out,
+                box-shadow 0.4s ease-out;
+        }
+        .fetch-bar.active .fetch-bar__track,
+        .fetch-bar.active .fetch-bar__fill { opacity: 1; }
+        .fetch-bar.settling-partial .fetch-bar__fill {
+            background: linear-gradient(
+                180deg,
+                rgba(203, 92, 80, 0.95),
+                rgba(203, 92, 80, 0.55)
+            );
+            box-shadow:
+                0 0 6px rgba(203, 92, 80, 0.45),
+                0 0 1px rgba(203, 92, 80, 0.9);
+        }
+        @media (prefers-reduced-motion: reduce) {
+            .fetch-bar__fill {
+                transition:
+                    opacity 0.15s linear,
+                    background 0.15s linear,
+                    box-shadow 0.15s linear;
+            }
         }
 
         /* endpoint progress caption — small editorial mono cap.
@@ -386,20 +422,31 @@
         }
         .fetch-caption .gold { color: var(--gold); }
         .fetch-caption .sep  { color: var(--ink-4); }
-        .fetch-caption .dots::after {
-            content: '···';
-            display: inline-block;
-            width: 1.4em;
-            text-align: left;
-            color: var(--ink-4);
-            animation: dots 1.4s steps(4, end) infinite;
+
+        /* Freshness caption — shares the bottom-right slot with .fetch-caption
+           but mutually exclusive: caption is for in-flight fetches, age is for
+           idle "how stale is what you're looking at" feedback. Hidden until
+           the first successful load lands; auto-refresh keeps it under 10min
+           while the tab is visible. */
+        .data-age {
+            position: absolute;
+            right: 0;
+            bottom: -1.25rem;
+            font-family: var(--ff-mono);
+            font-size: 0.59375rem;
+            letter-spacing: 0.22em;
+            text-transform: uppercase;
+            color: var(--ink-3);
+            white-space: nowrap;
+            z-index: 3;
+            transition: color 0.25s ease-out;
         }
-        @keyframes dots {
-            0%, 24%   { clip-path: inset(0 100% 0 0); }
-            33%       { clip-path: inset(0 66%  0 0); }
-            66%       { clip-path: inset(0 33%  0 0); }
-            99%, 100% { clip-path: inset(0 0    0 0); }
-        }
+        .data-age[hidden] { display: none; }
+        .data-age.stale { color: var(--warn); }
+        .data-age.refreshing { color: var(--gold); }
+        /* While a fetch is in-flight, the .fetch-caption owns the slot;
+           the age caption would otherwise overlap it at the same y. */
+        .fetch-caption.active ~ .data-age { display: none; }
 
         /* NAV TABS */
         .nav-tabs {
@@ -845,6 +892,137 @@
             height: 1.375rem;
             opacity: 0.5;
         }
+
+        /* Funding rate · price history chart (Market Structure tab) */
+        .funding-chart {
+            background: var(--paper-2);
+            border: 1px solid var(--rule-strong);
+            padding: 1.25rem 1.5rem 1.5rem;
+            margin-bottom: 1.75rem;
+            position: relative;
+        }
+        .funding-chart__head {
+            display: flex;
+            align-items: flex-end;
+            justify-content: space-between;
+            gap: 1.5rem;
+            padding-bottom: 0.875rem;
+            margin-bottom: 1.125rem;
+            border-bottom: 1px solid var(--rule);
+            flex-wrap: wrap;
+        }
+        .funding-chart__title-block { min-width: 0; flex: 1 1 22rem; }
+        .funding-chart__title {
+            font-family: var(--ff-display);
+            font-style: italic;
+            font-weight: 350;
+            font-size: 1.25rem;
+            letter-spacing: -0.01em;
+            color: var(--ink);
+        }
+        .funding-chart__title::before {
+            content: '§';
+            font-style: normal;
+            color: var(--gold);
+            margin-right: 0.5rem;
+            font-size: 0.9375rem;
+            vertical-align: 2px;
+            opacity: 0.85;
+        }
+        .funding-chart__sub {
+            margin-top: 0.375rem;
+            font-family: var(--ff-mono);
+            font-size: 0.625rem;
+            letter-spacing: 0.18em;
+            text-transform: uppercase;
+            color: var(--ink-3);
+        }
+        .funding-chart__controls {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.625rem;
+        }
+        .funding-chart__select-label {
+            font-family: var(--ff-mono);
+            font-size: 0.625rem;
+            letter-spacing: 0.22em;
+            text-transform: uppercase;
+            color: var(--ink-3);
+        }
+        .funding-chart__select {
+            font-family: var(--ff-mono);
+            font-size: 0.75rem;
+            letter-spacing: 0.05em;
+            background: var(--paper-3);
+            color: var(--ink);
+            border: 1px solid var(--rule-strong);
+            padding: 0.375rem 1.75rem 0.375rem 0.625rem;
+            cursor: pointer;
+            appearance: none;
+            -webkit-appearance: none;
+            background-image: linear-gradient(45deg, transparent 50%, var(--ink-3) 50%),
+                              linear-gradient(135deg, var(--ink-3) 50%, transparent 50%);
+            background-position: calc(100% - 0.875rem) 50%, calc(100% - 0.5rem) 50%;
+            background-size: 0.375rem 0.375rem, 0.375rem 0.375rem;
+            background-repeat: no-repeat;
+            transition: border-color 0.15s, color 0.15s;
+        }
+        .funding-chart__select:hover { border-color: var(--gold); color: var(--ink); }
+        .funding-chart__select:focus-visible { outline: 1px solid var(--gold); outline-offset: 2px; }
+        .funding-chart__status {
+            font-family: var(--ff-mono);
+            font-size: 0.625rem;
+            letter-spacing: 0.22em;
+            text-transform: uppercase;
+            color: var(--ink-3);
+            min-width: 6rem;
+            white-space: nowrap;
+        }
+        .funding-chart__status.fetching { color: var(--gold); }
+        .funding-chart__status.error    { color: var(--loss); }
+        .funding-chart__canvas-wrap {
+            position: relative;
+            height: 24rem;
+        }
+        .funding-chart__empty {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: var(--ff-mono);
+            font-size: 0.75rem;
+            letter-spacing: 0.22em;
+            text-transform: uppercase;
+            color: var(--ink-4);
+        }
+        .funding-chart__legend {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.625rem 1.5rem;
+            margin-top: 1rem;
+            padding-top: 0.875rem;
+            border-top: 1px solid var(--rule);
+            font-family: var(--ff-mono);
+            font-size: 0.625rem;
+            letter-spacing: 0.18em;
+            text-transform: uppercase;
+            color: var(--ink-3);
+        }
+        .funding-chart__legend-item {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .funding-chart__swatch {
+            width: 0.6875rem;
+            height: 0.6875rem;
+            display: inline-block;
+            border: 1px solid rgba(14, 12, 9, 0.6);
+        }
+        .funding-chart__swatch--gain  { background: rgba(143, 170, 114, 0.85); }
+        .funding-chart__swatch--loss  { background: rgba(203, 92, 80, 0.85); }
+        .funding-chart__swatch--price { background: rgba(176, 161, 135, 0.85); }
 
         /* CHART CONTAINER */
         .chart-container {

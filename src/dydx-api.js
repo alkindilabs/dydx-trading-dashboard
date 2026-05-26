@@ -92,14 +92,32 @@
   }
 
   // Generic paginator over a dYdX indexer collection endpoint. Walks to
-  // inception governed by natural termination signals (empty page, short
-  // page in offset mode, dedup cycle, unadvancing cursor). No artificial
-  // page cap.
+  // inception by default, governed by natural termination signals
+  // (empty page, short page in offset mode, dedup cycle, unadvancing
+  // cursor). An optional `maxPages` opt caps the walk for callers that
+  // only need a bounded window (e.g. the funding chart's 90-day cap on
+  // /historicalFunding).
+  //
+  // cursorField (cursor mode only): which row field carries the
+  // chronological cursor value. Defaults to 'createdAt' (fills,
+  // historical-pnl, closed positions). /historicalFunding rows use
+  // 'effectiveAt' instead.
+  //
+  // cursorParam: the query-string key that carries the cursor value
+  // on the next request. Defaults to 'createdBeforeOrAt' (the indexer
+  // convention for /fills, /historical-pnl, /perpetualPositions).
+  // /historicalFunding requires 'effectiveBeforeOrAt' — the
+  // createdBeforeOrAt name is silently ignored on that endpoint, so
+  // the paginator stalls after page 1. Both fields and the matching
+  // param must move together.
   async function fetchAllPaginated(opts) {
     const {
       urlBase, joiner = '&', dataKeys, keyFn,
       pageLimit, label, mode = 'cursor',
-      onProgress = null
+      cursorField = 'createdAt',
+      cursorParam = 'createdBeforeOrAt',
+      onProgress = null,
+      maxPages = null
     } = opts;
     let cursor = null;
     let pageNum = 1;
@@ -107,9 +125,10 @@
     const seen = new Set();
     let firstPageError = null;
     for (let i = 0; ; i++) {
+      if (maxPages != null && i >= maxPages) break;
       let extraParam = '';
       if (mode === 'cursor' && cursor) {
-        extraParam = `&createdBeforeOrAt=${encodeURIComponent(cursor)}`;
+        extraParam = `&${cursorParam}=${encodeURIComponent(cursor)}`;
       } else if (mode === 'page') {
         extraParam = `&page=${pageNum}`;
       }
@@ -145,7 +164,7 @@
         seen.add(key);
         all.push(r);
         newCount++;
-        const ts = r.createdAt;
+        const ts = r[cursorField];
         if (ts && (!oldest || ts < oldest)) oldest = ts;
       });
       if (newCount === 0) break; // dedup cycle → reached inception
@@ -169,7 +188,11 @@
       dataKeys: ['historicalPnl'],
       keyFn: r => `${r.createdAt}|${r.blockHeight}`,
       pageLimit: window.AppConstants.HIST_PAGE_LIMIT,
-      label: 'historical-pnl',
+      // Label must match the key passed to FetchProgress.begin() in
+      // index.html (camelCase 'historicalPnl'), otherwise per-page
+      // weight updates silently no-op and the bar appears stuck on
+      // this endpoint until taskDone snaps its bucket to 1.
+      label: 'historicalPnl',
       onProgress
     });
     return { historicalPnl: all };
@@ -204,6 +227,93 @@
     return { fills: all };
   }
 
+  // /historicalFunding/{ticker} returns market-wide published hourly
+  // funding rates: { historicalFunding: [{ ticker, rate, price,
+  // effectiveAt, effectiveAtHeight }] }. Cursor-paged on effectiveAt.
+  // Caller passes maxRows to bound the walk (the funding chart caps
+  // its window at FUNDING_CHART_MAX_DAYS so an unbounded walk to
+  // ticker inception would be wasted bandwidth).
+  async function fetchHistoricalFunding(ticker, opts) {
+    const o = opts || {};
+    const limit = window.AppConstants.HISTORICAL_FUNDING_PAGE_LIMIT;
+    // Bound page count via maxRows ÷ pageLimit so we walk only as far
+    // back as the chart needs. +1 lets the last page include a row at
+    // the exact boundary without truncation.
+    const maxPages = o.maxRows ? Math.ceil(o.maxRows / limit) + 1 : null;
+    const encoded = encodeURIComponent(ticker);
+    const all = await fetchAllPaginated({
+      urlBase: `${DYDX_API}/historicalFunding/${encoded}?`,
+      joiner: '',
+      dataKeys: ['historicalFunding'],
+      keyFn: r => `${r.effectiveAt}|${r.effectiveAtHeight || ''}`,
+      pageLimit: limit,
+      label: `historicalFunding:${ticker}`,
+      cursorField: 'effectiveAt',
+      cursorParam: 'effectiveBeforeOrAt',
+      maxPages,
+      onProgress: o.onProgress || null
+    });
+    return { historicalFunding: all };
+  }
+
+  // /candles/perpetualMarkets/{ticker}?resolution=… walks backward via
+  // toISO instead of createdBeforeOrAt — the generic paginator's URL
+  // shape doesn't fit, so this is a bespoke loop. Stops when fromMs is
+  // crossed, the page is empty, or maxPages is hit.
+  async function fetchCandles(ticker, resolution, opts) {
+    const o = opts || {};
+    const limit = window.AppConstants.CANDLES_PAGE_LIMIT;
+    const fromMs = o.fromMs || 0;
+    const maxPages = o.maxPages || 50;
+    const onProgress = o.onProgress || null;
+    const encoded = encodeURIComponent(ticker);
+    const all = [];
+    const seen = new Set();
+    let toISO = null;
+    let firstPageError = null;
+    for (let i = 0; i < maxPages; i++) {
+      const params = new URLSearchParams({ resolution, limit: String(limit) });
+      if (toISO) params.set('toISO', toISO);
+      const url = `${DYDX_API}/candles/perpetualMarkets/${encoded}?${params}`;
+      if (onProgress) {
+        try { onProgress(`candles:${ticker}`, i + 1); } catch (_) {}
+      }
+      let page;
+      try {
+        page = await fetchJsonWithRetry(url);
+      } catch (e) {
+        if (i === 0) firstPageError = e;
+        console.warn(`[candles:${ticker}] pagination stopped at page ${i}:`, e && e.message);
+        break;
+      }
+      const rows = page && Array.isArray(page.candles) ? page.candles : null;
+      if (!rows || !rows.length) break;
+      let oldestStartedAt = null;
+      let newCount = 0;
+      for (const r of rows) {
+        const key = `${r.startedAt}|${r.resolution}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        all.push(r);
+        newCount++;
+        if (!oldestStartedAt || r.startedAt < oldestStartedAt) {
+          oldestStartedAt = r.startedAt;
+        }
+      }
+      if (newCount === 0) break;
+      if (!oldestStartedAt) break;
+      // Stop once we've walked past the requested window.
+      const oldestMs = Date.parse(oldestStartedAt);
+      if (!isNaN(oldestMs) && oldestMs <= fromMs) break;
+      // Indexer treats toISO as exclusive upper bound; passing the
+      // oldest startedAt makes the next page strictly older.
+      toISO = oldestStartedAt;
+      if (rows.length < limit) break;
+    }
+    if (firstPageError && all.length === 0) throw firstPageError;
+    return { candles: all };
+  }
+
   // /fundingPayments uses 1-indexed offset pagination via page=N.
   async function fetchAllFundingPayments(encodedAddress, onProgress) {
     const all = await fetchAllPaginated({
@@ -227,6 +337,8 @@
     fetchAllClosedPositions,
     fetchAllFills,
     fetchAllFundingPayments,
+    fetchHistoricalFunding,
+    fetchCandles,
     parseRetryAfter,
     isTransientError
   };

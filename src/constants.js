@@ -19,6 +19,13 @@
   const POS_PAGE_LIMIT     = 100;   // indexer-side cap
   const FILLS_PAGE_LIMIT   = 1000;
   const FUNDING_PAGE_LIMIT = 1000;
+  // Indexer caps /historicalFunding at 100 rows/page and /candles at 100.
+  const HISTORICAL_FUNDING_PAGE_LIMIT = 100;
+  const CANDLES_PAGE_LIMIT            = 100;
+  // Funding chart cap. 90 days at 1HOUR resolution = 2160 datapoints per
+  // dataset — Chart.js renders that comfortably and avoids unbounded
+  // fetches against the indexer.
+  const FUNDING_CHART_MAX_DAYS = 90;
 
   const MS_PER_MIN  = 60_000;
   const MS_PER_HOUR = 3_600_000;
@@ -45,6 +52,7 @@
     ADDRESS_RE,
     FETCH_TIMEOUT_MS,
     HIST_PAGE_LIMIT, POS_PAGE_LIMIT, FILLS_PAGE_LIMIT, FUNDING_PAGE_LIMIT,
+    HISTORICAL_FUNDING_PAGE_LIMIT, CANDLES_PAGE_LIMIT, FUNDING_CHART_MAX_DAYS,
     MS_PER_MIN, MS_PER_HOUR, MS_PER_DAY,
     HOURS_PER_YEAR,
     CLIPBOARD_FLASH_MS,
