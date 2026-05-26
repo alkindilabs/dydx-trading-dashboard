@@ -302,22 +302,20 @@
     const entry = ChartState.data.get(ticker);
     if (!entry) { window.AppCharts.fundingRate.clear(); return; }
     const cutoffMs = currentChartCutoff();
-    const hasFunding = (entry.fundingRows || []).some(r => {
-      const t = Date.parse(r.effectiveAt);
-      return !isNaN(t) && t >= cutoffMs;
-    });
-    if (!hasFunding) {
-      window.AppCharts.fundingRate.clear();
-      setChartEmpty(`No funding history for ${ticker} in window`);
-      return;
-    }
     setChartEmpty(null);
-    window.AppCharts.fundingRate.render({
+    // chart.render returns false when it could not draw (< 2 valid
+    // funding bars after the cutoff filter). Defer to its decision so
+    // the panel's empty-state condition can't drift from the chart's
+    // internal threshold.
+    const rendered = window.AppCharts.fundingRate.render({
       ticker,
       fundingRows: entry.fundingRows,
       candleRows: entry.candleRows,
       cutoffMs
     });
+    if (!rendered) {
+      setChartEmpty(`Not enough funding history for ${ticker} in window`);
+    }
   }
 
   async function fetchChartData(ticker) {
@@ -325,13 +323,26 @@
     const maxDays = C.FUNDING_CHART_MAX_DAYS;
     const fromMs = Date.now() - maxDays * C.MS_PER_DAY;
     const maxRows = maxDays * 24; // 1-hour cadence; +1 page slack handled by paginator
-    const [fundingRes, candleRes] = await Promise.all([
+    // allSettled so a candles outage doesn't sink the whole chart.
+    // Funding rate is the load-bearing signal; price is contextual
+    // overlay. If funding fails, we treat the fetch as failed (caller
+    // surfaces an error). If only candles fail, render bars without
+    // the price line.
+    const [fundingRes, candleRes] = await Promise.allSettled([
       window.DydxApi.fetchHistoricalFunding(ticker, { maxRows }),
       window.DydxApi.fetchCandles(ticker, '1HOUR', { fromMs })
     ]);
+    if (fundingRes.status === 'rejected') {
+      throw fundingRes.reason || new Error('funding fetch failed');
+    }
+    if (candleRes.status === 'rejected') {
+      console.warn('[funding-chart] candles fetch failed; rendering bars only',
+        candleRes.reason && candleRes.reason.message);
+    }
     return {
-      fundingRows: fundingRes.historicalFunding || [],
-      candleRows: candleRes.candles || [],
+      fundingRows: (fundingRes.value && fundingRes.value.historicalFunding) || [],
+      candleRows: (candleRes.status === 'fulfilled' && candleRes.value && candleRes.value.candles) || [],
+      candlesMissing: candleRes.status === 'rejected',
       fetchedAt: Date.now()
     };
   }

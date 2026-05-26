@@ -1228,9 +1228,7 @@
             // before painting fresh data over it.
             let hadCache = false;
             if (!skipCache && window.PortfolioCache) {
-                const cachedMeta = window.PortfolioCache.readMeta
-                    ? window.PortfolioCache.readMeta(address)
-                    : (window.PortfolioCache.read(address) ? { data: window.PortfolioCache.read(address), fetchedAt: 0 } : null);
+                const cachedMeta = window.PortfolioCache.readMeta(address);
                 if (cachedMeta && cachedMeta.data) {
                     allData = cachedMeta.data;
                     if (renderFromAllData({ silent: true })) {
@@ -1872,15 +1870,17 @@ Sample: ${rets.length} returns over ${(adq.years*12).toFixed(1)} months (${(adq.
             isFetching = true;
             DataFreshness.setRefreshing(true);
             try {
-                await loadDashboard(opts);
-                // Drop the funding-chart's in-memory cache so the next
-                // tab activation refetches alongside the rest of the
-                // dashboard — keeps the chart on the same freshness
-                // clock as the headline numbers.
+                // Drop the funding-chart's in-memory cache BEFORE the
+                // refetch so that, if the Market tab is currently
+                // active, loadDashboard's market.render path naturally
+                // re-triggers a fresh chart fetch via ensureChartLoaded
+                // (instead of rendering from the cached snapshot,
+                // which we'd then invalidate underneath ourselves).
                 if (window.AppPanels && window.AppPanels.market
                     && typeof window.AppPanels.market.invalidateChartCache === 'function') {
                     window.AppPanels.market.invalidateChartCache();
                 }
+                await loadDashboard(opts);
             } finally {
                 isFetching = false;
                 DataFreshness.setRefreshing(false);

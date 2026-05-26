@@ -74,7 +74,7 @@
 
   function render(input) {
     const el = document.getElementById('fundingRateChart');
-    if (!el) return;
+    if (!el) return false;
     const { ticker, fundingRows, candleRows, cutoffMs } = input || {};
     const cutoff = (typeof cutoffMs === 'number' && cutoffMs > 0) ? cutoffMs : 0;
 
@@ -82,8 +82,9 @@
     const line = buildPriceLine(candleRows, cutoff);
 
     // Early exit: no funding data is the load-bearing signal. Price-only
-    // would be off-topic for the panel.
-    if (bars.length < 2) { clear(); return; }
+    // would be off-topic for the panel. Returning false lets the caller
+    // surface an explicit empty-state instead of leaving a blank canvas.
+    if (bars.length < 2) { clear(); return false; }
 
     const formatCurrency = window.Format.formatCurrency;
     const fmtSignedPct = window.Format.fmtSignedPct;
@@ -93,6 +94,7 @@
     const xAxisUnit = pickAxisUnit(spanMs);
 
     clear();
+    let rendered = false;
     try {
       instance = new Chart(el.getContext('2d'), {
         data: {
@@ -209,7 +211,8 @@
                   const v = ctx.parsed && ctx.parsed.y;
                   if (v == null) return '';
                   if (ctx.dataset.yAxisID === 'yRate') {
-                    const annualPct = v * 8760;
+                    const hpy = (window.AppConstants && window.AppConstants.HOURS_PER_YEAR) || 8760;
+                    const annualPct = v * hpy;
                     return [
                       `Funding (1h):  ${fmtSignedPct(v, 4)}`,
                       `Annualized:    ${fmtSignedPct(annualPct, 2)}`
@@ -222,9 +225,11 @@
           }
         }
       });
+      rendered = true;
     } catch (e) {
       console.warn('Failed to render funding-rate chart', e);
     }
+    return rendered;
   }
 
   window.AppCharts = window.AppCharts || {};

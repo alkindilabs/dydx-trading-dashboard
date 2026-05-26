@@ -186,7 +186,11 @@
       dataKeys: ['historicalPnl'],
       keyFn: r => `${r.createdAt}|${r.blockHeight}`,
       pageLimit: window.AppConstants.HIST_PAGE_LIMIT,
-      label: 'historical-pnl',
+      // Label must match the key passed to FetchProgress.begin() in
+      // index.html (camelCase 'historicalPnl'), otherwise per-page
+      // weight updates silently no-op and the bar appears stuck on
+      // this endpoint until taskDone snaps its bucket to 1.
+      label: 'historicalPnl',
       onProgress
     });
     return { historicalPnl: all };
