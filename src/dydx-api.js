@@ -92,9 +92,11 @@
   }
 
   // Generic paginator over a dYdX indexer collection endpoint. Walks to
-  // inception governed by natural termination signals (empty page, short
-  // page in offset mode, dedup cycle, unadvancing cursor). No artificial
-  // page cap.
+  // inception by default, governed by natural termination signals
+  // (empty page, short page in offset mode, dedup cycle, unadvancing
+  // cursor). An optional `maxPages` opt caps the walk for callers that
+  // only need a bounded window (e.g. the funding chart's 90-day cap on
+  // /historicalFunding).
   //
   // cursorField (cursor mode only): which row field carries the
   // chronological cursor value. Defaults to 'createdAt' (fills,
