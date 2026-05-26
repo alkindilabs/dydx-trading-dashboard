@@ -247,8 +247,28 @@
     });
     const all = Object.keys(marketsMap || {});
     const choices = Array.from(new Set([...traded, ...all])).sort();
-    const prevSelection = ChartState.currentTicker || sel.value;
     sel.innerHTML = '';
+    // /perpetualMarkets failed (partial refresh) — no choices to
+    // surface. Clear the selection so ensureChartLoaded doesn't fetch
+    // against a ticker the user can't see, disable the picker, and
+    // surface the empty-state caption on the canvas.
+    if (choices.length === 0) {
+      const opt = document.createElement('option');
+      opt.value = '';
+      opt.textContent = 'No markets available';
+      opt.disabled = true;
+      opt.selected = true;
+      sel.appendChild(opt);
+      sel.disabled = true;
+      ChartState.currentTicker = null;
+      if (window.AppCharts && window.AppCharts.fundingRate) {
+        window.AppCharts.fundingRate.clear();
+      }
+      setChartEmpty('No markets available');
+      return;
+    }
+    sel.disabled = false;
+    const prevSelection = ChartState.currentTicker || sel.value;
     choices.forEach(tk => {
       const opt = document.createElement('option');
       opt.value = tk;
