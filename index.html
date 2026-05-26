@@ -922,10 +922,16 @@
                 paintCaption(label, page);
                 paintBar();
             }
-            function taskDone(label) {
+            function taskDone(label, succeeded) {
                 if (!active) return;
                 if (label && weights.has(label)) {
-                    weights.set(label, 1);
+                    // Only snap to 1 on success. Failed tasks count
+                    // toward `done` (the X/Y caption tally reflects
+                    // "we've heard back on N of M endpoints" regardless
+                    // of outcome) but keep their last partial(page)
+                    // weight, so end('partial') can hold the bar at an
+                    // honest fraction instead of 100%.
+                    if (succeeded !== false) weights.set(label, 1);
                 }
                 done = Math.min(done + 1, total);
                 paintCaption(label || (elLabel && elLabel.textContent), 0);
@@ -1004,8 +1010,13 @@
                 el.classList.toggle('stale', stale);
             }
             function mark(timestamp) {
+                // mark() owns lastFetchAt + the visible age text only.
+                // The 'refreshing' class is owned by setRefreshing()
+                // so the gold "fetching" tint isn't yanked away the
+                // instant the network completes; refreshDashboard's
+                // finally{} flips it back to neutral.
                 lastFetchAt = timestamp || Date.now();
-                if (el) { el.hidden = false; el.classList.remove('refreshing'); }
+                if (el) el.hidden = false;
                 paint();
                 if (!tickTimer) tickTimer = setInterval(paint, TICK_INTERVAL_MS);
             }
@@ -1277,8 +1288,8 @@
             // Each task tags FetchProgress as it settles so the X/Y tally
             // ticks even when paginated tasks finish out of declaration order.
             const tagged = (label, p) => p.then(
-                v => { FetchProgress.taskDone(label); return v; },
-                e => { FetchProgress.taskDone(label); throw e; }
+                v => { FetchProgress.taskDone(label, true); return v; },
+                e => { FetchProgress.taskDone(label, false); throw e; }
             );
             const settled = await Promise.allSettled([
                 ...SINGLE_PAGE.map(([k, url]) => tagged(k, fetchJson(url))),

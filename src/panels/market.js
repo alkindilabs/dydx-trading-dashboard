@@ -372,6 +372,10 @@
     ChartState.currentTicker = ticker;
     const entry = ChartState.data.get(ticker);
     if (isChartFresh(entry)) {
+      // Supersede any older in-flight fetch's token so when it
+      // eventually resolves, its post-await guard treats itself as
+      // stale and doesn't paint the wrong ticker onto the canvas.
+      ChartState.activeRequest = null;
       renderChartFromCache(ticker);
       setChartStatus('', null);
       return;
@@ -382,16 +386,18 @@
     setChartEmpty(null);
     try {
       const data = await fetchChartData(ticker);
-      // Token mismatch = a newer call superseded us; drop the stale
-      // result without touching state. The network bandwidth was
-      // already spent — that's an honest cost of having no cancelable
-      // signal in the DydxApi helpers today.
+      // Two-layer staleness guard: the symbol token catches racing
+      // loadChartForTicker calls, and currentTicker catches the rare
+      // case where activeRequest was cleared (by a cache-hit serve
+      // for a different ticker) without superseding via token.
       if (ChartState.activeRequest !== token) return;
+      if (ChartState.currentTicker !== ticker) return;
       ChartState.data.set(ticker, data);
       renderChartFromCache(ticker);
       setChartStatus('', null);
     } catch (e) {
       if (ChartState.activeRequest !== token) return;
+      if (ChartState.currentTicker !== ticker) return;
       console.warn('[funding-chart] fetch failed', e && e.message);
       setChartStatus('Fetch failed', 'error');
       setChartEmpty('Fetch failed — try a different market');
