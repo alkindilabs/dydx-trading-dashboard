@@ -1,19 +1,25 @@
 // Risk tab: liquidation table, leverage utilization, VaR/CVaR, Drawdown
-// Periods table. The Sharpe/Sortino/Calmar IIFE that depends on inline
-// closure variables (allPositions, histArr, subaccount, marketAgg, the
-// classifier output) stays in place for now — it'll move with the
-// process-data extraction in Phase 2's final PR.
+// Periods table. The Sharpe/Sortino/Calmar renderer (renderRiskRatios)
+// stays inline in processData() in index.html because it closes over
+// processData's locals (allPositions, histArr, subaccount, marketAgg, the
+// classifier output).
 //
 // Depends on: window.RiskMetrics (liquidationRow, leverageUtilization,
 // usableEquity, positionNotional, histPnlDrawdownEvents,
 // tradeSystemDrawdownEvents), window.AppConstants
-// (MS_PER_DAY), window.Format (formatCurrency, formatPrice, fmtNum, signClass),
+// (MS_PER_DAY, PERCENT), window.Format (formatCurrency, formatPrice, fmtNum, signClass),
 // window.AppDom (appendCell, tagCells, updateMetric).
 
 (function () {
   'use strict';
 
   const LIQUIDATION_TABLE_COLUMNS = 8;
+  const HIGH_RISK_MAX_DISTANCE_PCT = 10;
+  const MEDIUM_RISK_MAX_DISTANCE_PCT = 20;
+  const HIGH_LEVERAGE = 5;
+  const ELEVATED_LEVERAGE = 2;
+  const LEVERAGE_BAR_FULL_SCALE = 10;
+  const VAR_TAIL = 0.05;
 
   function appendLiquidationNote(body, text) {
     const noteTr = document.createElement('tr');
@@ -54,8 +60,8 @@
       let scoreClass = '';
       let scoreLabel = '—';
       if (distancePct !== null && distancePct !== undefined) {
-        if (distancePct < 10)      { scoreClass = 'loss';    scoreLabel = 'HIGH';   }
-        else if (distancePct < 20) { scoreClass = 'warning'; scoreLabel = 'MEDIUM'; }
+        if (distancePct < HIGH_RISK_MAX_DISTANCE_PCT)        { scoreClass = 'loss';    scoreLabel = 'HIGH';   }
+        else if (distancePct < MEDIUM_RISK_MAX_DISTANCE_PCT) { scoreClass = 'warning'; scoreLabel = 'MEDIUM'; }
         else                       { scoreClass = 'profit';  scoreLabel = 'LOW';    }
       }
       const tr = document.createElement('tr');
@@ -118,14 +124,18 @@
       el.textContent = lev !== null ? lev.toFixed(2) + 'x' : '—';
       let cls = '';
       if (lev !== null) {
-        if (lev >= 5)      cls = 'loss';
-        else if (lev >= 2) cls = 'warning';
+        if (lev >= HIGH_LEVERAGE)          cls = 'loss';
+        else if (lev >= ELEVATED_LEVERAGE) cls = 'warning';
         else               cls = 'profit';
       }
       el.className = 'metric-value mono' + (cls ? ' ' + cls : '');
     }
     const bar = document.getElementById('leverageUtilBar');
-    if (bar) bar.style.width = `${Math.min(100, (lev || 0) * 10).toFixed(1)}%`;
+    if (bar) {
+      const fullBarPct = window.AppConstants.PERCENT;
+      const pctPerLeverage = fullBarPct / LEVERAGE_BAR_FULL_SCALE;
+      bar.style.width = `${Math.min(fullBarPct, (lev || 0) * pctPerLeverage).toFixed(1)}%`;
+    }
   }
 
   // VaR / CVaR per-period in dollars at current equity. Caller already
@@ -140,7 +150,7 @@
       return;
     }
     const sorted = returns.slice().sort((a, b) => a - b);
-    const idx = Math.max(0, Math.floor(0.05 * sorted.length));
+    const idx = Math.max(0, Math.floor(VAR_TAIL * sorted.length));
     const var95Ret = sorted[idx];
     const tail = sorted.slice(0, idx + 1);
     const cvar95Ret = tail.length

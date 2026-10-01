@@ -7,7 +7,8 @@
 // index.html invokes refresh() on tab switch so users who never open
 // the Tax tab never trigger a third-party ECB request.
 //
-// Depends on: window.TaxReport, window.FxRates, window.Format, window.AppDom.
+// Depends on: window.TaxReport, window.FxRates, window.Format, window.AppDom,
+// window.AppConstants (PERCENT).
 
 (function () {
   'use strict';
@@ -208,7 +209,7 @@
     const D = window.AppDom;
     const cls = window.TaxReport.CLASSIFICATIONS[classification] || window.TaxReport.CLASSIFICATIONS.E;
     D.updateElement('taxClassificationLabel', cls.label);
-    D.updateElement('taxFlatRate', (cls.flatRate * 100).toFixed(0) + '%');
+    D.updateElement('taxFlatRate', (cls.flatRate * window.AppConstants.PERCENT).toFixed(0) + '%');
 
     const eurOrDash = n => (typeof n === 'number' && isFinite(n)) ? fmtEurSigned(n) : '—';
     let eurDetailNote = 'ECB daily rate';
@@ -412,9 +413,9 @@
   function download(format) {
     const snap = _state.lastReport;
     if (!snap) return;
-    // currentAddress lives as a top-level `let` inside the inline IIFE
-    // in index.html, so it is NOT on window. Read it from panel state,
-    // which is seeded from the data pipeline via render(positions, fills, address).
+    // currentAddress is a script-scope `let` in index.html's inline
+    // script, not a window property, so read the address from panel
+    // state, which render(positions, fills, address) sets.
     const addr = String(_state.address || 'wallet').slice(0, 10) || 'wallet';
     const base = 'dydx-tax-' + addr + '-' + snap.year + '-cat' + snap.classification;
     if (format === 'csv') {

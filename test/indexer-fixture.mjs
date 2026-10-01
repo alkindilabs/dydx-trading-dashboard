@@ -3,8 +3,17 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { runInNewContext } from 'node:vm';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+
+// The dashboard's own window.AppConstants, read from src/constants.js so
+// specs build fixture timestamps from the same units the page uses.
+export const AppConstants = (() => {
+  const sandbox = { window: {} };
+  runInNewContext(readFileSync(join(__dirname, '..', 'src', 'constants.js'), 'utf-8'), sandbox);
+  return sandbox.window.AppConstants;
+})();
 export const fixture = JSON.parse(
   readFileSync(join(__dirname, 'fixtures', 'sample-trader.json'), 'utf-8')
 );
@@ -19,7 +28,6 @@ export const ROUTE_RULES = [
   { match: /\/v4\/addresses\/[^/?]+(?:\?|$)/,                       key: 'addressSubaccounts' },
   { match: /\/v4\/perpetualPositions[^?]*\?[^#]*status=OPEN/,       key: 'openPositions' },
   { match: /\/v4\/perpetualPositions[^?]*\?[^#]*status=CLOSED/,     key: 'closedPositions' },
-  { match: /\/v4\/orders\?/,                                        key: 'orders' },
   { match: /\/v4\/perpetualMarkets(?:\?|$)/,                        key: 'markets' },
   { match: /\/v4\/fills\?/,                                         key: 'fills' },
   { match: /\/v4\/fundingPayments\?/,                               key: 'fundingPayments' },

@@ -1,4 +1,4 @@
-"""Static file server for the Playwright specs.
+"""Static file server for the Playwright specs and `npm start`.
 
 Serves the repository root on the port given as the only argument.
 `python3 -m http.server` listens with a backlog of 5, so the parallel

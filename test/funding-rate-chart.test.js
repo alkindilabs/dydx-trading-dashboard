@@ -9,16 +9,8 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 globalThis.window = globalThis;
-
-// Stub the small window.* dependencies the modules touch on load.
-globalThis.AppConstants = {
-  MS_PER_DAY: 86_400_000,
-  MS_PER_HOUR: 3_600_000,
-  HOURS_PER_YEAR: 8760,
-  FUNDING_CHART_MAX_DAYS: 90,
-  TUNABLES: { ALWAYS_SHOW_TICKERS: ['BTC-USD', 'ETH-USD', 'SOL-USD'] }
-};
-globalThis.window.AppConstants = globalThis.AppConstants;
+require('../src/constants.js');
+const { MS_PER_DAY } = globalThis.window.AppConstants;
 
 // Chart, Format, AppDom, DydxApi only used at render/fetch time, NOT at
 // module load or in the helpers under test. Stub Chart as a no-op
@@ -71,11 +63,11 @@ const Market = globalThis.window.AppPanels.market;
 test('buildFundingBars: converts rate fraction to percent and filters by cutoff', () => {
   const now = Date.now();
   const rows = [
-    { effectiveAt: new Date(now - 5 * 86_400_000).toISOString(), rate: '0.0001' },   // in
-    { effectiveAt: new Date(now - 50 * 86_400_000).toISOString(), rate: '-0.00005' }, // out (older than 30d cutoff)
-    { effectiveAt: new Date(now - 1 * 86_400_000).toISOString(), rate: '0.0002' },    // in
+    { effectiveAt: new Date(now - 5 * MS_PER_DAY).toISOString(), rate: '0.0001' },   // in
+    { effectiveAt: new Date(now - 50 * MS_PER_DAY).toISOString(), rate: '-0.00005' }, // out (older than 30d cutoff)
+    { effectiveAt: new Date(now - 1 * MS_PER_DAY).toISOString(), rate: '0.0002' },    // in
   ];
-  const cutoff = now - 30 * 86_400_000;
+  const cutoff = now - 30 * MS_PER_DAY;
   const bars = FundingChart._internal.buildFundingBars(rows, cutoff);
   assert.equal(bars.length, 2);
   // Sorted ascending in time
@@ -108,9 +100,9 @@ test('buildFundingBars: empty input returns empty array', () => {
 test('buildPriceLine: parses close as number, sorts ascending', () => {
   const now = Date.now();
   const rows = [
-    { startedAt: new Date(now - 2 * 86_400_000).toISOString(), close: '3000.5' },
-    { startedAt: new Date(now - 1 * 86_400_000).toISOString(), close: '3050.0' },
-    { startedAt: new Date(now - 3 * 86_400_000).toISOString(), close: '2950.0' },
+    { startedAt: new Date(now - 2 * MS_PER_DAY).toISOString(), close: '3000.5' },
+    { startedAt: new Date(now - 1 * MS_PER_DAY).toISOString(), close: '3050.0' },
+    { startedAt: new Date(now - 3 * MS_PER_DAY).toISOString(), close: '2950.0' },
   ];
   const line = FundingChart._internal.buildPriceLine(rows, 0);
   assert.equal(line.length, 3);
@@ -123,11 +115,11 @@ test('buildPriceLine: parses close as number, sorts ascending', () => {
 test('buildPriceLine: drops rows older than cutoff and rows with invalid close', () => {
   const now = Date.now();
   const rows = [
-    { startedAt: new Date(now - 100 * 86_400_000).toISOString(), close: '100' }, // older than cutoff
-    { startedAt: new Date(now - 1 * 86_400_000).toISOString(),   close: 'NaN' }, // bad number
-    { startedAt: new Date(now - 1 * 86_400_000).toISOString(),   close: '200' }, // ok
+    { startedAt: new Date(now - 100 * MS_PER_DAY).toISOString(), close: '100' }, // older than cutoff
+    { startedAt: new Date(now - 1 * MS_PER_DAY).toISOString(),   close: 'NaN' }, // bad number
+    { startedAt: new Date(now - 1 * MS_PER_DAY).toISOString(),   close: '200' }, // ok
   ];
-  const cutoff = now - 30 * 86_400_000;
+  const cutoff = now - 30 * MS_PER_DAY;
   const line = FundingChart._internal.buildPriceLine(rows, cutoff);
   assert.equal(line.length, 1);
   assert.equal(line[0].y, 200);
@@ -138,7 +130,7 @@ test('buildPriceLine: drops rows older than cutoff and rows with invalid close',
 // ---------------------------------------------------------------------------
 
 test('pickAxisUnit: scales from hour → day → week with span', () => {
-  const day = 86_400_000;
+  const day = MS_PER_DAY;
   assert.equal(FundingChart._internal.pickAxisUnit(2 * day), 'hour');
   assert.equal(FundingChart._internal.pickAxisUnit(10 * day), 'hour'); // boundary exclusive
   assert.equal(FundingChart._internal.pickAxisUnit(11 * day), 'day');
@@ -182,4 +174,12 @@ test('pickDefaultTicker: falls back to first key alphabetically when ETH-USD mis
 test('pickDefaultTicker: returns null on empty marketsMap', () => {
   assert.equal(Market._internal.pickDefaultTicker([], {}), null);
   assert.equal(Market._internal.pickDefaultTicker([], null), null);
+});
+
+test('rateTickLabel takes its decimals from the tick step, not from the float noise in it', () => {
+    const { rateTickLabel } = window.AppCharts.fundingRate._internal;
+    // 0.01 − 0.009000000000000001 is 0.0009999999999999992: read raw, its
+    // log10 floors one decade too low and would print a fourth decimal.
+    const ticks = [{ value: 0.009000000000000001 }, { value: 0.01 }];
+    assert.equal(rateTickLabel(0.01, ticks), '0.010%');
 });

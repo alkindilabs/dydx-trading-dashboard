@@ -87,7 +87,7 @@
                     <span class="sep">·</span>
                     <span id="fetchCaptionTally">0/0</span>
                 </div>
-                <div id="dataAge" class="data-age" role="status" aria-live="polite" title="Data refreshes automatically every 10 minutes while the tab is visible." hidden>—</div>
+                <div id="dataAge" class="data-age" role="status" aria-live="polite" hidden>—</div>
             </div>
             <div id="fetchBar" class="fetch-bar" aria-hidden="true">
                 <div class="fetch-bar__track"></div>
@@ -127,7 +127,7 @@
                 <div class="metric-card metric-card--hero">
                     <div class="metric-label">Total Profit</div>
                     <div class="metric-value mono" id="totalPnL">-</div>
-                    <dl class="hero-ledger" id="totalPnLLedger" aria-label="Total profit composition">
+                    <dl class="hero-ledger" aria-label="Total profit composition">
                         <div class="hero-ledger__row">
                             <dt>Trading</dt>
                             <dd class="mono" id="totalPnLTrading">—</dd>
@@ -277,7 +277,7 @@
                         <tr><td title="Average $ loss on losing closed trades: fill-attributed profit (net of fees, excluding funding) summed over losers ÷ losing trade count. Rendered as a negative dollar figure.">Average Loss</td><td class="mono loss" id="avgLoss">-</td></tr>
                         <tr><td title="Payoff Ratio = avg win ÷ avg loss. Above 1 means winners are larger than losers. Pair with Win Rate: at this payoff you need WR ≥ 1 ÷ (1 + payoff) to break even.">Payoff Ratio</td><td class="mono" id="riskReward">-</td></tr>
                         <tr><td title="Trade Expectancy = average $ fill-attributed profit (net of fees, excluding funding) per decisive (non-scratch) closed trade. Above 0 = the system has positive edge; below 0 = each trade on average loses money.">Trade Expectancy</td><td class="mono" id="expectancy">-</td></tr>
-                        <tr><td id="recoveryFactorLabel" title="Recovery Factor = lifetime profit ÷ max drawdown. Above 5 = strong recovery; above 1 = made back the worst DD; below 1 = haven't recovered the worst DD; ≤ 0 = lifetime loss. Numerator and denominator come from the SAME P&L series.">Recovery Factor</td><td class="mono" id="recoveryFactor">-</td></tr>
+                        <tr><td title="Recovery Factor = lifetime profit ÷ max drawdown. Above 5 = strong recovery; above 1 = made back the worst DD; below 1 = haven't recovered the worst DD; ≤ 0 = lifetime loss. Numerator and denominator come from the SAME P&L series.">Recovery Factor</td><td class="mono" id="recoveryFactor">-</td></tr>
                     </table>
                 </article>
                 <article class="broadsheet-col">
@@ -534,7 +534,7 @@
 
         <!-- Market Structure Tab -->
         <div class="tab-content" id="market">
-            <section class="funding-hero" id="fundingHero" aria-label="Funding rate of return">
+            <section class="funding-hero" aria-label="Funding rate of return">
                 <header class="funding-hero__head">
                     <span class="funding-hero__eyebrow">Funding rate of return</span>
                     <div class="funding-hero__window" role="tablist" aria-label="Funding window">
@@ -579,11 +579,11 @@
                 </div>
             </div>
 
-            <section class="funding-chart" id="fundingChartSection" aria-label="Funding rate and price history">
+            <section class="funding-chart" aria-label="Funding rate and price history">
                 <header class="funding-chart__head">
                     <div class="funding-chart__title-block">
                         <div class="funding-chart__title">Funding Rate · Price History</div>
-                        <div class="funding-chart__sub" id="fundingChartSub">Hourly funding rate (bars) and close price (line). All-time window caps to last 90 days.</div>
+                        <div class="funding-chart__sub">Hourly funding rate (bars) and close price (line). All-time window caps to last <span id="fundingChartMaxDays">—</span> days.</div>
                     </div>
                     <div class="funding-chart__controls">
                         <label class="funding-chart__select-label" for="fundingChartTicker">Market</label>
@@ -610,8 +610,8 @@
                     <thead>
                         <tr>
                             <th>ASSET</th>
-                            <th title="Current funding rate, simple-annualized from the hourly rate (× 8760).">CURRENT (APR)</th>
-                            <th title="Predicted next-hour funding rate, simple-annualized (× 8760).">PREDICTED (APR)</th>
+                            <th title="Current funding rate, simple-annualized from the hourly rate (rate × hours in a year).">CURRENT (APR)</th>
+                            <th title="Predicted next-hour funding rate, simple-annualized (rate × hours in a year).">PREDICTED (APR)</th>
                             <th>RECEIVED</th>
                             <th>PAID</th>
                             <th>NET</th>
@@ -816,15 +816,6 @@
         document.querySelectorAll('.nav-tab').forEach(tab => {
             tab.addEventListener('click', function() {
                 activateTab(this.dataset.tab);
-            });
-        });
-
-        // Time selector functionality
-        document.querySelectorAll('.time-option').forEach(option => {
-            option.addEventListener('click', function() {
-                const parent = this.parentElement;
-                parent.querySelectorAll('.time-option').forEach(o => o.classList.remove('active'));
-                this.classList.add('active');
             });
         });
 
@@ -1037,20 +1028,26 @@
         // ago" caption under the masthead and the isStale() check that the
         // auto-refresh interval queries.
         const DataFreshness = (() => {
-            const REFRESH_INTERVAL_MS = 10 * 60 * 1000;
-            const TICK_INTERVAL_MS = 30 * 1000;
+            const { MS_PER_SEC, MS_PER_MIN, MINUTES_PER_HOUR, HOURS_PER_DAY } = window.AppConstants;
+            const REFRESH_INTERVAL_MS = 10 * MS_PER_MIN;
+            const TICK_INTERVAL_MS = 30 * MS_PER_SEC;
+            const JUST_NOW_MAX_MS = 45 * MS_PER_SEC;
+            const ONE_MIN_MAX_MS = 90 * MS_PER_SEC;
             const el = document.getElementById('dataAge');
             let lastFetchAt = 0;
             let tickTimer = null;
+            if (el) {
+                el.title = `Data refreshes automatically every ${REFRESH_INTERVAL_MS / MS_PER_MIN} minutes while the tab is visible.`;
+            }
 
             function formatAge(ms) {
-                if (ms < 45_000) return 'Updated just now';
-                if (ms < 90_000) return 'Updated 1m ago';
-                const mins = Math.round(ms / 60_000);
-                if (mins < 60) return `Updated ${mins}m ago`;
-                const hrs = Math.round(mins / 60);
-                if (hrs < 24) return `Updated ${hrs}h ago`;
-                const days = Math.round(hrs / 24);
+                if (ms < JUST_NOW_MAX_MS) return 'Updated just now';
+                if (ms < ONE_MIN_MAX_MS) return 'Updated 1m ago';
+                const mins = Math.round(ms / MS_PER_MIN);
+                if (mins < MINUTES_PER_HOUR) return `Updated ${mins}m ago`;
+                const hrs = Math.round(mins / MINUTES_PER_HOUR);
+                if (hrs < HOURS_PER_DAY) return `Updated ${hrs}h ago`;
+                const days = Math.round(hrs / HOURS_PER_DAY);
                 return `Updated ${days}d ago`;
             }
             function paint() {
@@ -1082,8 +1079,7 @@
             function isStale() {
                 return lastFetchAt > 0 && (Date.now() - lastFetchAt) > REFRESH_INTERVAL_MS;
             }
-            function lastFetch() { return lastFetchAt; }
-            return { mark, paint, setRefreshing, isStale, lastFetch, REFRESH_INTERVAL_MS };
+            return { mark, setRefreshing, isStale };
         })();
 
         // Banner used by the load handler and dashboard fetcher to surface
@@ -1186,22 +1182,16 @@
         } = window.DydxApi;
         const {
             ADDRESS_RE,
-            FETCH_TIMEOUT_MS,
-            HIST_PAGE_LIMIT, POS_PAGE_LIMIT, FILLS_PAGE_LIMIT, FUNDING_PAGE_LIMIT,
-            MS_PER_MIN, MS_PER_HOUR, MS_PER_DAY,
-            HOURS_PER_YEAR,
-            PERCENT,
-            CLIPBOARD_FLASH_MS,
-            TUNABLES
+            MS_PER_SEC, MS_PER_DAY, MONTHS_PER_YEAR,
+            PERCENT, POS_PAGE_LIMIT,
+            CLIPBOARD_FLASH_MS
         } = window.AppConstants;
 
         const {
-            formatCurrency, formatPercent, fmtNum, formatFundingApr, formatHourlyDetail,
-            formatPrice, fmtRatio, formatShortNumber, fmtNotional, fmtSignedPct,
-            fmtDateShort, signClass, breakevenVerdict
+            formatCurrency, formatPercent, fmtRatio, signClass, breakevenVerdict
         } = window.Format;
 
-        const { safeText, appendCell, tagCells, updateElement, updateMetric } = window.AppDom;
+        const { updateElement, updateMetric } = window.AppDom;
 
         let currentAddress = null;
         let allData = {};
@@ -1307,13 +1297,12 @@
             }
 
             // Single-page endpoints: openPositions are bounded (a subaccount
-            // can't hold thousands of OPEN positions concurrently), orders is
-            // a recent-only working set, subaccount is a single record,
-            // markets is a global catalog. They retry transient failures the
-            // same way every paginated page does. closedPositions, fills, funding,
-            // and historical-pnl all paginate to inception so every metric
-            // reads from the FULL trading journey rather than the latest
-            // window.
+            // can't hold thousands of OPEN positions concurrently),
+            // subaccount is a single record, markets is a global catalog.
+            // They retry transient failures the same way every paginated
+            // page does. closedPositions, fills, funding, and historical-pnl
+            // all paginate to inception so every metric reads from the FULL
+            // trading journey rather than the latest window.
             const SINGLE_PAGE = [
                 ['subaccount',    `${DYDX_API}/addresses/${encodedAddress}/subaccountNumber/0`],
                 // Enumerate every subaccount on this address. Dashboard
@@ -1322,8 +1311,7 @@
                 // they would be invisible to every per-stream calculation.
                 // Used by the per-fetch isolated-margin guard in processData.
                 ['addressSubaccounts', `${DYDX_API}/addresses/${encodedAddress}`],
-                ['openPositions', `${DYDX_API}/perpetualPositions?address=${encodedAddress}&subaccountNumber=0&status=OPEN&limit=100`],
-                ['orders',        `${DYDX_API}/orders?address=${encodedAddress}&subaccountNumber=0&limit=1000`],
+                ['openPositions', `${DYDX_API}/perpetualPositions?address=${encodedAddress}&subaccountNumber=0&status=OPEN&limit=${POS_PAGE_LIMIT}`],
                 ['markets',       `${DYDX_API}/perpetualMarkets`]
             ];
             const onPageProgress = (label, page) => FetchProgress.update(label, page);
@@ -1601,8 +1589,8 @@
             // realized+unrealized cumulative trading P&L per timestamp. It
             // captures unrealized peaks the closed-trade ledger cannot see
             // (e.g. a large open profit that was later given back). Falls
-            // back to the trade-system ledger only when historical-pnl is
-            // unavailable.
+            // back to the trade-system ledger when historical-pnl gives no
+            // positive drawdown (missing, empty or monotonic series).
             const histDD = window.RiskMetrics.histPnlDrawdown(histArr);
             const tsd = histDD.dollarDrawdown > 0
                 ? histDD
@@ -1860,6 +1848,8 @@
             // All-time risk ratios + Calmar + VaR/CVaR + monthly tables.
             // Sync — historical-pnl is already loaded by loadDashboard().
             (function renderRiskRatios() {
+                const HOURLY_MIN_PPY = 8000;
+                const DAILY_MIN_PPY = 300;
                 const setRatioNA = (note = 'Insufficient data') => {
                     updateElement('sharpeRatio', '—');
                     updateElement('sortinoRatio', '—');
@@ -1921,7 +1911,7 @@
                 updateElement('sharpeRatio', fmtRatio(ann.sharpeAnnualized));
                 updateElement('sortinoRatio', fmtRatio(ann.sortinoAnnualized));
 
-                const perText = adq.ppy > 8000 ? 'hourly' : adq.ppy > 300 ? 'daily' : 'periodic';
+                const perText = adq.ppy > HOURLY_MIN_PPY ? 'hourly' : adq.ppy > DAILY_MIN_PPY ? 'daily' : 'periodic';
                 const sharpeMeta = document.getElementById('sharpeMeta');
                 const sortinoMeta = document.getElementById('sortinoMeta');
                 const metaText = `Time-weighted · ${perText} · n=${rets.length} ⓘ`;
@@ -1929,7 +1919,7 @@
 MAR: 0
 Returns: time-weighted (pnlΔ / equity_{t-1}); deposits/withdrawals excluded.
 Annualized assuming IID returns — ignores autocorrelation.
-Sample: ${rets.length} returns over ${(adq.years*12).toFixed(1)} months (${(adq.coverage*100).toFixed(0)}% coverage).`;
+Sample: ${rets.length} returns over ${(adq.years*MONTHS_PER_YEAR).toFixed(1)} months (${(adq.coverage*PERCENT).toFixed(0)}% coverage).`;
                 if (sharpeMeta) { sharpeMeta.textContent = metaText; sharpeMeta.title = tipBase + '\nDenominator: standard deviation (σ)'; }
                 if (sortinoMeta) { sortinoMeta.textContent = metaText; sortinoMeta.title = tipBase + '\nDenominator: downside deviation (target semi-deviation over all periods)'; }
 
@@ -2058,8 +2048,8 @@ Sample: ${rets.length} returns over ${(adq.years*12).toFixed(1)} months (${(adq.
             window.AppPanels.market.render(payments, marketsMap);
         }
         // Reentrance guard + auto-refresh orchestrator. loadDashboard runs
-        // on page load AND on a 30s tick (or visibility resume) once the
-        // freshness clock crosses REFRESH_INTERVAL_MS. The guard prevents a
+        // on page load AND on every REFRESH_POLL_MS tick (or visibility
+        // resume) once DataFreshness reports the snapshot stale. The guard prevents a
         // manual reload from racing with the interval, which would double
         // the indexer load and double-paint the dashboard.
         let isFetching = false;
@@ -2084,7 +2074,7 @@ Sample: ${rets.length} returns over ${(adq.years*12).toFixed(1)} months (${(adq.
                 DataFreshness.setRefreshing(false);
             }
         }
-        const REFRESH_POLL_MS = 30 * 1000;
+        const REFRESH_POLL_MS = 30 * MS_PER_SEC;
         function maybeAutoRefresh() {
             if (!currentAddress) return;
             if (document.visibilityState !== 'visible') return;
@@ -2103,7 +2093,7 @@ Sample: ${rets.length} returns over ${(adq.years*12).toFixed(1)} months (${(adq.
                 activateTab('overview');
             }
             window.AppPanels.market.initToggle(() => {
-                if (typeof allData !== 'undefined' && allData) {
+                if (allData) {
                     const payments = (allData.fundingPayments && (allData.fundingPayments.fundingPayments || [])) || [];
                     const marketsMap = extractMarketsMap(allData.markets);
                     window.AppPanels.market.render(payments, marketsMap);

@@ -134,9 +134,9 @@ test('evictOnce step 2 trims historicalPnl with nested {historicalPnl: [...]} wr
     const packed = { v: 1, address: 'a', fetchedAt: 0, data: { historicalPnl: { historicalPnl: arr } } };
     const out = Internal.evictOnce(packed, 2);
     assert.ok(out);
-    assert.equal(out.data.historicalPnl.historicalPnl.length, Internal.HISTORICAL_PNL_TRIM);
+    assert.equal(out.data.historicalPnl.historicalPnl.length, Cache.HISTORICAL_PNL_TRIM);
     // Last row preserved (we keep the most recent rows for the chart).
-    assert.equal(out.data.historicalPnl.historicalPnl[Internal.HISTORICAL_PNL_TRIM - 1].totalPnl, '5999');
+    assert.equal(out.data.historicalPnl.historicalPnl[Cache.HISTORICAL_PNL_TRIM - 1].totalPnl, '5999');
 });
 
 test('evictOnce step 2 trims historicalPnl with plain array shape', () => {
@@ -144,8 +144,8 @@ test('evictOnce step 2 trims historicalPnl with plain array shape', () => {
     const packed = { v: 1, address: 'a', fetchedAt: 0, data: { historicalPnl: arr } };
     const out = Internal.evictOnce(packed, 2);
     assert.ok(out);
-    assert.equal(out.data.historicalPnl.length, Internal.HISTORICAL_PNL_TRIM);
-    assert.equal(out.data.historicalPnl[Internal.HISTORICAL_PNL_TRIM - 1], 5999);
+    assert.equal(out.data.historicalPnl.length, Cache.HISTORICAL_PNL_TRIM);
+    assert.equal(out.data.historicalPnl[Cache.HISTORICAL_PNL_TRIM - 1], 5999);
 });
 
 test('evictOnce step 2 is a no-op when historicalPnl already <= trim limit', () => {

@@ -3,7 +3,8 @@
 // so the user's window preference survives reloads.
 //
 // Depends on: window.AppConstants (TUNABLES.ALWAYS_SHOW_TICKERS,
-// HOURS_PER_YEAR, MS_PER_HOUR, MS_PER_DAY), window.Format (formatCurrency,
+// HOURS_PER_YEAR, HOURS_PER_DAY, MS_PER_MIN, MS_PER_HOUR, MS_PER_DAY,
+// PERCENT, FUNDING_CHART_MAX_DAYS), window.Format (formatCurrency,
 // fmtNotional, fmtSignedPct, fmtDateShort, formatFundingApr,
 // fundingAprClass, formatHourlyDetail, signClass), window.AppDom
 // (updateElement, appendCell, tagCells).
@@ -12,13 +13,15 @@
   'use strict';
 
   const FUNDING_WINDOW_KEY = 'fundingWindow';
+  const FUNDING_WINDOWS = ['7', '30', '90', 'all'];
+  const DEFAULT_FUNDING_WINDOW = '30';
 
   function getFundingWindowDays() {
     try {
       const v = localStorage.getItem(FUNDING_WINDOW_KEY);
-      if (v === '7' || v === '30' || v === '90' || v === 'all') return v;
+      if (FUNDING_WINDOWS.includes(v)) return v;
     } catch (e) {}
-    return '30';
+    return DEFAULT_FUNDING_WINDOW;
   }
 
   function getFundingCutoff() {
@@ -76,7 +79,7 @@
     const windowKey = getFundingWindowDays();
     const windowHours = windowKey === 'all'
       ? Math.max(1, (Date.now() - periodStart) / C.MS_PER_HOUR)
-      : parseInt(windowKey, 10) * 24;
+      : parseInt(windowKey, 10) * C.HOURS_PER_DAY;
     const capitalTurns = (avgNotional > 0) ? notionalHours / (avgNotional * windowHours) : 0;
 
     return { apr, net, received, paid, avgNotional, hoursDeployed,
@@ -85,6 +88,7 @@
   }
 
   function renderFundingHero(metrics) {
+    const C = window.AppConstants;
     const F = window.Format;
     const D = window.AppDom;
     const apr = document.getElementById('fundingApr');
@@ -97,7 +101,7 @@
       return;
     }
 
-    apr.textContent = F.fmtSignedPct(metrics.apr * 100, 2);
+    apr.textContent = F.fmtSignedPct(metrics.apr * C.PERCENT, 2);
     apr.classList.toggle('profit', metrics.apr > 0);
     apr.classList.toggle('loss', metrics.apr < 0);
 
@@ -108,7 +112,7 @@
     D.updateElement('fundingAvgNotional', F.fmtNotional(metrics.avgNotional));
     D.updateElement('fundingHoursDeployed',
       `${metrics.hoursDeployed} / ${Math.round(metrics.windowHours)} h`);
-    D.updateElement('fundingHourlyRate', F.fmtSignedPct(metrics.hourlyRate * 100, 5));
+    D.updateElement('fundingHourlyRate', F.fmtSignedPct(metrics.hourlyRate * C.PERCENT, 5));
     D.updateElement('fundingCapitalTurns',
       isFinite(metrics.capitalTurns) ? `${metrics.capitalTurns.toFixed(2)}×` : '—');
   }
@@ -199,7 +203,7 @@
   // the freshness window. Refetch is triggered by: picker change, tab
   // re-activation when stale, or explicit consumer call.
 
-  const CHART_FRESH_TTL_MS = 10 * 60 * 1000;
+  const CHART_FRESH_TTL_MS = 10 * window.AppConstants.MS_PER_MIN;
   const PRICE_OVERLAY_UNAVAILABLE = 'Price overlay unavailable: candles failed to load';
 
   const ChartState = {
@@ -361,7 +365,7 @@
     const C = window.AppConstants;
     const maxDays = C.FUNDING_CHART_MAX_DAYS;
     const fromMs = Date.now() - maxDays * C.MS_PER_DAY;
-    const maxRows = maxDays * 24; // 1-hour cadence; +1 page slack handled by paginator
+    const maxRows = maxDays * C.HOURS_PER_DAY; // +1 page slack handled by paginator
     // allSettled so a candles outage doesn't sink the whole chart.
     // Funding rate is the load-bearing signal; price is contextual
     // overlay. If funding fails, we treat the fetch as failed (caller
@@ -467,10 +471,13 @@
     }
   }
 
-  // Window-toggle pills. Takes a no-arg rerender callback so the panel
+  // Window-toggle pills, plus the chart caption stating how far back the
+  // All pill reaches. Takes a no-arg rerender callback so the panel
   // module does not have to reach back into the inline orchestration's
   // allData state.
   function initToggle(rerender) {
+    window.AppDom.updateElement('fundingChartMaxDays',
+      String(window.AppConstants.FUNDING_CHART_MAX_DAYS));
     const pills = document.querySelectorAll('.funding-hero__pill');
     if (!pills.length) return;
     const active = getFundingWindowDays();
@@ -488,9 +495,6 @@
   window.AppPanels.market = {
     render,
     initToggle,
-    getFundingWindowDays,
-    getFundingCutoff,
-    getFundingWindowLabel,
     ensureChartLoaded,
     invalidateChartCache,
     _internal: { pickDefaultTicker }

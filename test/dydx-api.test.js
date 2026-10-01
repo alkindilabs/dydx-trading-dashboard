@@ -12,13 +12,12 @@ globalThis.window = globalThis;
 require('../src/constants.js');
 require('../src/dydx-api.js');
 const Api = globalThis.window.DydxApi;
-const { FILLS_PAGE_LIMIT, HISTORICAL_FUNDING_PAGE_LIMIT, CANDLES_PAGE_LIMIT, CANDLES_MAX_PAGES } = globalThis.window.AppConstants;
+const { FILLS_PAGE_LIMIT, HISTORICAL_FUNDING_PAGE_LIMIT, CANDLES_PAGE_LIMIT, CANDLES_MAX_PAGES, MS_PER_HOUR } = globalThis.window.AppConstants;
 
 const HTTP_OK = 200;
 const HTTP_SERVER_ERROR = 500;
 const ADDRESS = 'dydx1testaddress';
 const INCEPTION_MS = Date.parse('2025-01-01T00:00:00Z');
-const MS_PER_HOUR = 3_600_000;
 
 function jsonResponse(body) {
     return new Response(JSON.stringify(body), {
@@ -166,23 +165,70 @@ function candleRow(hoursBeforeInception) {
     };
 }
 
-test('fetchCandles retry logs name the candles endpoint, not the request URL', async () => {
+function abortedByTimeout() {
+    throw new DOMException('The operation was aborted.', 'AbortError');
+}
+
+async function captureRetryLogs(body) {
     const debugLines = [];
     const originalDebug = console.debug;
     console.debug = (...args) => { debugLines.push(args.join(' ')); };
     try {
-        await withFetch(
-            (_url, attempt) => (attempt === 1 ? serverError() : jsonResponse({ candles: [candleRow(0)] })),
-            async () => {
-                await Api.fetchCandles('ETH-USD', '1HOUR', { fromMs: 0 });
-            }
-        );
+        await body();
     } finally {
         console.debug = originalDebug;
     }
+    return debugLines;
+}
+
+test('fetchCandles retry log after an HTTP error names the candles endpoint, not the request URL', async () => {
+    const debugLines = await captureRetryLogs(() => withFetch(
+        (_url, attempt) => (attempt === 1 ? serverError() : jsonResponse({ candles: [candleRow(0)] })),
+        () => Api.fetchCandles('ETH-USD', '1HOUR', { fromMs: 0 })
+    ));
     assert.equal(debugLines.length, 1, `one retry expected, got: ${JSON.stringify(debugLines)}`);
     assert.ok(debugLines[0].startsWith('[candles:ETH-USD] retry 1/'), debugLines[0]);
+    assert.ok(debugLines[0].includes(`HTTP ${HTTP_SERVER_ERROR}`), debugLines[0]);
     assert.ok(!debugLines[0].includes(Api.BASE), `retry log must not carry the URL: ${debugLines[0]}`);
+});
+
+test('fetchAllFills retry log after a timeout names the fills endpoint, not the address-bearing URL', async () => {
+    const chainOrder = [fillRow(0)];
+    const servePage = pagedFills(chainOrder);
+    const debugLines = await captureRetryLogs(() => withFetch(
+        (url, attempt) => (attempt === 1 ? abortedByTimeout() : servePage(url)),
+        () => Api.fetchAllFills(ADDRESS)
+    ));
+    assert.equal(debugLines.length, 1, `one retry expected, got: ${JSON.stringify(debugLines)}`);
+    assert.ok(debugLines[0].startsWith('[fills] retry 1/'), debugLines[0]);
+    assert.ok(/timeout/i.test(debugLines[0]), debugLines[0]);
+    assert.ok(!debugLines[0].includes(Api.BASE), `retry log must not carry the URL: ${debugLines[0]}`);
+    assert.ok(!debugLines[0].includes(ADDRESS), `retry log must not carry the address: ${debugLines[0]}`);
+});
+
+test('fetchJsonWithRetry retry log without a label does not fall back to the request URL', async () => {
+    const url = `${Api.BASE}/addresses/${ADDRESS}`;
+    const debugLines = await captureRetryLogs(() => withFetch(
+        (_url, attempt) => (attempt === 1 ? serverError() : jsonResponse({})),
+        () => Api.fetchJsonWithRetry(url)
+    ));
+    assert.equal(debugLines.length, 1, `one retry expected, got: ${JSON.stringify(debugLines)}`);
+    assert.match(debugLines[0], /^\[[^\]]+\] retry 1\//, 'an unlabelled call still names an endpoint');
+    assert.ok(!debugLines[0].includes(ADDRESS), `retry log must not carry the address: ${debugLines[0]}`);
+});
+
+test('retry log after a network error describes it without the error message, which carries the URL', async () => {
+    const url = `${Api.BASE}/addresses/${ADDRESS}`;
+    const debugLines = await captureRetryLogs(() => withFetch(
+        (_url, attempt) => {
+            if (attempt === 1) throw new TypeError(`Failed to fetch ${url}`);
+            return jsonResponse({});
+        },
+        () => Api.fetchJsonWithRetry(url, { label: 'subaccount' })
+    ));
+    assert.equal(debugLines.length, 1, `one retry expected, got: ${JSON.stringify(debugLines)}`);
+    assert.ok(debugLines[0].includes('network error'), debugLines[0]);
+    assert.ok(!debugLines[0].includes(ADDRESS), `retry log must not carry the address: ${debugLines[0]}`);
 });
 
 test('fetchCandles stops at CANDLES_MAX_PAGES when the caller sets no page cap', async () => {

@@ -1,18 +1,22 @@
 // Performance tab + per-trade Sharpe fallback + histogram primitive.
-// Six exports under window.AppPanels.performance:
+// Four exports under window.AppPanels.performance:
 //
-//   renderHistogram         — generic SVG-free bar chart primitive used by
-//                             distribution displays (win/loss returns,
-//                             hold time, size).
 //   renderMetrics           — top-of-tab KPI cards + WL distribution.
 //   renderTables            — Monthly Performance + Performance-by-Asset
 //                             tables.
 //   renderTradeBasedRatios  — per-trade Sharpe/Sortino/Calmar fallback
 //                             surface (called from risk-ratios IIFE when
 //                             the time-series adequacy gate fails).
-//   computeTradeBasedMetrics, computeAnnualizedTradeSharpe — pure helpers
-//                             over a classifyClosed result; both build
-//                             their returns and annualization factor with
+//   computeTradeBasedMetrics — pure helper over a classifyClosed result.
+//
+// Module-private helpers:
+//
+//   renderHistogram         — generic SVG-free bar chart primitive used by
+//                             distribution displays (win/loss returns,
+//                             hold time, size).
+//   computeAnnualizedTradeSharpe — per-asset Sharpe column. It and
+//                             computeTradeBasedMetrics build their returns
+//                             and annualization factor with
 //                             tradeReturnSample, so the ratios card and
 //                             the asset-Sharpe column can never adopt
 //                             different definitions.
@@ -512,11 +516,9 @@ Small-N caveat: standard error widens; not a forward-Sharpe forecast.`;
 
   window.AppPanels = window.AppPanels || {};
   window.AppPanels.performance = {
-    renderHistogram,
     renderMetrics,
     renderTables,
     renderTradeBasedRatios,
-    computeTradeBasedMetrics,
-    computeAnnualizedTradeSharpe
+    computeTradeBasedMetrics
   };
 })();

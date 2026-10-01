@@ -1630,9 +1630,12 @@ test('computeSharpe returns null on zero variance (constant returns)', () => {
     assert.equal(RM.computeSharpe(null), null);
 });
 
-test('computeSharpe returns finite ratio when returns have variance', () => {
+test('computeSharpe is mean over sample standard deviation', () => {
+    // mean = 0.03 / 5 = 0.006; squared deviations 1.96e-4 + 2.56e-4 +
+    // 5.76e-4 + 6.76e-4 + 0.16e-4 = 1.72e-3; sample variance = 1.72e-3 / 4
+    // = 4.3e-4; Sharpe = 0.006 / √4.3e-4 ≈ 0.289346.
     const s = RM.computeSharpe([0.02, -0.01, 0.03, -0.02, 0.01]);
-    assert.ok(typeof s === 'number' && isFinite(s), `expected finite, got ${s}`);
+    assert.ok(close(s, 0.289346, 1e-6), `expected ≈ 0.289346, got ${s}`);
 });
 
 test('computeSortino returns Infinity when mean > 0 and no downside variance', () => {
@@ -1644,9 +1647,11 @@ test('computeSortino returns null when downside variance = 0 and mean ≤ 0', ()
     assert.equal(RM.computeSortino([0, 0, 0]), null);
 });
 
-test('computeSortino returns finite ratio when downside variance > 0', () => {
+test('computeSortino divides downside variance by every period, not by the losing ones', () => {
+    // mean = -0.01 / 4 = -0.0025; downside squares 9e-4 + 1e-4 = 1e-3 over
+    // N = 4 periods gives 2.5e-4; Sortino = -0.0025 / √2.5e-4 ≈ -0.158114.
     const s = RM.computeSortino([0.02, -0.03, 0.01, -0.01]);
-    assert.ok(typeof s === 'number' && isFinite(s), `expected finite, got ${s}`);
+    assert.ok(close(s, -0.158114, 1e-6), `expected ≈ -0.158114, got ${s}`);
 });
 
 // ---------------------------------------------------------------------------
@@ -1692,7 +1697,7 @@ test('computeTimeWeightedReturnsFromHist isolates pnlDelta (transfers ignored)',
 });
 
 // ---------------------------------------------------------------------------
-// computeAnnualizedFromReturns / FromHistoricalPnl — ppy detection +
+// computeAnnualizedFromReturns — ppy detection +
 // √ppy annualization.
 // ---------------------------------------------------------------------------
 
@@ -1703,18 +1708,6 @@ test('computeAnnualizedFromReturns annualizes by √ppy', () => {
     assert.ok(out.ppy > 350 && out.ppy < 370, `daily ppy ≈ 365.25, got ${out.ppy}`);
     const factor = Math.sqrt(out.ppy);
     assert.ok(close(out.sharpeAnnualized, out.sharpe * factor, 1e-6));
-});
-
-test('computeAnnualizedFromHistoricalPnl integrates the full pipeline', () => {
-    const rows = [
-        { createdAt: '2025-01-01T00:00:00Z', equity: '1000', totalPnl: '0' },
-        { createdAt: '2025-01-02T00:00:00Z', equity: '1010', totalPnl: '10' },
-        { createdAt: '2025-01-03T00:00:00Z', equity: '1005', totalPnl: '5' },
-        { createdAt: '2025-01-04T00:00:00Z', equity: '1030', totalPnl: '30' }
-    ];
-    const out = RM.computeAnnualizedFromHistoricalPnl(rows);
-    assert.equal(out.returns.length, 3);
-    assert.ok(typeof out.ppy === 'number' && out.ppy > 0);
 });
 
 // ---------------------------------------------------------------------------
@@ -1867,7 +1860,8 @@ test('liquidationRow tolerates empty marketsMap (uses position entryPrice fallba
 // ---------------------------------------------------------------------------
 // classifyClosed derived fields — pin the single-source-of-truth contract
 // for winRate / profitFactor / avgWin / avgLoss / expectancy. Consumers
-// MUST use these instead of recomputing inline (CLAUDE.md M4 rule).
+// MUST use these instead of recomputing inline (see the 'Metric
+// Definitions (single source of truth)' section).
 // ---------------------------------------------------------------------------
 
 test('classifyClosed derived fields: winRate, profitFactor, avgWin, avgLoss, expectancy', () => {

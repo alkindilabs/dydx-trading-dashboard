@@ -8,9 +8,9 @@
  *
  * Network is defensive: every request is try/catch'd, has a hard
  * AbortController timeout so a stalled third-party request cannot leave
- * the Tax tab stuck on "Fetching ECB rates…", and writeCache re-reads
- * fresh state before persisting so a slower concurrent caller cannot
- * clobber a faster caller's rates. Callers always receive a
+ * the Tax tab stuck on "Fetching ECB rates…", and mergeAndWriteCache
+ * re-reads fresh state before persisting so a slower concurrent caller
+ * cannot clobber a faster caller's rates. Callers always receive a
  * `{rates, missing}` payload; no throws bubble up.
  *
  * Depends on: window.AppConstants (MS_PER_DAY), read at load time.
@@ -255,45 +255,15 @@
         return result;
     }
 
-    // Year-warming convenience. `ok` distinguishes a successful empty
-    // result (range entirely outside business-day data) from an outage,
-    // since `missing` is unsuitable here — getRatesForYear is not
-    // called with a specific date list and has no way to enumerate
-    // which dates should have been present. Invalid input returns
-    // `ok: true` so callers don't treat malformed years as outages.
-    // Validation rejects partially-numeric strings (`2024abc`,
-    // `2024.5`) that parseInt would silently accept — those are
-    // caller bugs, not outages.
-    async function getRatesForYear(year) {
-        const isNumeric = typeof year === 'number'
-            ? Number.isInteger(year)
-            : (typeof year === 'string' && /^-?\d+$/.test(year));
-        const y = isNumeric ? parseInt(year, 10) : NaN;
-        if (!Number.isInteger(y) || y < 1999) {
-            return { rates: {}, missing: [], ok: true };
-        }
-        const start = `${y}-01-01`;
-        const end = `${y}-12-31`;
-        const ts = await fetchTimeseries(start, end);
-        if (Object.keys(ts.rates).length) mergeAndWriteCache(ts.rates);
-        return { rates: Object.assign({}, ts.rates), missing: [], ok: ts.ok };
-    }
-
     function clear() {
         const storage = getStorage();
         if (!storage) return;
         try { storage.removeItem(STORAGE_KEY); } catch (_) {}
     }
 
-    function peek() {
-        return readCache();
-    }
-
     window.FxRates = {
         getRates,
-        getRatesForYear,
         clear,
-        peek,
         _internal: {
             setTimeoutMs: (ms) => {
                 if (Number.isFinite(ms) && ms > 0) REQUEST_TIMEOUT_MS = ms;

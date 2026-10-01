@@ -4,8 +4,8 @@
   "description": "Trading analytics dashboard for dYdX v4",
   "main": "index.html",
   "scripts": {
-    "start": "python3 -m http.server 8000",
-    "dev": "python3 -m http.server 8000",
+    "start": "python3 test/static-server.py 8000",
+    "dev": "npm start",
     "test": "node --test test/*.test.js",
     "test:e2e": "playwright test",
     "cf:dev": "CLOUDFLARE_API_TOKEN=\"$CLOUDFLARE_ALKINDI_API_TOKEN\" wrangler dev",
@@ -28,7 +28,7 @@
     "url": "https://github.com/alkindilabs/dydx-trading-dashboard"
   },
   "devDependencies": {
-    "@playwright/test": "^1.60.0",
-    "wrangler": "^3.91.0"
+    "@playwright/test": "1.60.0",
+    "wrangler": "3.114.17"
   }
 }

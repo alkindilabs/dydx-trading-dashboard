@@ -12,11 +12,9 @@
 // `PortfolioCache._internal` for unit testing without LZString or
 // localStorage. The browser path also calls those helpers internally.
 //
-// Eviction order on QuotaExceededError (largest payloads first):
-//   1. fills
-//   2. fundingPayments
-//   3. historicalPnl trimmed to last HISTORICAL_PNL_TRIM rows
-//   4. closedPositions
+// Eviction on QuotaExceededError follows EVICTION_ORDER (largest
+// payloads first); the historicalPnl step trims to the last
+// HISTORICAL_PNL_TRIM rows instead of dropping the field.
 ;(function () {
     'use strict';
 
@@ -25,6 +23,8 @@
     const HISTORICAL_PNL_TRIM = 5000;
     const TRIMMED_STEP = 'historicalPnl';
     const EVICTION_ORDER = ['fills', 'fundingPayments', TRIMMED_STEP, 'closedPositions'];
+    // Legacy DOMException codes for a full quota (WebKit/Blink, Firefox).
+    const QUOTA_EXCEEDED_CODES = [22, 1014];
 
     function pack(address, data) {
         return {
@@ -84,7 +84,7 @@
         if (!e) return false;
         if (e.name === 'QuotaExceededError') return true;
         if (e.name === 'NS_ERROR_DOM_QUOTA_REACHED') return true;
-        if (e.code === 22 || e.code === 1014) return true;
+        if (QUOTA_EXCEEDED_CODES.includes(e.code)) return true;
         return false;
     }
 
@@ -214,7 +214,7 @@
         KEY,
         SCHEMA_VERSION,
         HISTORICAL_PNL_TRIM,
-        _internal: { pack, unpack, evictOnce, isQuotaError, EVICTION_ORDER, HISTORICAL_PNL_TRIM }
+        _internal: { pack, unpack, evictOnce }
     };
 
     if (typeof window !== 'undefined') {

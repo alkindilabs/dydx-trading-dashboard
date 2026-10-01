@@ -27,6 +27,9 @@ Thumbs.db
 .claude/
 .playwright-mcp/
 *.png
+*.jpg
+*.jpeg
+*.webp
 
 # Personal data
 *research*
