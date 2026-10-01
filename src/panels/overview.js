@@ -1,23 +1,25 @@
 // Overview tab: Strategy Edge phase diagram + Total Profit ledger.
-// The Kelly criterion sub-IIFE inside renderFromAllData still lives in
-// the inline block — it has tight closure over the classifier output and
-// will move when process-data is extracted in Phase 2's final PR.
+// The Kelly criterion renderer (renderKelly) stays inline in processData()
+// in index.html because it closes over processData's locals (the
+// classifier output).
 //
-// Depends on: window.Format (formatCurrency, signClass, esc).
+// Depends on: window.Format (formatCurrency, signClass, esc),
+// window.AppConstants (PERCENT).
 
 (function () {
   'use strict';
 
+  const { PERCENT } = window.AppConstants;
+
   // --- Strategy Edge phase diagram ---
 
-  const SE_VIEW = { w: 640, h: 600 };
   const SE_PLOT = { x0: 80, x1: 600, y0: 40, y1: 540 };
   const SE_PF_MIN = 0.25;
   const SE_PF_MAX = 4.0;
   const SE_LOG_RANGE = Math.log(SE_PF_MAX) - Math.log(SE_PF_MIN);
 
   function seWrToX(wr) {
-    const t = Math.max(0, Math.min(100, wr)) / 100;
+    const t = Math.max(0, Math.min(PERCENT, wr)) / PERCENT;
     return SE_PLOT.x0 + t * (SE_PLOT.x1 - SE_PLOT.x0);
   }
   function sePfToY(pf) {
@@ -32,7 +34,7 @@
       const wr = 0.005 + (i / 200) * 0.99;
       const pf = (wr * rr) / (1 - wr);
       if (!isFinite(pf) || pf < SE_PF_MIN / 4 || pf > SE_PF_MAX * 4) continue;
-      const x = seWrToX(wr * 100);
+      const x = seWrToX(wr * PERCENT);
       const y = sePfToY(pf);
       if (y < SE_PLOT.y0 - 4 || y > SE_PLOT.y1 + 4) continue;
       pts.push([x, y]);
@@ -151,7 +153,7 @@
     const isoCurves = ISO.map(({ rr, label, labelAtWR }) => {
       const d = seIsoRRPath(rr);
       if (!d) return '';
-      const wrFrac = labelAtWR / 100;
+      const wrFrac = labelAtWR / PERCENT;
       const pfAt = (wrFrac * rr) / (1 - wrFrac);
       const lx = seWrToX(labelAtWR);
       let ly = sePfToY(pfAt) - 6;

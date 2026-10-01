@@ -12,6 +12,7 @@ const TRANSIENT_FAILURES = 2;
 const EVICTED_FIELDS = ['fills', 'fundingPayments'];
 
 const FIRST_PAGE = '1';
+const ORDERS_PATH = '/v4/orders';
 
 // A full first page of /fills, so the page-mode walk asks for a second one.
 function fullFillsPage(limit) {
@@ -59,6 +60,23 @@ test.describe('fetch status', () => {
     await expect(page.locator('#statusBadge')).toHaveText('FRESH');
     await expect(page.locator('#loadErrorBanner')).toBeHidden();
     expect(openPositionsRequests).toBe(TRANSIENT_FAILURES + 1);
+  });
+
+  test('a full load never requests /orders and caches no orders', async ({ page }) => {
+    const ordersRequests = [];
+    page.on('request', (request) => {
+      if (new URL(request.url()).pathname === ORDERS_PATH) ordersRequests.push(request.url());
+    });
+    await page.route(INDEXER_URL, serveFixture);
+
+    await page.goto(`/?address=${ADDRESS}`);
+
+    await expect(page.locator('#dataAge')).toBeVisible();
+    await expect(page.locator('#statusBadge')).toHaveText('FRESH');
+    expect(ordersRequests).toEqual([]);
+    const cached = await page.evaluate((address) => window.PortfolioCache.read(address), ADDRESS);
+    expect(cached, 'a load with every endpoint answering must write the cache').not.toBeNull();
+    expect(Object.keys(cached)).not.toContain('orders');
   });
 
   test('a fills page failing mid-walk marks the load partial, blanks the profit headline, skips the cache write, without reflow', async ({ page }) => {
@@ -113,7 +131,6 @@ test.describe('fetch status', () => {
         subaccount: fixture.subaccount,
         addressSubaccounts: fixture.addressSubaccounts,
         openPositions: fixture.openPositions,
-        orders: fixture.orders,
         markets: fixture.markets,
         closedPositions: fixture.closedPositions,
         historicalPnl: fixture.historicalPnl,

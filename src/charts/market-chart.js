@@ -2,7 +2,7 @@
 // Chart.js instance + HTML legend (Chart.js native legend was clipped /
 // low-contrast against the dark palette).
 //
-// Depends on: Chart (CDN), window.AppConstants (TUNABLES.TOP_MARKETS),
+// Depends on: Chart (CDN), window.AppConstants (TUNABLES.TOP_MARKETS, PERCENT),
 // window.Format (formatCurrency).
 
 (function () {
@@ -92,7 +92,7 @@
       legendEl.innerHTML = '';
       const total = data.reduce((a, b) => a + b, 0);
       sortedMarkets.forEach(([market, md], i) => {
-        const pct = total > 0 ? ((md.tradeCount / total) * 100).toFixed(1) : '0.0';
+        const pct = total > 0 ? ((md.tradeCount / total) * window.AppConstants.PERCENT).toFixed(1) : '0.0';
         const item = document.createElement('span');
         item.className = 'market-legend-item';
         const swatch = document.createElement('span');

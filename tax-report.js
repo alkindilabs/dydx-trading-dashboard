@@ -366,7 +366,7 @@
 
     // Pre-group fills by market AND pre-compute the per-market overlap
     // set in a single pass each. Within each market, fills are sorted
-    // by createdAtMs once and per-position window slicing uses binary
+    // by parsed createdAt (ms) once and per-position window slicing uses binary
     // search for the lower/upper bounds, so per-row work stays
     // O(log marketFills + windowSize) instead of O(marketFills). For
     // accounts with thousands of fills in one market this avoids
@@ -573,6 +573,6 @@
         toJson,
         availableYearsFromPositions,
         closedAtYearUTC,
-        _internal: { csvEscape, dateUTC, tsMs }
+        _internal: { csvEscape }
     };
 })();

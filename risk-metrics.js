@@ -1,29 +1,19 @@
 /**
- * Risk metrics utilities. Depends on window.AppConstants (PERCENT).
- * Exposes global `RiskMetrics` with helpers to compute Sharpe and Sortino.
+ * Risk metrics utilities. Depends on window.AppConstants (PERCENT,
+ * MS_PER_HOUR, MS_PER_YEAR, MONTHS_PER_YEAR).
+ * Exposes global `RiskMetrics`: the single source for fill attribution,
+ * trade classification, P&L, drawdown, sample-adequacy and
+ * liquidation/leverage math.
  * All returns are fractional per-period returns (e.g., 0.01 = 1%).
  */
 
 (function () {
   'use strict';
 
-  const { PERCENT } = window.AppConstants;
+  const { PERCENT, MS_PER_HOUR, MS_PER_YEAR, MONTHS_PER_YEAR } = window.AppConstants;
 
   function isNumber(n) {
     return typeof n === 'number' && !isNaN(n) && isFinite(n);
-  }
-
-  function computeReturnsFromEquitySeries(equitySeries) {
-    if (!Array.isArray(equitySeries)) return [];
-    const returns = [];
-    for (let i = 1; i < equitySeries.length; i++) {
-      const prev = parseFloat(equitySeries[i - 1] || 0);
-      const curr = parseFloat(equitySeries[i] || 0);
-      if (prev > 0 && isNumber(curr) && isNumber(prev)) {
-        returns.push((curr / prev) - 1);
-      }
-    }
-    return returns;
   }
 
   // Transfer-aware time-weighted returns from dYdX historical-pnl rows.
@@ -91,21 +81,6 @@
     return mu / dd;
   }
 
-  /**
-   * Compute risk metrics from historicalPnl objects as returned by /v4/historical-pnl.
-   * Uses transfer-aware time-weighted returns (pnlDelta / equity_{t-1}) so deposits/withdrawals
-   * do not appear as fictitious returns.
-   * @param {Array} historicalPnl array of { equity, totalPnl, createdAt, ... }
-   * @param {{mar?: number}} options
-   */
-  function computeFromHistoricalPnl(historicalPnl, options = {}) {
-    const mar = options.mar ?? 0;
-    const returns = computeTimeWeightedReturnsFromHist(historicalPnl);
-    const sharpe = computeSharpe(returns, mar);
-    const sortino = computeSortino(returns, mar);
-    return { returns, sharpe, sortino };
-  }
-
   function median(values) {
     if (!values.length) return 0;
     const arr = values.slice().sort((a,b)=>a-b);
@@ -115,16 +90,15 @@
 
   function detectPeriodsPerYearFromTimestamps(timestamps) {
     if (!Array.isArray(timestamps) || timestamps.length < 2) return 0;
-    const secs = timestamps
+    const ms = timestamps
       .map(t => (new Date(t)).getTime())
       .filter(n => !isNaN(n))
       .sort((a,b)=>a-b);
-    if (secs.length < 2) return 0;
-    const diffs = [];
-    for (let i=1;i<secs.length;i++) diffs.push((secs[i]-secs[i-1])/1000);
-    const m = median(diffs) || 3600; // default 1h if cannot detect
-    const year = 365.25*24*3600;
-    return Math.max(1, year / m);
+    if (ms.length < 2) return 0;
+    const diffsMs = [];
+    for (let i=1;i<ms.length;i++) diffsMs.push(ms[i]-ms[i-1]);
+    const medianIntervalMs = median(diffsMs) || MS_PER_HOUR;
+    return Math.max(1, MS_PER_YEAR / medianIntervalMs);
   }
 
   function computeAnnualizedFromReturns(returns, timestamps, options = {}) {
@@ -141,17 +115,6 @@
       sortinoAnnualized: annualize(perPeriodSortino),
       ppy
     };
-  }
-
-  function computeAnnualizedFromHistoricalPnl(historicalPnl, options = {}) {
-    const mar = options.mar ?? 0;
-    const series = Array.isArray(historicalPnl) ? historicalPnl.slice().sort((a, b) => (
-      (a.createdAt || '').localeCompare(b.createdAt || '')
-    )) : [];
-    const timestamps = series.map(p => p.createdAt).filter(Boolean);
-    const returns = computeTimeWeightedReturnsFromHist(series);
-    const { sharpe, sortino, sharpeAnnualized, sortinoAnnualized, ppy } = computeAnnualizedFromReturns(returns, timestamps, { mar });
-    return { returns, sharpe, sortino, sharpeAnnualized, sortinoAnnualized, ppy };
   }
 
   // ---------------------------------------------------------------------------
@@ -320,7 +283,7 @@
   // Sample-adequacy gate. Single source of constants used everywhere a
   // statistical metric is computed from time-weighted returns.
   var ADEQUACY_MIN_RETS = 30;
-  var ADEQUACY_MIN_YEARS = 1 / 12;
+  var ADEQUACY_MIN_YEARS = 1 / MONTHS_PER_YEAR;
   var ADEQUACY_MIN_COVERAGE = 0.5;
 
   function assessAdequacy(returns, timestamps, histLength) {
@@ -335,7 +298,7 @@
       reason = `Need ≥${ADEQUACY_MIN_RETS} returns (have ${n})`;
     } else if (years < ADEQUACY_MIN_YEARS) {
       adequate = false;
-      reason = `Need ≥1 month of valid data (have ${(years * 12).toFixed(1)} months)`;
+      reason = `Need ≥1 month of valid data (have ${(years * MONTHS_PER_YEAR).toFixed(1)} months)`;
     } else if (coverage < ADEQUACY_MIN_COVERAGE) {
       adequate = false;
       reason = `Coverage ${(coverage * PERCENT).toFixed(0)}% — most periods filtered (likely post-wipeout sample bias)`;
@@ -475,7 +438,8 @@
 
   // Trade-system drawdown: peak-to-trough on cumulative profit over
   // closed trades, in chronological order. Used as the fallback when
-  // historical-pnl is unavailable. Cumulative profit never has
+  // historical-pnl gives no positive drawdown (missing, empty or
+  // monotonic series). Cumulative profit never has
   // synthetic-equity artifacts, so no negative-trough filter is needed.
   function tradeSystemDrawdown(closedPositions) {
     const { closed, cums } = buildCumulativeProfitSeries(closedPositions);
@@ -487,7 +451,8 @@
 
   // Find every peak-to-recovery drawdown event on the cumulative profit
   // curve. Used as the fallback for the Drawdown Periods table when
-  // historical-pnl is unavailable.
+  // historical-pnl gives no positive drawdown (missing, empty or
+  // monotonic series).
   function tradeSystemDrawdownEvents(closedPositions) {
     const { cums } = buildCumulativeProfitSeries(closedPositions);
     return scanDrawdownEvents(cums).events;
@@ -547,7 +512,8 @@
   }
 
   // Fallback path: current drawdown on cumulative profit. Used when
-  // historical-pnl is unavailable, mirroring tradeSystemDrawdown's role.
+  // historical-pnl gives no positive drawdown, mirroring
+  // tradeSystemDrawdown's role.
   function tradeSystemCurrentDrawdown(closedPositions) {
     const { closed, cums } = buildCumulativeProfitSeries(closedPositions);
     const out = currentDrawdownFromSeries(cums);
@@ -1375,14 +1341,10 @@
   }
 
   window.RiskMetrics = {
-    computeReturnsFromEquitySeries,
     computeTimeWeightedReturnsFromHist,
     computeSharpe,
     computeSortino,
-    computeFromHistoricalPnl,
-    detectPeriodsPerYearFromTimestamps,
     computeAnnualizedFromReturns,
-    computeAnnualizedFromHistoricalPnl,
     hasCompleteAttribution,
     classifyClosed,
     classifyByMonth,
@@ -1416,12 +1378,7 @@
     positionNotional,
     usableEquity,
     leverageUtilization,
-    liquidationRow,
-    ADEQUACY: {
-      MIN_RETS: ADEQUACY_MIN_RETS,
-      MIN_YEARS: ADEQUACY_MIN_YEARS,
-      MIN_COVERAGE: ADEQUACY_MIN_COVERAGE
-    }
+    liquidationRow
   };
 })();
 

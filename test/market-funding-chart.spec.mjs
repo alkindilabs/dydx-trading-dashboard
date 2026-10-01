@@ -1,14 +1,12 @@
 import { test, expect } from '@playwright/test';
-import { ADDRESS, INDEXER_URL, fixture, serveFixture } from './indexer-fixture.mjs';
+import { ADDRESS, AppConstants, INDEXER_URL, fixture, serveFixture } from './indexer-fixture.mjs';
 
 // The Market tab's funding chart when /candles fails: funding bars are the
 // load-bearing signal and still render, while the missing price line is
 // called out instead of silently absent. Only the indexer is faked.
 
 const HTTP_SERVICE_UNAVAILABLE = 503;
-const MS_PER_HOUR = 3_600_000;
-const HOURS_PER_DAY = 24;
-const MS_PER_DAY = HOURS_PER_DAY * MS_PER_HOUR;
+const { MS_PER_HOUR, MS_PER_DAY } = AppConstants;
 const FUNDING_HOURS = 48;
 // Older than the 7D window yet inside 90D, so toggling between the two
 // pills flips the chart between its empty state and drawn bars.
@@ -16,12 +14,16 @@ const STALE_FUNDING_AGE_DAYS = 10;
 const FUNDING_WINDOW_KEY = 'fundingWindow';
 const OVERLAY_UNAVAILABLE = 'Price overlay unavailable: candles failed to load';
 
+const ALTERNATING_RATES = ['-0.00001', '0.00001'];
+// The spread of hourly funding rates dYdX markets settle at.
+const REALISTIC_HOURLY_RATES = ['0.000001', '0.0000035', '0.0000125', '0.00002', '0.000008'];
+
 // One fixed series per test: the cursor walk's next page repeats it, so
 // the paginator stops on the dedup cycle with exactly FUNDING_HOURS rows.
-function hourlyFundingRows(ticker, newestAt) {
+function hourlyFundingRows(ticker, newestAt, rates) {
   return Array.from({ length: FUNDING_HOURS }, (_, i) => ({
     ticker,
-    rate: i % 2 ? '0.00001' : '-0.00001',
+    rate: rates[i % rates.length],
     price: '100000',
     effectiveAt: new Date(newestAt - i * MS_PER_HOUR).toISOString(),
     effectiveAtHeight: String(FUNDING_HOURS - i),
@@ -42,7 +44,19 @@ const noCandles = (route) => route.fulfill({
   body: JSON.stringify({ candles: [] }),
 });
 
-async function serveFunding(page, serveCandles, { ageDays = 0 } = {}) {
+const CANDLE_CLOSE_BASE = 65000;
+const CANDLE_CLOSE_STEP = 37.5;
+// Healthy hourly candles at a realistic BTC price level.
+const hourlyCandles = (route) => {
+  const newestAt = Date.now();
+  const candles = Array.from({ length: FUNDING_HOURS }, (_, i) => ({
+    startedAt: new Date(newestAt - i * MS_PER_HOUR).toISOString(),
+    close: String(CANDLE_CLOSE_BASE + i * CANDLE_CLOSE_STEP),
+  }));
+  return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ candles }) });
+};
+
+async function serveFunding(page, serveCandles, { ageDays = 0, rates = ALTERNATING_RATES } = {}) {
   const newestAt = Date.now() - ageDays * MS_PER_DAY;
   await page.route(INDEXER_URL, (route) => {
     const url = route.request().url();
@@ -51,7 +65,7 @@ async function serveFunding(page, serveCandles, { ageDays = 0 } = {}) {
       return route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ historicalFunding: hourlyFundingRows(decodeURIComponent(funding[1]), newestAt) }),
+        body: JSON.stringify({ historicalFunding: hourlyFundingRows(decodeURIComponent(funding[1]), newestAt, rates) }),
       });
     }
     if (/\/v4\/candles\/perpetualMarkets\//.test(url)) return serveCandles(route);
@@ -72,13 +86,44 @@ function fundingChartDatasets(page) {
   });
 }
 
+// Pixel width of a y-axis as laid out: 0 when the axis is not drawn.
+function scaleWidth(page, scaleId) {
+  return page.evaluate((id) => Chart.getChart(document.getElementById('fundingRateChart')).scales[id].width, scaleId);
+}
+
+function scaleTickLabels(page, scaleId) {
+  return page.evaluate((id) => Chart.getChart(document.getElementById('fundingRateChart')).scales[id].ticks.map(t => t.label), scaleId);
+}
+
+const priceLegendEntry = (page) => page.locator('.funding-chart__legend-item:has(.funding-chart__swatch--price)');
+
 async function expectBarsWithoutPriceLine(page) {
   await expect.poll(() => fundingChartDatasets(page)).not.toBeNull();
   const datasets = await fundingChartDatasets(page);
   expect(datasets.find(d => d.type === 'bar').points).toBe(FUNDING_HOURS);
   expect(datasets.find(d => d.type === 'line').points).toBe(0);
-  await expect(page.locator('#fundingChartEmpty')).toHaveAttribute('hidden', '');
+  await expect(page.locator('#fundingChartEmpty')).toBeHidden();
+  expect(await scaleWidth(page, 'yPrice'), 'no price line, so no price axis').toBe(0);
+  await expect(priceLegendEntry(page)).toBeHidden();
 }
+
+async function expectBarsWithPriceLine(page) {
+  await expect.poll(() => fundingChartDatasets(page)).not.toBeNull();
+  const datasets = await fundingChartDatasets(page);
+  expect(datasets.find(d => d.type === 'bar').points).toBe(FUNDING_HOURS);
+  expect(datasets.find(d => d.type === 'line').points).toBe(FUNDING_HOURS);
+}
+
+// Hovering fails with "intercepts pointer events" if anything covers the canvas.
+async function hoverChartTooltipLines(page) {
+  await page.locator('#fundingRateChart').hover();
+  await expect.poll(() => page.evaluate(() =>
+    Chart.getChart(document.getElementById('fundingRateChart')).tooltip.getActiveElements().length)).toBeGreaterThan(0);
+  return page.evaluate(() =>
+    Chart.getChart(document.getElementById('fundingRateChart')).tooltip.body.flatMap(b => b.lines));
+}
+
+const UNSIGNED_DOLLARS = /^\$\d/;
 
 async function expectOverlayCaptionInFull(page) {
   const caption = page.locator('#fundingChartStatus');
@@ -121,7 +166,7 @@ async function startOnFundingWindow(page, days) {
 const NOT_ENOUGH_HISTORY = /^Not enough funding history/;
 
 async function expectNotEnoughHistory(page) {
-  await expect(page.locator('#fundingChartEmpty')).not.toHaveAttribute('hidden');
+  await expect(page.locator('#fundingChartEmpty')).toBeVisible();
   await expect(page.locator('#fundingChartEmpty')).toHaveText(NOT_ENOUGH_HISTORY);
 }
 
@@ -206,4 +251,54 @@ test('returning to a cached market restores its overlay caption', async ({ page 
   await expect(page.locator('#fundingChartStatus')).toHaveText('');
   await picker.selectOption(firstTicker);
   await expectOverlayCaptionInFull(page);
+});
+
+test.describe('with funding bars and the price line both drawn', () => {
+  test('the hidden empty-state placeholder neither shows nor blocks the tooltip', async ({ page }) => {
+    await serveFunding(page, hourlyCandles);
+    await openMarketTab(page);
+    await expectBarsWithPriceLine(page);
+
+    await expect(page.locator('#fundingChartEmpty')).toBeHidden();
+    const lines = await hoverChartTooltipLines(page);
+    expect(lines.some(l => l.startsWith('Funding (1h):'))).toBe(true);
+  });
+
+  test('the price axis and its legend entry are shown', async ({ page }) => {
+    await serveFunding(page, hourlyCandles);
+    await openMarketTab(page);
+    await expectBarsWithPriceLine(page);
+
+    expect(await scaleWidth(page, 'yPrice')).toBeGreaterThan(0);
+    await expect(priceLegendEntry(page)).toBeVisible();
+  });
+
+  test('prices on the right axis and in the tooltip carry no profit sign', async ({ page }) => {
+    await serveFunding(page, hourlyCandles);
+    await openMarketTab(page);
+    await expectBarsWithPriceLine(page);
+
+    const axisLabels = await scaleTickLabels(page, 'yPrice');
+    expect(axisLabels.length).toBeGreaterThan(0);
+    for (const label of axisLabels) expect(label).toMatch(UNSIGNED_DOLLARS);
+
+    const priceLine = (await hoverChartTooltipLines(page)).find(l => l.startsWith('Price:'));
+    expect(priceLine.replace(/^Price:\s+/, '')).toMatch(UNSIGNED_DOLLARS);
+  });
+
+  test('funding-rate axis labels stay distinct at realistic hourly rates', async ({ page }) => {
+    await serveFunding(page, hourlyCandles, { rates: REALISTIC_HOURLY_RATES });
+    await openMarketTab(page);
+    await expectBarsWithPriceLine(page);
+
+    const labels = await scaleTickLabels(page, 'yRate');
+    expect(labels.length).toBeGreaterThan(1);
+    expect(new Set(labels).size, `labels: ${labels.join(', ')}`).toBe(labels.length);
+  });
+});
+
+test('the chart caption states how many days the All window reaches', async ({ page }) => {
+  await serveFunding(page, candleOutage);
+  await openMarketTab(page);
+  await expect(page.locator('#fundingChartMaxDays')).toHaveText(String(AppConstants.FUNDING_CHART_MAX_DAYS));
 });

@@ -1,6 +1,5 @@
 // Centralized constants. Loaded before every other script (risk-metrics.js
 // included), so any module may read window.AppConstants at load time.
-// Per CLAUDE.md "No magic numbers; use named constants."
 
 (function () {
   'use strict';
@@ -31,14 +30,25 @@
   // fetches against the indexer.
   const FUNDING_CHART_MAX_DAYS = 90;
 
-  const MS_PER_MIN  = 60_000;
-  const MS_PER_HOUR = 3_600_000;
-  const MS_PER_DAY  = 86_400_000;
-  // Julian year, the convention every annualization in the dashboard uses.
+  const MS_PER_SEC         = 1000;
+  const SECONDS_PER_MINUTE = 60;
+  const MINUTES_PER_HOUR   = 60;
+  const HOURS_PER_DAY      = 24;
+  const DAYS_PER_WEEK      = 7;
+  const MONTHS_PER_YEAR    = 12;
+  const MS_PER_MIN  = SECONDS_PER_MINUTE * MS_PER_SEC;
+  const MS_PER_HOUR = MINUTES_PER_HOUR * MS_PER_MIN;
+  const MS_PER_DAY  = HOURS_PER_DAY * MS_PER_HOUR;
+  // Julian year, the convention the return, Sharpe and trade-based
+  // annualizations use.
   const DAYS_PER_YEAR = 365.25;
   const MS_PER_YEAR = DAYS_PER_YEAR * MS_PER_DAY;
 
-  const HOURS_PER_YEAR     = 8760;
+  // Funding APR deliberately annualizes over a simple 365-day year
+  // (8760 h), the convention the CURRENT/PREDICTED (APR) column tooltips
+  // describe.
+  const DAYS_PER_FUNDING_YEAR = 365;
+  const HOURS_PER_YEAR     = DAYS_PER_FUNDING_YEAR * HOURS_PER_DAY;
   // Fraction → percent.
   const PERCENT            = 100;
   const CLIPBOARD_FLASH_MS = 1500;
@@ -66,7 +76,8 @@
     FETCH_TIMEOUT_MS,
     HIST_PAGE_LIMIT, POS_PAGE_LIMIT, FILLS_PAGE_LIMIT, FUNDING_PAGE_LIMIT,
     HISTORICAL_FUNDING_PAGE_LIMIT, CANDLES_PAGE_LIMIT, CANDLES_MAX_PAGES, FUNDING_CHART_MAX_DAYS,
-    MS_PER_MIN, MS_PER_HOUR, MS_PER_DAY, MS_PER_YEAR,
+    MS_PER_SEC, MS_PER_MIN, MS_PER_HOUR, MS_PER_DAY, MS_PER_YEAR,
+    MINUTES_PER_HOUR, HOURS_PER_DAY, DAYS_PER_WEEK, MONTHS_PER_YEAR,
     HOURS_PER_YEAR,
     PERCENT,
     CLIPBOARD_FLASH_MS,
