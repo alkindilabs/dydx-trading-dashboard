@@ -10,7 +10,8 @@
 // position lacks complete fill data, or the CLOSED list failed to load)
 // they render '—'.
 //
-// Depends on: window.AppConstants (TUNABLES, MS_PER_HOUR),
+// Depends on: window.AppConstants (TUNABLES, MS_PER_HOUR, HOURS_PER_DAY,
+// DAYS_PER_WEEK, MINUTES_PER_HOUR),
 // window.RiskMetrics (classifyClosed, peakNotional, hasCompleteAttribution), window.Format
 // (formatCurrency, formatDuration, signClass), window.AppDom
 // (updateElement, appendCell, tagCells).
@@ -45,19 +46,18 @@
     // Hour-of-day buckets weighted by fill-attributed profit (net of
     // fees). Min sample size guards against a single mega-loss owning the
     // "worst hour" slot.
-    const hourPnl = new Array(24).fill(0);
-    const hourCount = new Array(24).fill(0);
+    const hourPnl = new Array(C.HOURS_PER_DAY).fill(0);
+    const hourCount = new Array(C.HOURS_PER_DAY).fill(0);
     if (profitKnown) closed.forEach(p => {
       const d = new Date(p.createdAt);
       const ms = d.getTime();
       if (!isFinite(ms)) return;
       const h = d.getUTCHours();
-      if (!Number.isInteger(h) || h < 0 || h > 23) return;
       hourPnl[h] += p.profit;
       hourCount[h] += 1;
     });
     let bestH = -1, worstH = -1, bestPnl = -Infinity, worstPnl = Infinity;
-    for (let h = 0; h < 24; h++) {
+    for (let h = 0; h < C.HOURS_PER_DAY; h++) {
       if (hourCount[h] < C.TUNABLES.HOUR_MIN_SAMPLE) continue;
       const avg = hourPnl[h] / hourCount[h];
       if (avg > bestPnl)  { bestPnl  = avg; bestH  = h; }
@@ -67,7 +67,7 @@
     D.updateElement('bestHour',  bestH  >= 0 ? padHr(bestH)  : '—');
     D.updateElement('worstHour', worstH >= 0 ? padHr(worstH) : '—');
 
-    const dayCount = new Array(7).fill(0);
+    const dayCount = new Array(C.DAYS_PER_WEEK).fill(0);
     closed.forEach(p => {
       const d = new Date(p.createdAt);
       if (!isFinite(d.getTime())) return;
@@ -75,13 +75,14 @@
     });
     const dayNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
     let topDay = -1, topCount = 0;
-    for (let d = 0; d < 7; d++) if (dayCount[d] > topCount) { topCount = dayCount[d]; topDay = d; }
+    for (let d = 0; d < C.DAYS_PER_WEEK; d++) if (dayCount[d] > topCount) { topCount = dayCount[d]; topDay = d; }
     D.updateElement('mostActiveDay', topDay >= 0 ? dayNames[topDay] : '—');
   }
 
   // closedGap: '' when the CLOSED list loaded, else why it did not; the
   // grid then shows that reason instead of an empty-looking account.
   function renderActivityHeatmap(positions, closedGap = '') {
+    const C = window.AppConstants;
     const container = document.getElementById('activityHeatmap');
     if (!container) return;
     container.innerHTML = '';
@@ -93,7 +94,7 @@
       container.appendChild(note);
       return;
     }
-    const grid = Array.from({ length: 7 }, () => new Array(24).fill(0));
+    const grid = Array.from({ length: C.DAYS_PER_WEEK }, () => new Array(C.HOURS_PER_DAY).fill(0));
     const closed = positions.filter(p => p.status === 'CLOSED' && p.createdAt);
     closed.forEach(p => {
       const d = new Date(p.createdAt);
@@ -102,8 +103,8 @@
     });
     const max = Math.max(1, ...grid.flat());
     const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-    for (let day = 0; day < 7; day++) {
-      for (let hour = 0; hour < 24; hour++) {
+    for (let day = 0; day < C.DAYS_PER_WEEK; day++) {
+      for (let hour = 0; hour < C.HOURS_PER_DAY; hour++) {
         const cell = document.createElement('div');
         cell.className = 'heatmap-cell';
         const count = grid[day][hour];
@@ -181,7 +182,7 @@
     const rows = [
       summarize(`Post-Loss Double Down (same market, ≤${C.TUNABLES.DOUBLE_DOWN_GAP_HOURS}h, ≥${C.TUNABLES.DOUBLE_DOWN_SIZE_MULT}×)`, doubleDown, recommendByEdge),
       summarize(`Trend Following (>${C.TUNABLES.TREND_HOLD_HOURS}h hold)`, trend, recommendByEdge),
-      summarize(`Quick Flip (<${Math.round(C.TUNABLES.FLIP_HOLD_HOURS * 60)}m hold)`, flips, recommendByEdge)
+      summarize(`Quick Flip (<${Math.round(C.TUNABLES.FLIP_HOLD_HOURS * C.MINUTES_PER_HOUR)}m hold)`, flips, recommendByEdge)
     ].filter(Boolean);
     rows.forEach(r => {
       const tr = document.createElement('tr');

@@ -162,9 +162,9 @@ test('buildYearReport: fill_count counts the market\'s BUY and SELL fills inside
 
 test('buildYearReport: dense overlap (all positions overlap each other) marks all', () => {
     // Stress the sweep: N positions whose windows all intersect at the
-    // same instant. With the unmarkedCount optimization this should
-    // still mark every position even though the inner walk only runs
-    // once.
+    // same instant. With the unmarkedActive sub-list in
+    // sweepOverlapsPerMarket this should still mark every position even
+    // though the inner walk only runs once.
     const positions = [];
     for (let i = 0; i < 8; i++) {
         positions.push({

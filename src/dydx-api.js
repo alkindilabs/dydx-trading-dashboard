@@ -2,20 +2,23 @@
 // exponential-backoff retry on transient failures, and pagination
 // walking to inception.
 //
-// Depends on: window.AppConstants (FETCH_TIMEOUT_MS, HIST_PAGE_LIMIT,
-// POS_PAGE_LIMIT, FILLS_PAGE_LIMIT, FUNDING_PAGE_LIMIT,
+// Depends on: window.AppConstants (FETCH_TIMEOUT_MS, MS_PER_SEC,
+// HIST_PAGE_LIMIT, POS_PAGE_LIMIT, FILLS_PAGE_LIMIT, FUNDING_PAGE_LIMIT,
 // HISTORICAL_FUNDING_PAGE_LIMIT, CANDLES_PAGE_LIMIT, CANDLES_MAX_PAGES).
 
 (function () {
   'use strict';
 
   const DYDX_API = 'https://indexer.dydx.trade/v4';
+  const HTTP_TOO_MANY_REQUESTS = 429;
+  const HTTP_SERVER_ERROR_MIN = 500;
+  const HTTP_SERVER_ERROR_END = 600;
 
   // Retry-After can be "<seconds>" or an HTTP-date. Returns ms or null.
   function parseRetryAfter(header) {
     if (!header) return null;
     const seconds = parseFloat(header);
-    if (!isNaN(seconds) && seconds >= 0) return seconds * 1000;
+    if (!isNaN(seconds) && seconds >= 0) return seconds * window.AppConstants.MS_PER_SEC;
     const t = Date.parse(header);
     if (!isNaN(t)) return Math.max(0, t - Date.now());
     return null;
@@ -24,8 +27,8 @@
   function isTransientError(e) {
     if (!e) return false;
     if (e.transient) return true; // timeout
-    if (e.status === 429) return true;
-    if (e.status >= 500 && e.status < 600) return true;
+    if (e.status === HTTP_TOO_MANY_REQUESTS) return true;
+    if (e.status >= HTTP_SERVER_ERROR_MIN && e.status < HTTP_SERVER_ERROR_END) return true;
     // Network-level fetch failure (TypeError: Failed to fetch).
     if (e instanceof TypeError) return true;
     return false;
@@ -49,6 +52,7 @@
       if (e && e.name === 'AbortError') {
         const tErr = new Error(`Timeout (${t}ms) for ${url}`);
         tErr.transient = true;
+        tErr.timeoutMs = t;
         throw tErr;
       }
       throw e;
@@ -58,16 +62,24 @@
   }
 
   // Exponential backoff with full jitter. Honors Retry-After on 429/503.
-  // base ms 500, factor 2, max 16s, tries 6 (7 total fetch attempts).
+  // RETRY_TRIES counts retries, so a request makes RETRY_TRIES + 1 attempts.
   const RETRY_BASE_MS   = 500;
   const RETRY_FACTOR    = 2;
   const RETRY_MAX_DELAY = 16000;
   const RETRY_TRIES     = 6;
 
+  const UNLABELLED_ENDPOINT = 'dydx-api';
+
+  function urlFreeErrorDescription(e) {
+    if (e.status) return `HTTP ${e.status}`;
+    if (e.timeoutMs != null) return `timeout after ${e.timeoutMs}ms`;
+    return 'network error';
+  }
+
   // opts.label names the endpoint in the per-retry debug log.
   async function fetchJsonWithRetry(url, opts = {}) {
     const tries = opts.tries != null ? opts.tries : RETRY_TRIES;
-    const label = opts.label || url;
+    const label = opts.label || UNLABELLED_ENDPOINT;
     let lastError = null;
     for (let attempt = 0; attempt <= tries; attempt++) {
       try {
@@ -87,7 +99,7 @@
         }
         console.debug(
           `[${label}] retry ${attempt + 1}/${tries} after ` +
-          `${Math.round(delay)}ms (${e && (e.status || e.message)})`
+          `${Math.round(delay)}ms (${urlFreeErrorDescription(e)})`
         );
         await new Promise(r => setTimeout(r, delay));
       }
@@ -336,15 +348,12 @@
 
   window.DydxApi = {
     BASE: DYDX_API,
-    fetchJson,
     fetchJsonWithRetry,
     fetchAllHistoricalPnl,
     fetchAllClosedPositions,
     fetchAllFills,
     fetchAllFundingPayments,
     fetchHistoricalFunding,
-    fetchCandles,
-    parseRetryAfter,
-    isTransientError
+    fetchCandles
   };
 })();

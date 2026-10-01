@@ -11,6 +11,8 @@
   'use strict';
 
   let instance = null;
+  const MONTH_AXIS_MIN_DAYS = 350;
+  const WEEK_AXIS_MIN_DAYS = 50;
 
   function render(historicalPnl) {
     const el = document.getElementById('pnlCumulativeChart');
@@ -23,7 +25,7 @@
 
     const spanMs = new Date(cumsRaw[cumsRaw.length - 1].t).getTime() - new Date(cumsRaw[0].t).getTime();
     const spanDays = spanMs / MS_PER_DAY;
-    const xAxisUnit = spanDays > 350 ? 'month' : spanDays > 50 ? 'week' : 'day';
+    const xAxisUnit = spanDays > MONTH_AXIS_MIN_DAYS ? 'month' : spanDays > WEEK_AXIS_MIN_DAYS ? 'week' : 'day';
 
     // Aggregate OHLC per period from the full hourly series so each candle
     // shows intra-period high/low/open/close of cumulative profit.

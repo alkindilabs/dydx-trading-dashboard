@@ -9,7 +9,8 @@
 //   candleRows    — [{ startedAt, close }, ...]          raw from indexer
 //   cutoffMs      — epoch ms; rows older than this are dropped
 //
-// Depends on: Chart (CDN), window.Format (formatCurrency, fmtSignedPct).
+// Depends on: Chart (CDN), window.Format (formatPrice, fmtSignedPct),
+// window.AppConstants (MS_PER_DAY, HOURS_PER_YEAR, PERCENT).
 
 (function () {
   'use strict';
@@ -28,6 +29,16 @@
   const TICK_INK    = 'rgba(239,229,210,0.85)';
   const TICK_MUTED  = 'rgba(176,161,135,0.85)';
 
+  const RATE_DETAIL_DECIMALS = 4;
+  const RATE_ZERO_LABEL = '0%';
+  // Strips float noise from a tick step (0.00019999… → 0.0002) before
+  // its magnitude picks the label precision.
+  const STEP_SIGNIFICANT_DIGITS = 6;
+  const PRICE_LEGEND_SWATCH = '.funding-chart__swatch--price';
+  const LEGEND_ITEM = '.funding-chart__legend-item';
+  const WEEK_AXIS_MIN_DAYS = 60;
+  const DAY_AXIS_MIN_DAYS = 10;
+
   function toEpoch(iso) {
     if (!iso) return null;
     const t = Date.parse(iso);
@@ -41,7 +52,7 @@
       if (t == null || t < cutoffMs) continue;
       const rate = parseFloat(r.rate);
       if (!isFinite(rate)) continue;
-      out.push({ x: t, y: rate * 100 }); // display as percent
+      out.push({ x: t, y: rate * window.AppConstants.PERCENT });
     }
     out.sort((a, b) => a.x - b.x);
     return out;
@@ -63,9 +74,28 @@
   function pickAxisUnit(spanMs) {
     const MS_PER_DAY = window.AppConstants.MS_PER_DAY;
     const days = spanMs / MS_PER_DAY;
-    if (days > 60) return 'week';
-    if (days > 10) return 'day';
+    if (days > WEEK_AXIS_MIN_DAYS) return 'week';
+    if (days > DAY_AXIS_MIN_DAYS) return 'day';
     return 'hour';
+  }
+
+  // Enough decimals that adjacent ticks, one `step` apart, never print alike.
+  function rateTickDecimals(ticks) {
+    if (!ticks || ticks.length < 2) return RATE_DETAIL_DECIMALS;
+    const step = Number(Math.abs(ticks[1].value - ticks[0].value).toPrecision(STEP_SIGNIFICANT_DIGITS));
+    if (!(step > 0)) return RATE_DETAIL_DECIMALS;
+    return Math.max(0, -Math.floor(Math.log10(step)));
+  }
+
+  function rateTickLabel(value, ticks) {
+    const fixed = value.toFixed(rateTickDecimals(ticks));
+    return Number(fixed) === 0 ? RATE_ZERO_LABEL : `${fixed}%`;
+  }
+
+  function showPriceLegend(visible) {
+    const swatch = document.querySelector(PRICE_LEGEND_SWATCH);
+    const item = swatch && swatch.closest(LEGEND_ITEM);
+    if (item) item.hidden = !visible;
   }
 
   function clear() {
@@ -86,8 +116,11 @@
     // surface an explicit empty-state instead of leaving a blank canvas.
     if (bars.length < 2) { clear(); return false; }
 
-    const formatCurrency = window.Format.formatCurrency;
+    const formatPrice = window.Format.formatPrice;
     const fmtSignedPct = window.Format.fmtSignedPct;
+    // Candles failed or held no rows in the window: an empty right axis
+    // would show a bogus $0..$1 scale, so the axis and its legend go.
+    const hasPriceLine = line.length > 0;
 
     const allXs = bars.map(b => b.x).concat(line.map(p => p.x));
     const spanMs = Math.max(...allXs) - Math.min(...allXs);
@@ -163,7 +196,7 @@
               ticks: {
                 color: TICK_INK,
                 font: { family: "'JetBrains Mono', monospace", size: 10 },
-                callback: (v) => (Math.abs(v) < 0.001 ? '0%' : `${v.toFixed(3)}%`)
+                callback: (v, _index, ticks) => rateTickLabel(v, ticks)
               },
               grid: { color: GRID_COLOR },
               title: {
@@ -174,11 +207,12 @@
               }
             },
             yPrice: {
+              display: hasPriceLine,
               position: 'right',
               ticks: {
                 color: TICK_MUTED,
                 font: { family: "'JetBrains Mono', monospace", size: 10 },
-                callback: (v) => formatCurrency(v)
+                callback: (v) => formatPrice(v)
               },
               grid: { display: false },
               title: {
@@ -211,14 +245,14 @@
                   const v = ctx.parsed && ctx.parsed.y;
                   if (v == null) return '';
                   if (ctx.dataset.yAxisID === 'yRate') {
-                    const hpy = (window.AppConstants && window.AppConstants.HOURS_PER_YEAR) || 8760;
+                    const hpy = window.AppConstants.HOURS_PER_YEAR;
                     const annualPct = v * hpy;
                     return [
-                      `Funding (1h):  ${fmtSignedPct(v, 4)}`,
+                      `Funding (1h):  ${fmtSignedPct(v, RATE_DETAIL_DECIMALS)}`,
                       `Annualized:    ${fmtSignedPct(annualPct, 2)}`
                     ];
                   }
-                  return `Price:         ${formatCurrency(v)}`;
+                  return `Price:         ${formatPrice(v)}`;
                 }
               }
             }
@@ -226,6 +260,7 @@
         }
       });
       rendered = true;
+      showPriceLegend(hasPriceLine);
     } catch (e) {
       console.warn('Failed to render funding-rate chart', e);
     }
@@ -236,6 +271,6 @@
   window.AppCharts.fundingRate = {
     render,
     clear,
-    _internal: { buildFundingBars, buildPriceLine, pickAxisUnit }
+    _internal: { buildFundingBars, buildPriceLine, pickAxisUnit, rateTickLabel }
   };
 })();

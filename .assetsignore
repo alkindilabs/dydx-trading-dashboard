@@ -10,9 +10,9 @@ test/
 docs/
 package.json
 package-lock.json
+.npmrc
 CLAUDE.md
 README.md
-CNAME
 wrangler.jsonc
 .assetsignore
 .gitignore
@@ -21,6 +21,10 @@ wrangler.jsonc
 *.log
 *.tmp
 *.png
+*.jpg
+*.jpeg
+*.webp
+.DS_Store
 
 # Playwright local + CI artifacts
 playwright.config.mjs
