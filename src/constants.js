@@ -23,6 +23,9 @@
   // Indexer caps /historicalFunding at 100 rows/page and /candles at 100.
   const HISTORICAL_FUNDING_PAGE_LIMIT = 100;
   const CANDLES_PAGE_LIMIT            = 100;
+  // Default page cap for /candles walks. At CANDLES_PAGE_LIMIT hourly
+  // candles per page it reaches well past FUNDING_CHART_MAX_DAYS.
+  const CANDLES_MAX_PAGES             = 50;
   // Funding chart cap. 90 days at 1HOUR resolution = 2160 datapoints per
   // dataset — Chart.js renders that comfortably and avoids unbounded
   // fetches against the indexer.
@@ -62,7 +65,7 @@
     ADDRESS_RE,
     FETCH_TIMEOUT_MS,
     HIST_PAGE_LIMIT, POS_PAGE_LIMIT, FILLS_PAGE_LIMIT, FUNDING_PAGE_LIMIT,
-    HISTORICAL_FUNDING_PAGE_LIMIT, CANDLES_PAGE_LIMIT, FUNDING_CHART_MAX_DAYS,
+    HISTORICAL_FUNDING_PAGE_LIMIT, CANDLES_PAGE_LIMIT, CANDLES_MAX_PAGES, FUNDING_CHART_MAX_DAYS,
     MS_PER_MIN, MS_PER_HOUR, MS_PER_DAY, MS_PER_YEAR,
     HOURS_PER_YEAR,
     PERCENT,

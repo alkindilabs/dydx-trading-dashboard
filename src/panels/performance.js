@@ -388,17 +388,6 @@ Small-N caveat: standard error widens; not a forward-Sharpe forecast.`;
     window.AppDom.appendCell(tr, F.formatCurrency(value), ['mono', F.signClass(value)]);
   }
 
-  // The single largest win and largest loss of a classifyClosed result,
-  // by fill-attributed profit. Each is null while the classifier's inputs
-  // are incomplete or the result holds no trade of that kind.
-  function extremeTrades(cls) {
-    if (cls.incompleteReason) return { best: null, worst: null };
-    const most = (trades, pick) => (trades.length
-      ? trades.reduce((acc, p) => pick(acc, p.profit), trades[0].profit)
-      : null);
-    return { best: most(cls.wins, Math.max), worst: most(cls.losses, Math.min) };
-  }
-
   function appendAvgCell(tr, value) {
     const F = window.Format;
     window.AppDom.appendCell(tr, value === null ? '—' : F.formatCurrency(value), ['mono', F.signClass(value)]);
@@ -511,10 +500,9 @@ Small-N caveat: standard error widens; not a forward-Sharpe forecast.`;
           appendLedgerCell(tr, -(slot.fees || 0), gaps.fees);
           appendTradesCell(tr, assetCls, gaps.closed);
           D.appendCell(tr, winRateText(assetCls), ['mono']);
-          const { best, worst } = extremeTrades(assetCls);
           appendAvgCell(tr, assetCls.expectancy);
-          appendAvgCell(tr, best);
-          appendAvgCell(tr, worst);
+          appendAvgCell(tr, assetCls.bestTrade);
+          appendAvgCell(tr, assetCls.worstTrade);
           D.appendCell(tr, assetSharpeTxt, ['mono']);
           bodyA.appendChild(tr);
         });
