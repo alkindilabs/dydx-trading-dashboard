@@ -3,7 +3,8 @@
 // walking to inception.
 //
 // Depends on: window.AppConstants (FETCH_TIMEOUT_MS, HIST_PAGE_LIMIT,
-// POS_PAGE_LIMIT, FILLS_PAGE_LIMIT, FUNDING_PAGE_LIMIT).
+// POS_PAGE_LIMIT, FILLS_PAGE_LIMIT, FUNDING_PAGE_LIMIT,
+// HISTORICAL_FUNDING_PAGE_LIMIT, CANDLES_PAGE_LIMIT, CANDLES_MAX_PAGES).
 
 (function () {
   'use strict';
@@ -270,9 +271,10 @@
     const o = opts || {};
     const limit = window.AppConstants.CANDLES_PAGE_LIMIT;
     const fromMs = o.fromMs || 0;
-    const maxPages = o.maxPages || 50;
+    const maxPages = o.maxPages || window.AppConstants.CANDLES_MAX_PAGES;
     const onProgress = o.onProgress || null;
     const encoded = encodeURIComponent(ticker);
+    const label = `candles:${ticker}`;
     const all = [];
     const seen = new Set();
     let toISO = null;
@@ -281,13 +283,13 @@
       if (toISO) params.set('toISO', toISO);
       const url = `${DYDX_API}/candles/perpetualMarkets/${encoded}?${params}`;
       if (onProgress) {
-        try { onProgress(`candles:${ticker}`, i + 1); } catch (_) {}
+        try { onProgress(label, i + 1); } catch (_) {}
       }
       let page;
       try {
-        page = await fetchJsonWithRetry(url);
+        page = await fetchJsonWithRetry(url, { label });
       } catch (e) {
-        console.warn(`[candles:${ticker}] page ${i + 1} failed; endpoint rejected:`, e && e.message);
+        console.warn(`[${label}] page ${i + 1} failed; endpoint rejected:`, e && e.message);
         throw e;
       }
       const rows = page && Array.isArray(page.candles) ? page.candles : null;

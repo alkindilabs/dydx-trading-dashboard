@@ -13,16 +13,17 @@ const close = (a, b, eps = 1e-2) => Math.abs(a - b) < eps;
 // ---------------------------------------------------------------------------
 
 test('crossMarginLiqPrice LONG canonical regression (matches dYdX official)', () => {
-    // Real account: BTC-USD LONG 6.5 @ entry 76898.46, oracle 78928.28,
-    // equity 473363.91, MMF observed at ~0.012. dYdX UI showed liq $6,177.
-    const position = { market: 'BTC-USD', size: '6.5', side: 'LONG' };
-    const sub = { equity: '473363.91' };
+    // Fixture: BTC-USD LONG 5 @ entry 75000, oracle 80000, equity 300000,
+    // MMF 0.012: liq = (5·80000 − 300000) / (5·0.988) = 20242.91. The old
+    // wrong shape, oracle − equity/(S·(1−M)), would give 19271.26.
+    const position = { market: 'BTC-USD', size: '5', side: 'LONG' };
+    const sub = { equity: '300000' };
     const markets = {
-        'BTC-USD': { oraclePrice: '78928.28', maintenanceMarginFraction: '0.012' }
+        'BTC-USD': { oraclePrice: '80000', maintenanceMarginFraction: '0.012' }
     };
     const liq = RM.crossMarginLiqPrice(position, sub, markets);
     assert.ok(liq !== null, 'expected numeric liq');
-    assert.ok(close(liq, 6177.50, 1.0), `expected ~6177.50, got ${liq}`);
+    assert.ok(close(liq, 20242.91, 1.0), `expected ~20242.91, got ${liq}`);
 });
 
 test('crossMarginLiqPrice LONG reads oracle from marketsMap when position lacks it', () => {
@@ -120,13 +121,13 @@ test('leverageUtilization reads oracle from marketsMap when position lacks oracl
     // the helper had no marketsMap argument, this fallback always failed and
     // notional silently used entryPrice.
     const positions = [
-        { market: 'BTC-USD', side: 'LONG', size: '6.5', status: 'OPEN', entryPrice: '76898.46' }
+        { market: 'BTC-USD', side: 'LONG', size: '5', status: 'OPEN', entryPrice: '75000' }
     ];
-    const sub = { equity: '473363.91' };
-    const markets = { 'BTC-USD': { oraclePrice: '78928.28' } };
+    const sub = { equity: '300000' };
+    const markets = { 'BTC-USD': { oraclePrice: '80000' } };
     const lev = RM.leverageUtilization(positions, sub, markets);
-    // Oracle-based: 6.5·78928.28 / 473363.91 = 1.0838
-    assert.ok(close(lev, 1.0838, 1e-3), `expected ~1.0838, got ${lev}`);
+    // Oracle-based: 5·80000 / 300000 = 1.3333 (entry-based would be 1.25)
+    assert.ok(close(lev, 1.3333, 1e-3), `expected ~1.3333, got ${lev}`);
 });
 
 test('leverageUtilization returns null when equity ≤ 0', () => {
@@ -136,6 +137,15 @@ test('leverageUtilization returns null when equity ≤ 0', () => {
     assert.equal(RM.leverageUtilization(positions, { equity: '0' }, {}), null);
     assert.equal(RM.leverageUtilization(positions, { equity: '-100' }, {}), null);
     assert.equal(RM.leverageUtilization(positions, null, {}), null);
+});
+
+test('usableEquity is the equity only when it is positive', () => {
+    assert.equal(RM.usableEquity({ equity: '0.01' }), 0.01);
+    assert.equal(RM.usableEquity({ equity: '0' }), null, 'zero equity');
+    assert.equal(RM.usableEquity({ equity: '-100' }), null);
+    assert.equal(RM.usableEquity({ equity: 'n/a' }), null);
+    assert.equal(RM.usableEquity({}), null);
+    assert.equal(RM.usableEquity(null), null);
 });
 
 test('leverageUtilization skips closed positions', () => {
@@ -154,25 +164,25 @@ test('leverageUtilization skips closed positions', () => {
 // ---------------------------------------------------------------------------
 
 test('liquidationRow notional uses oracle-first (matches leverageUtilization)', () => {
-    const position = { market: 'BTC-USD', side: 'LONG', size: '6.5', status: 'OPEN', entryPrice: '76898.46' };
-    const sub = { equity: '473363.91' };
+    const position = { market: 'BTC-USD', side: 'LONG', size: '5', status: 'OPEN', entryPrice: '75000' };
+    const sub = { equity: '300000' };
     const markets = {
-        'BTC-USD': { oraclePrice: '78928.28', maintenanceMarginFraction: '0.012' }
+        'BTC-USD': { oraclePrice: '80000', maintenanceMarginFraction: '0.012' }
     };
     const row = RM.liquidationRow(position, sub, markets);
-    assert.ok(close(row.notional, 6.5 * 78928.28, 1e-2));
-    assert.ok(close(row.lev, 1.0838, 1e-3));
+    assert.ok(close(row.notional, 5 * 80000, 1e-2));
+    assert.ok(close(row.lev, 1.3333, 1e-3));
 });
 
 test('liquidationRow distancePct from oracle and liq', () => {
-    const position = { market: 'BTC-USD', side: 'LONG', size: '6.5', status: 'OPEN' };
-    const sub = { equity: '473363.91' };
+    const position = { market: 'BTC-USD', side: 'LONG', size: '5', status: 'OPEN' };
+    const sub = { equity: '300000' };
     const markets = {
-        'BTC-USD': { oraclePrice: '78928.28', maintenanceMarginFraction: '0.012' }
+        'BTC-USD': { oraclePrice: '80000', maintenanceMarginFraction: '0.012' }
     };
     const row = RM.liquidationRow(position, sub, markets);
-    // (78928.28 - 6177.50) / 78928.28 ≈ 92.17%
-    assert.ok(close(row.distancePct, 92.17, 0.05), `expected ~92.17%, got ${row.distancePct}`);
+    // (80000 - 20242.91) / 80000 ≈ 74.70%
+    assert.ok(close(row.distancePct, 74.70, 0.05), `expected ~74.70%, got ${row.distancePct}`);
 });
 
 test('positionNotional values an open position at oracle without needing the subaccount', () => {
@@ -637,6 +647,114 @@ test('attributeFillsToPositions: openSizeDisagrees marks only an OPEN position w
     assert.equal(b.openSizeDisagrees, false);
 });
 
+test('attributeFillsToPositions: incompleteCause names why a position is incomplete, null when complete', () => {
+    const CAUSE = RM.INCOMPLETE_CAUSE;
+    const causeOf = (positions, fills, p = positions[0]) => RM.attributeFillsToPositions(positions, fills).get(p).incompleteCause;
+    const roundTrip = [mkFill('BTC-USD', T1, 1, 'BUY', 1, 100, 0), mkFill('BTC-USD', T2, 2, 'SELL', 1, 110, 0)];
+    const closedLong = { market: 'BTC-USD', status: 'CLOSED', side: 'LONG', createdAt: T1, closedAt: T2 };
+
+    assert.equal(causeOf([closedLong], roundTrip), null);
+    assert.equal(causeOf([closedLong], null), CAUSE.NO_MATCHING_FILLS);
+    assert.equal(causeOf([closedLong], [...roundTrip, { ...mkFill('BTC-USD', T2, 3, 'BUY', 1, 100, 0), price: 'NaN' }]),
+        CAUSE.UNUSABLE_FILL);
+    assert.equal(causeOf([{ ...closedLong, closedAt: T4 }],
+        [...roundTrip, mkFill('BTC-USD', T3, 3, 'BUY', 1, 100, 0), mkFill('BTC-USD', T4, 4, 'SELL', 1, 110, 0)]),
+        CAUSE.FLAT_MID_POSITION);
+    assert.equal(causeOf([{ ...closedLong, side: 'SHORT' }], roundTrip), CAUSE.SIDE_MISMATCH);
+    assert.equal(causeOf([{ ...closedLong, closedAt: T1 }], roundTrip), CAUSE.NOT_FLAT_AT_CLOSE);
+    const twin = { ...closedLong };
+    assert.equal(causeOf([closedLong, twin], roundTrip), CAUSE.INDISTINGUISHABLE);
+
+    // The SELL reverses the LONG, but no SHORT opens at T2 to take it.
+    const reversed = [mkFill('BTC-USD', T1, 1, 'BUY', 1, 100, 0), mkFill('BTC-USD', T2, 2, 'SELL', 2, 110, 0)];
+    assert.equal(causeOf([closedLong], reversed), CAUSE.REVERSAL_PARTNER_MISSING);
+
+    const open = { market: 'BTC-USD', status: 'OPEN', side: 'LONG', size: '3', createdAt: T1, closedAt: null };
+    assert.equal(causeOf([open], [mkFill('BTC-USD', T1, 1, 'BUY', 2, 100, 0)]), CAUSE.OPEN_SIZE_MISMATCH);
+});
+
+test('attributeFillsToPositions: an unusable fill is named as the cause over the open-size mismatch it produces', () => {
+    // The skipped BUY 1 leaves the walk at LONG 2 against the indexer's 3.
+    const open = { market: 'BTC-USD', status: 'OPEN', side: 'LONG', size: '3', createdAt: T1, closedAt: null };
+    const fills = [
+        mkFill('BTC-USD', T1, 1, 'BUY', 2, 100, 0),
+        { ...mkFill('BTC-USD', T2, 2, 'BUY', 1, 100, 0), price: 'n/a' }
+    ];
+    const a = RM.attributeFillsToPositions([open], fills).get(open);
+    assert.equal(a.incompleteCause, RM.INCOMPLETE_CAUSE.UNUSABLE_FILL);
+    assert.equal(a.openSizeDisagrees, true, 'the size check still reports its own finding');
+});
+
+// When several causes apply at once, incompleteCause names the first in
+// INCOMPLETE_CAUSE order. One test per adjacent pair that can co-occur;
+// each also shows the later cause alone, so both really apply.
+// NO_MATCHING_FILLS cannot co-occur with the other segment causes (they
+// need a segment), nor with REVERSAL_PARTNER_MISSING (only a segment's
+// owner can miss its reversal partner).
+const precedence = {
+    causeOf: (positions, fills, p) => RM.attributeFillsToPositions(positions, fills).get(p).incompleteCause,
+    closedLong: { market: 'BTC-USD', status: 'CLOSED', side: 'LONG', createdAt: T1, closedAt: T2 },
+    // The SELL at T2 reverses the LONG, but no SHORT opens at T2 to take it.
+    reversed: [mkFill('BTC-USD', T1, 1, 'BUY', 1, 100, 0), mkFill('BTC-USD', T2, 2, 'SELL', 2, 110, 0)],
+    roundTrip: [mkFill('BTC-USD', T1, 1, 'BUY', 1, 100, 0), mkFill('BTC-USD', T2, 2, 'SELL', 1, 110, 0)],
+    unusableAtT2: { ...mkFill('BTC-USD', T2, 3, 'BUY', 1, 100, 0), price: 'NaN' }
+};
+
+test('incompleteCause precedence: an unusable fill outranks a missing reversal partner', () => {
+    const { causeOf, closedLong, reversed, unusableAtT2 } = precedence;
+    const CAUSE = RM.INCOMPLETE_CAUSE;
+    assert.equal(causeOf([closedLong], reversed, closedLong), CAUSE.REVERSAL_PARTNER_MISSING);
+    assert.equal(causeOf([closedLong], [...reversed, unusableAtT2], closedLong), CAUSE.UNUSABLE_FILL);
+});
+
+test('incompleteCause precedence: a missing reversal partner outranks indistinguishable positions', () => {
+    // The twin listed first owns the reversed segment.
+    const { causeOf, closedLong, reversed } = precedence;
+    const CAUSE = RM.INCOMPLETE_CAUSE;
+    const twin = { ...closedLong };
+    assert.equal(causeOf([closedLong, twin], precedence.roundTrip, closedLong), CAUSE.INDISTINGUISHABLE);
+    assert.equal(causeOf([closedLong, twin], reversed, closedLong), CAUSE.REVERSAL_PARTNER_MISSING);
+});
+
+test('incompleteCause precedence: indistinguishable positions outrank the segment cause they produce', () => {
+    // Its twin took the only segment, so the second twin has none.
+    const { causeOf, closedLong, roundTrip } = precedence;
+    const CAUSE = RM.INCOMPLETE_CAUSE;
+    const twin = { ...closedLong };
+    const different = { ...closedLong, closedAt: T3 };
+    assert.equal(causeOf([closedLong, different], roundTrip, different), CAUSE.NO_MATCHING_FILLS);
+    assert.equal(causeOf([closedLong, twin], roundTrip, twin), CAUSE.INDISTINGUISHABLE);
+});
+
+test('incompleteCause precedence: an unusable fill outranks the segment cause', () => {
+    const { causeOf, closedLong, roundTrip, unusableAtT2 } = precedence;
+    const CAUSE = RM.INCOMPLETE_CAUSE;
+    const short = { ...closedLong, side: 'SHORT' };
+    assert.equal(causeOf([short], roundTrip, short), CAUSE.SIDE_MISMATCH);
+    assert.equal(causeOf([short], [...roundTrip, unusableAtT2], short), CAUSE.UNUSABLE_FILL);
+});
+
+test('incompleteCause precedence: the segment cause outranks the open-size mismatch it produces', () => {
+    // The walk ends SHORT 2 on a SELL; the indexer holds LONG 2.
+    const { causeOf } = precedence;
+    const CAUSE = RM.INCOMPLETE_CAUSE;
+    const open = { market: 'BTC-USD', status: 'OPEN', side: 'LONG', size: '2', createdAt: T1, closedAt: null };
+    const sell = [mkFill('BTC-USD', T1, 1, 'SELL', 2, 100, 0)];
+    const sideless = { ...open, side: undefined };
+    assert.equal(causeOf([sideless], sell, sideless), CAUSE.OPEN_SIZE_MISMATCH);
+    assert.equal(causeOf([open], sell, open), CAUSE.SIDE_MISMATCH);
+});
+
+test('incompleteCause precedence: a side mismatch outranks not being flat at close', () => {
+    // The fills close the LONG at T2, after the position's closedAt of T1.
+    const { causeOf, closedLong, roundTrip } = precedence;
+    const CAUSE = RM.INCOMPLETE_CAUSE;
+    const closedEarly = { ...closedLong, closedAt: T1 };
+    assert.equal(causeOf([closedEarly], roundTrip, closedEarly), CAUSE.NOT_FLAT_AT_CLOSE);
+    const shortClosedEarly = { ...closedEarly, side: 'SHORT' };
+    assert.equal(causeOf([shortClosedEarly], roundTrip, shortClosedEarly), CAUSE.SIDE_MISMATCH);
+});
+
 test('attributeFillsToPositions: a flip segment with no opposite-side position opened at its reversal marks the position incomplete', () => {
     // The SELL reverses the LONG, yet the position the list holds from T2
     // is another LONG, not a SHORT: a fill around the reversal is missing.
@@ -862,6 +980,45 @@ test('classifyClosed derives the payoff ratio and the win rate it needs to break
     ]);
     assert.equal(incomplete.payoff, null);
     assert.equal(incomplete.breakevenWinRate, null);
+});
+
+test('classifyClosed picks the single largest win and largest loss as bestTrade / worstTrade', () => {
+    const c = RM.classifyClosed([
+        { status: 'CLOSED', profit: 996, complete: true },
+        { status: 'CLOSED', profit: 298, complete: true },
+        { status: 'CLOSED', profit: -500, complete: true },
+        { status: 'CLOSED', profit: -2000, complete: true },
+        { status: 'CLOSED', profit: 0, complete: true }
+    ]);
+    assert.equal(c.bestTrade, 996);
+    assert.equal(c.worstTrade, -2000);
+
+    const winsOnly = RM.classifyClosed([{ status: 'CLOSED', profit: 10, complete: true }]);
+    assert.equal(winsOnly.bestTrade, 10);
+    assert.equal(winsOnly.worstTrade, null, 'no loss, no worst trade');
+    const scratchOnly = RM.classifyClosed([{ status: 'CLOSED', profit: 0, complete: true }]);
+    assert.equal(scratchOnly.bestTrade, null, 'a scratch is neither');
+    assert.equal(scratchOnly.worstTrade, null);
+});
+
+test('classifyClosed nulls bestTrade / worstTrade under the all-or-nothing rule', () => {
+    const trades = [
+        { status: 'CLOSED', profit: 100, complete: true },
+        { status: 'CLOSED', profit: -50, complete: true }
+    ];
+    const incomplete = RM.classifyClosed([...trades, { status: 'CLOSED', profit: 30, complete: false }]);
+    assert.equal(incomplete.bestTrade, null);
+    assert.equal(incomplete.worstTrade, null);
+    const unavailable = RM.classifyClosed(trades, 'Closed positions failed to load');
+    assert.equal(unavailable.bestTrade, null);
+    assert.equal(unavailable.worstTrade, null);
+});
+
+test('oppositeSide flips LONG and SHORT and has no answer for anything else', () => {
+    assert.equal(RM.oppositeSide('LONG'), 'SHORT');
+    assert.equal(RM.oppositeSide('SHORT'), 'LONG');
+    assert.equal(RM.oppositeSide(''), null);
+    assert.equal(RM.oppositeSide(undefined), null);
 });
 
 test('classifyClosed with an unavailable closed-position list nulls every ratio and says why', () => {

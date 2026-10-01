@@ -77,6 +77,7 @@ function makeFetchStub() {
 globalThis.localStorage = makeLocalStorage();
 globalThis.fetch = makeFetchStub();
 
+require('../src/constants.js');
 require('../fx-rates.js');
 const FX = globalThis.FxRates;
 

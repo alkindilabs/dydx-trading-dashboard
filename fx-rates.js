@@ -12,6 +12,8 @@
  * fresh state before persisting so a slower concurrent caller cannot
  * clobber a faster caller's rates. Callers always receive a
  * `{rates, missing}` payload; no throws bubble up.
+ *
+ * Depends on: window.AppConstants (MS_PER_DAY), read at load time.
  */
 
 ;(function () {
@@ -165,7 +167,8 @@
     // a provisional value until the ~16:00 CET publish; the caller must
     // NOT cache that under the requested date or the previous-day value
     // will be served forever.
-    const RECENT_THRESHOLD_MS = 2 * 24 * 60 * 60 * 1000;
+    const RECENT_THRESHOLD_DAYS = 2;
+    const RECENT_THRESHOLD_MS = RECENT_THRESHOLD_DAYS * window.AppConstants.MS_PER_DAY;
     function isSettledPastDate(dateStr) {
         const reqMs = Date.parse(dateStr + 'T00:00:00Z');
         if (!Number.isFinite(reqMs)) return false;

@@ -128,6 +128,42 @@ const phantomLotsAccount = {
   openPositions: { positions: [BTC_SCRATCH_STALE_OPEN] },
 };
 
+// The BTC fills hold a fill whose price does not parse inside the OPEN
+// position's window. The walk skips it and still ends at the OPEN row's
+// size, but the skipped trade leaves every BTC FIFO total unknown.
+const unusableFillAccount = {
+  ...noCollisionAccount,
+  fills: { fills: [
+    { ...fill('b4', 'BTC-USD', 'BUY', '1', '100500', '0', 'TAKER', '2025-05-02T00:00:00.000Z', '510'), price: 'NaN' },
+    ...account.fills.fills,
+  ] },
+};
+
+// The BTC fills reverse a LONG into the OPEN SHORT, but the CLOSED list
+// holds no LONG closing at the reversal: the fills that opened it are
+// missing, so every BTC FIFO total is off though the SHORT's size agrees.
+const REVERSAL_LONG_AT = '2025-06-01T00:00:00.000Z';
+const REVERSAL_AT = '2025-06-02T00:00:00.000Z';
+const UNPARTNERED_SHORT = position({
+  market: 'BTC-USD', side: 'SHORT', status: 'OPEN', size: '-2', maxSize: '0', sumOpen: '2', sumClose: '0',
+  entryPrice: '100000', createdAt: REVERSAL_AT, createdAtHeight: '610', closedAt: null,
+});
+const unpartneredReversalAccount = {
+  ...account,
+  openPositions: { positions: [UNPARTNERED_SHORT] },
+  fills: { fills: [
+    fill('u2', 'BTC-USD', 'SELL', '3', '100000', '0', 'TAKER', REVERSAL_AT, '610'),
+    fill('u1', 'BTC-USD', 'BUY',  '1', '99000',  '0', 'TAKER', REVERSAL_LONG_AT, '600'),
+    ...account.fills.fills.filter(f => f.id !== 'b3'),
+  ] },
+};
+
+// The account's subaccount with its equity replaced.
+const withEquity = (data, equity) => ({
+  ...data,
+  subaccount: { subaccount: { ...data.subaccount.subaccount, equity } },
+});
+
 // The reopened OPEN row carries funding; without fills the collision
 // cannot keep it, so the merged list holds only the CLOSED copy.
 const reopenedWithFundingAccount = {
@@ -149,6 +185,13 @@ const solOpenAccount = {
     fill('s1', 'SOL-USD', 'BUY', '10', '100', '0', 'TAKER', SOL_OPEN_AT, '900'),
     ...account.fills.fills,
   ] },
+};
+
+// solOpenAccount whose open SOL lot has no entry price either, so neither
+// an oracle nor an entry price values it.
+const unpricedOpenAccount = {
+  ...solOpenAccount,
+  openPositions: { positions: [...account.openPositions.positions, { ...SOL_OPEN, entryPrice: undefined }] },
 };
 
 // The ETH wins (+$996, +$298 net of fees) plus a -$2000 SOL loss: the
@@ -579,6 +622,109 @@ test.describe('positions board', () => {
     await expect(assetCells(page, 'BTC-USD').nth(1)).toHaveText('—');
     await expect(assetCells(page, 'BTC-USD').nth(1)).toHaveAttribute('title', reason);
     await expect(assetCells(page, 'ETH-USD').nth(1)).toHaveText('+$1281');
+  });
+
+  test('an unusable fill inside an OPEN position blanks the headline, TRADING and that market\'s profit, naming the cause', async ({ page }) => {
+    await page.route(INDEXER_URL, serveAccount(null, unusableFillAccount));
+    await loadAccount(page);
+
+    const reason = 'Unusable fill in BTC-USD';
+    await expect(page.locator('#totalPnL')).toHaveText('—');
+    await expect(page.locator('#totalPnLChange')).toHaveText(reason);
+    await expect(page.locator('#totalPnLTrading')).toHaveText('—');
+    await expect.poll(async () => (await marketChartEntry(page, 'BTC-USD')).tooltip)
+      .toContain(`Profit (incl. funding − fees): — (${reason})`);
+    expect((await marketChartEntry(page, 'ETH-USD')).tooltip)
+      .toContain('Profit (incl. funding − fees): +$1281');
+
+    await openTab(page, 'performance');
+    await expect(assetCells(page, 'BTC-USD').nth(1)).toHaveText('—');
+    await expect(assetCells(page, 'BTC-USD').nth(1)).toHaveAttribute('title', reason);
+    await expect(assetCells(page, 'ETH-USD').nth(1)).toHaveText('+$1281');
+  });
+
+  test('an OPEN position opened by a reversal with no partner listed blanks the headline, TRADING and that market\'s profit, naming the cause', async ({ page }) => {
+    await page.route(INDEXER_URL, serveAccount(null, unpartneredReversalAccount));
+    await loadAccount(page);
+
+    const reason = 'Reversal partner missing in BTC-USD';
+    await expect(page.locator('#totalPnL')).toHaveText('—');
+    await expect(page.locator('#totalPnLChange')).toHaveText(reason);
+    await expect(page.locator('#totalPnLTrading')).toHaveText('—');
+    await expect.poll(async () => (await marketChartEntry(page, 'BTC-USD')).tooltip)
+      .toContain(`Profit (incl. funding − fees): — (${reason})`);
+
+    await openTab(page, 'performance');
+    await expect(assetCells(page, 'BTC-USD').nth(1)).toHaveAttribute('title', reason);
+    await expect(assetCells(page, 'ETH-USD').nth(1)).toHaveText('+$1281');
+  });
+
+  test('a market with open lots and no oracle price blanks the headline and TRADING but only its own profit', async ({ page }) => {
+    // The markets map has no SOL-USD entry, so the open SOL lot is unpriced.
+    await page.route(INDEXER_URL, serveAccount(null, solOpenAccount));
+    await loadAccount(page);
+
+    const reason = 'No oracle price for SOL-USD';
+    await expect(page.locator('#totalPnL')).toHaveText('—');
+    await expect(page.locator('#totalPnLChange')).toHaveText(reason);
+    await expect(page.locator('#totalPnLTrading')).toHaveText('—');
+    await expect.poll(async () => (await marketChartEntry(page, 'SOL-USD')).tooltip)
+      .toContain(`Profit (incl. funding − fees): — (${reason})`);
+    expect((await marketChartEntry(page, 'ETH-USD')).tooltip)
+      .toContain('Profit (incl. funding − fees): +$1281');
+    expect((await marketChartEntry(page, 'BTC-USD')).tooltip)
+      .toContain('Profit (incl. funding − fees): +$1999');
+
+    await openTab(page, 'performance');
+    await expect(assetCells(page, 'SOL-USD').nth(1)).toHaveText('—');
+    await expect(assetCells(page, 'SOL-USD').nth(1)).toHaveAttribute('title', reason);
+    await expect(assetCells(page, 'ETH-USD').nth(1)).toHaveText('+$1281');
+    await expect(assetCells(page, 'BTC-USD').nth(1)).toHaveText('+$1999');
+  });
+
+  test('with no open position and known equity the Leverage card reads 0.00x', async ({ page }) => {
+    await page.route(INDEXER_URL, serveAccount(null, losingAccount));
+    await loadAccount(page);
+    await openTab(page, 'risk');
+
+    await expect(page.locator('#leverageUtil')).toHaveText('0.00x');
+    await expect(page.locator('#leverageUtilDetail')).toHaveText('No open positions');
+  });
+
+  test('without equity the Leverage card reads — with the reason', async ({ page }) => {
+    await page.route(INDEXER_URL, serveAccount('subaccount', noCollisionAccount));
+    await loadAccount(page);
+    await openTab(page, 'risk');
+
+    await expect(page.locator('#leverageUtil')).toHaveText('—');
+    await expect(page.locator('#leverageUtilDetail')).toHaveText('Equity unavailable');
+  });
+
+  test('with zero equity the Leverage card reads — with the reason, even without open positions', async ({ page }) => {
+    await page.route(INDEXER_URL, serveAccount(null, withEquity(losingAccount, '0')));
+    await loadAccount(page);
+    await openTab(page, 'risk');
+
+    await expect(page.locator('#leverageUtil')).toHaveText('—');
+    await expect(page.locator('#leverageUtilDetail')).toHaveText('Equity unavailable');
+  });
+
+  test('an open position with no notional leaves the Leverage card — with the reason, beside a priced one', async ({ page }) => {
+    await page.route(INDEXER_URL, serveAccount(null, unpricedOpenAccount));
+    await loadAccount(page);
+    await openTab(page, 'risk');
+
+    await expect(page.locator('#leverageUtil')).toHaveText('—');
+    await expect(page.locator('#leverageUtilDetail')).toHaveText('Open position notional unavailable');
+  });
+
+  test('a failed OPEN list keeps precedence over missing equity on the Leverage card', async ({ page }) => {
+    await page.route(INDEXER_URL, serveAccount('openPositions', withEquity(account, '0')));
+    await loadAccount(page);
+    await openTab(page, 'risk');
+
+    await expect(page.locator('#leverageUtil')).toHaveText('—');
+    await expect(page.locator('#leverageUtilDetail')).toHaveText('Open positions failed to load');
   });
 
   test('without fills an unresolved collision blanks FUNDING and the open counts, which may miss the reopened OPEN row', async ({ page }) => {

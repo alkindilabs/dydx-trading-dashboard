@@ -5,7 +5,8 @@
 // process-data extraction in Phase 2's final PR.
 //
 // Depends on: window.RiskMetrics (liquidationRow, leverageUtilization,
-// histPnlDrawdownEvents, tradeSystemDrawdownEvents), window.AppConstants
+// usableEquity, positionNotional, histPnlDrawdownEvents,
+// tradeSystemDrawdownEvents), window.AppConstants
 // (MS_PER_DAY), window.Format (formatCurrency, formatPrice, fmtNum, signClass),
 // window.AppDom (appendCell, tagCells, updateMetric).
 
@@ -74,25 +75,44 @@
     D.tagCells('liquidationRiskBody');
   }
 
-  // The caption reads openPositionsGap (processData's reason the OPEN
-  // rows are unknown) while there is one, else the markup's own text.
-  function renderLeverageDetail(openPositionsGap) {
+  const EQUITY_UNAVAILABLE = 'Equity unavailable';
+  const NO_OPEN_POSITIONS = 'No open positions';
+  const OPEN_NOTIONAL_UNAVAILABLE = 'Open position notional unavailable';
+
+  // The caption reads `caption` when there is one, else the markup's own text.
+  function renderLeverageDetail(caption) {
     const detail = document.getElementById('leverageUtilDetail');
     if (!detail) return;
     if (detail.dataset.defaultText === undefined) {
       detail.dataset.defaultText = detail.textContent;
     }
-    detail.textContent = openPositionsGap || detail.dataset.defaultText;
+    detail.textContent = caption || detail.dataset.defaultText;
+  }
+
+  // The card's { lev, caption }, in precedence order: while
+  // openPositionsGap holds a reason the OPEN rows are unknown, '—' with
+  // that reason even when some OPEN rows are present; without
+  // RiskMetrics.usableEquity, '—'; with no open position, 0x; with an open
+  // position RiskMetrics.positionNotional cannot value, '—' (a sum over the
+  // others would understate leverage); else
+  // RiskMetrics.leverageUtilization under the markup's caption.
+  function leverageReading(positions, subaccount, marketsMap, openPositionsGap) {
+    const RM = window.RiskMetrics;
+    if (openPositionsGap) return { lev: null, caption: openPositionsGap };
+    if (RM.usableEquity(subaccount) === null) return { lev: null, caption: EQUITY_UNAVAILABLE };
+    const open = positions.filter(p => p.status === 'OPEN');
+    if (!open.length) return { lev: 0, caption: NO_OPEN_POSITIONS };
+    if (open.some(p => RM.positionNotional(p, marketsMap) === null)) {
+      return { lev: null, caption: OPEN_NOTIONAL_UNAVAILABLE };
+    }
+    return { lev: RM.leverageUtilization(positions, subaccount, marketsMap), caption: '' };
   }
 
   // Tier-based styling so high leverage never renders in profit-green
-  // by accident. Compute lives in RiskMetrics.leverageUtilization. While
-  // openPositionsGap holds a reason the OPEN rows are unknown, the card
-  // reads '—' even when some OPEN rows are present.
+  // by accident.
   function renderLeverageUtilization(positions, subaccount, marketsMap, openPositionsGap) {
-    renderLeverageDetail(openPositionsGap);
-    const lev = openPositionsGap ? null
-      : window.RiskMetrics.leverageUtilization(positions, subaccount, marketsMap);
+    const { lev, caption } = leverageReading(positions, subaccount, marketsMap, openPositionsGap);
+    renderLeverageDetail(caption);
     const el = document.getElementById('leverageUtil');
     if (el) {
       el.textContent = lev !== null ? lev.toFixed(2) + 'x' : '—';

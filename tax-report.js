@@ -19,7 +19,8 @@
  * Depends on window.RiskMetrics (attributeFillsToPositions,
  * hasCompleteAttribution, isFifoUsableFill and timestampMs must be
  * available at runtime; tax-report.js loads after risk-metrics.js) and
- * window.AppConstants (SIZE_SIGNIFICANT_DIGITS for the export cells).
+ * window.AppConstants (SIZE_SIGNIFICANT_DIGITS for the export cells,
+ * MS_PER_DAY for holding days).
  */
 
 (function () {
@@ -127,7 +128,7 @@
         const openMs = tsMs(position.createdAt);
         const closeMs = tsMs(position.closedAt);
         const holdingDays = (openMs !== null && closeMs !== null && closeMs >= openMs)
-            ? Math.floor((closeMs - openMs) / 86400000)
+            ? Math.floor((closeMs - openMs) / window.AppConstants.MS_PER_DAY)
             : null;
         return {
             closedAtISO: position.closedAt || null,
@@ -154,7 +155,6 @@
             // does), covering fees and realized P&L alike (see CLAUDE.md
             // Tax-report section). The attributed values stay exact.
             _feeAttributionWarning: !!overlap,
-            _realizedFromFills: complete,
             // Reason CSV consumers can branch on instead of guessing from
             // `fillCount`. One of: null | 'no-fills-in-window' |
             // 'invalid-fill-in-slice' | 'attribution-incomplete'.
@@ -375,8 +375,6 @@
         const warnings = {
             feeAttributionAmbiguousCount: 0,
             missingFxDates: [],
-            positionsWithoutFifoCount: 0,
-            positionsWithInvalidFillCount: 0,
             incompleteAttributionCount: 0
         };
         const closed = (positions || []).filter(p => p && p.status === 'CLOSED');
@@ -428,8 +426,6 @@
         });
         rows.forEach(r => {
             if (r._feeAttributionWarning) warnings.feeAttributionAmbiguousCount++;
-            if (!r._realizedFromFills) warnings.positionsWithoutFifoCount++;
-            if (r._hasInvalidFill) warnings.positionsWithInvalidFillCount++;
             if (r._attributionIncomplete) warnings.incompleteAttributionCount++;
         });
         if (fxRates) convertRowsToEur(rows, fxRates, warnings);
@@ -485,7 +481,7 @@
             'fx_rate_usd_eur',
             'realized_pnl_eur', 'net_funding_eur', 'fees_eur', 'net_eur',
             'holding_days',
-            'fill_count', 'realized_from_fills', 'realized_fill_error',
+            'fill_count', 'realized_fill_error',
             'invalid_fill_in_window',
             'attribution_warning', 'attribution_incomplete', 'fx_missing'
         ];
@@ -511,7 +507,6 @@
                 fmtEur(row.netEUR),
                 row.holdingDays === null ? '' : String(row.holdingDays),
                 typeof row.fillCount === 'number' ? String(row.fillCount) : '',
-                row._realizedFromFills ? 'true' : 'false',
                 row._realizedFillError || '',
                 row._hasInvalidFill ? 'true' : 'false',
                 row._feeAttributionWarning ? 'true' : 'false',
@@ -539,14 +534,17 @@
         return value;
     }
 
-    // Bump when a CSV/JSON column is added, renamed or changes meaning.
+    // Bump when a CSV/JSON column is added, removed, renamed or changes meaning.
     // 2: max_size → peak_size (peak |net size| from fills), entry/exit are
     // fill VWAPs, a reversing fill's fee is split by size, rows with
     // incomplete fill attribution export empty profit cells with
     // attribution_incomplete = true, and realized_from_fills /
     // realized_fill_error follow that attribution's completeness (no
     // per-window net-flat check, no 'partial-fill-slice' value).
-    const EXPORT_SCHEMA_VERSION = 2;
+    // 3: realized_from_fills / _realizedFromFills dropped (always the
+    // inverse of attribution_incomplete); realized_fill_error is the
+    // reason column for attribution_incomplete = true.
+    const EXPORT_SCHEMA_VERSION = 3;
 
     function toJson(rows, totals, classification, year) {
         const cls = (classification && CLASSIFICATIONS[classification.id || classification])
