@@ -6,6 +6,7 @@
 *.md
 !README.md
 !CLAUDE.md
+!ARCHITECTURE.md
 
 # OS files
 .DS_Store
