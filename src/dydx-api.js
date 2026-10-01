@@ -63,8 +63,10 @@
   const RETRY_MAX_DELAY = 16000;
   const RETRY_TRIES     = 6;
 
+  // opts.label names the endpoint in the per-retry debug log.
   async function fetchJsonWithRetry(url, opts = {}) {
     const tries = opts.tries != null ? opts.tries : RETRY_TRIES;
+    const label = opts.label || url;
     let lastError = null;
     for (let attempt = 0; attempt <= tries; attempt++) {
       try {
@@ -82,9 +84,10 @@
           );
           delay = Math.random() * ceil;
         }
-        if (opts.onRetry) {
-          try { opts.onRetry(attempt + 1, delay, e); } catch (_) {}
-        }
+        console.debug(
+          `[${label}] retry ${attempt + 1}/${tries} after ` +
+          `${Math.round(delay)}ms (${e && (e.status || e.message)})`
+        );
         await new Promise(r => setTimeout(r, delay));
       }
     }
@@ -96,16 +99,20 @@
   // (empty page, short page in offset mode, dedup cycle, unadvancing
   // cursor). An optional `maxPages` opt caps the walk for callers that
   // only need a bounded window (e.g. the funding chart's 90-day cap on
-  // /historicalFunding).
+  // /historicalFunding); stopping at that cap resolves normally.
+  //
+  // A page that still fails after fetchJsonWithRetry gives up rejects
+  // the whole walk, whichever page it is. Resolving with the rows read
+  // so far would hand callers a truncated history that looks complete.
   //
   // cursorField (cursor mode only): which row field carries the
-  // chronological cursor value. Defaults to 'createdAt' (fills,
-  // historical-pnl, closed positions). /historicalFunding rows use
+  // chronological cursor value. Defaults to 'createdAt' (historical-pnl,
+  // closed positions). /historicalFunding rows use
   // 'effectiveAt' instead.
   //
   // cursorParam: the query-string key that carries the cursor value
   // on the next request. Defaults to 'createdBeforeOrAt' (the indexer
-  // convention for /fills, /historical-pnl, /perpetualPositions).
+  // convention for /historical-pnl, /perpetualPositions).
   // /historicalFunding requires 'effectiveBeforeOrAt' — the
   // createdBeforeOrAt name is silently ignored on that endpoint, so
   // the paginator stalls after page 1. Both fields and the matching
@@ -123,7 +130,6 @@
     let pageNum = 1;
     const all = [];
     const seen = new Set();
-    let firstPageError = null;
     for (let i = 0; ; i++) {
       if (maxPages != null && i >= maxPages) break;
       let extraParam = '';
@@ -138,18 +144,10 @@
       }
       let page;
       try {
-        page = await fetchJsonWithRetry(url, {
-          onRetry: (attempt, delay, e) => {
-            console.debug(
-              `[${label}] retry ${attempt}/${RETRY_TRIES} after ` +
-              `${Math.round(delay)}ms (${e && (e.status || e.message)})`
-            );
-          }
-        });
+        page = await fetchJsonWithRetry(url, { label });
       } catch (e) {
-        if (i === 0) firstPageError = e;
-        console.warn(`[${label}] pagination stopped at page ${i}:`, e && e.message);
-        break;
+        console.warn(`[${label}] page ${i + 1} failed; endpoint rejected:`, e && e.message);
+        throw e;
       }
       let rows = null;
       for (const k of dataKeys) {
@@ -176,7 +174,6 @@
         if (rows.length < pageLimit) break;
       }
     }
-    if (firstPageError && all.length === 0) throw firstPageError;
     return all;
   }
 
@@ -213,7 +210,12 @@
     return { positions: all };
   }
 
-  // /fills rows expose a UUID id.
+  // /fills in page mode (page=N) lists fills by eventId ascending: chain
+  // order, oldest first, including the order of fills inside one block,
+  // which the FIFO walk depends on. Cursor mode (createdBeforeOrAt) orders
+  // only by block height, leaving a block's fills in arbitrary order.
+  // Appending new fills never shifts earlier pages. Rows expose a UUID id,
+  // a hash of the event id: fine for dedup, meaningless for order.
   async function fetchAllFills(encodedAddress, onProgress) {
     const all = await fetchAllPaginated({
       urlBase: `${DYDX_API}/fills?address=${encodedAddress}&subaccountNumber=0`,
@@ -222,6 +224,7 @@
       keyFn: r => r.id || `${r.createdAt}|${r.market}|${r.side}|${r.size}|${r.price}`,
       pageLimit: window.AppConstants.FILLS_PAGE_LIMIT,
       label: 'fills',
+      mode: 'page',
       onProgress
     });
     return { fills: all };
@@ -259,7 +262,10 @@
   // /candles/perpetualMarkets/{ticker}?resolution=… walks backward via
   // toISO instead of createdBeforeOrAt — the generic paginator's URL
   // shape doesn't fit, so this is a bespoke loop. Stops when fromMs is
-  // crossed, the page is empty, or maxPages is hit.
+  // crossed, the page is empty, or maxPages is hit. A page that still
+  // fails after retries rejects the whole walk, whichever page it is,
+  // like fetchAllPaginated: a truncated series would draw a price line
+  // that silently covers only part of the window.
   async function fetchCandles(ticker, resolution, opts) {
     const o = opts || {};
     const limit = window.AppConstants.CANDLES_PAGE_LIMIT;
@@ -270,7 +276,6 @@
     const all = [];
     const seen = new Set();
     let toISO = null;
-    let firstPageError = null;
     for (let i = 0; i < maxPages; i++) {
       const params = new URLSearchParams({ resolution, limit: String(limit) });
       if (toISO) params.set('toISO', toISO);
@@ -282,9 +287,8 @@
       try {
         page = await fetchJsonWithRetry(url);
       } catch (e) {
-        if (i === 0) firstPageError = e;
-        console.warn(`[candles:${ticker}] pagination stopped at page ${i}:`, e && e.message);
-        break;
+        console.warn(`[candles:${ticker}] page ${i + 1} failed; endpoint rejected:`, e && e.message);
+        throw e;
       }
       const rows = page && Array.isArray(page.candles) ? page.candles : null;
       if (!rows || !rows.length) break;
@@ -310,7 +314,6 @@
       toISO = oldestStartedAt;
       if (rows.length < limit) break;
     }
-    if (firstPageError && all.length === 0) throw firstPageError;
     return { candles: all };
   }
 

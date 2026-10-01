@@ -6,22 +6,43 @@
 //
 // Depends on: window.RiskMetrics (liquidationRow, leverageUtilization,
 // histPnlDrawdownEvents, tradeSystemDrawdownEvents), window.AppConstants
-// (MS_PER_DAY), window.Format (formatCurrency, formatPrice, fmtNum),
+// (MS_PER_DAY), window.Format (formatCurrency, formatPrice, fmtNum, signClass),
 // window.AppDom (appendCell, tagCells, updateMetric).
 
 (function () {
   'use strict';
 
+  const LIQUIDATION_TABLE_COLUMNS = 8;
+
+  function appendLiquidationNote(body, text) {
+    const noteTr = document.createElement('tr');
+    const noteTd = document.createElement('td');
+    noteTd.colSpan = LIQUIDATION_TABLE_COLUMNS;
+    noteTd.style.textAlign = 'center';
+    noteTd.style.fontStyle = 'italic';
+    noteTd.style.color = 'var(--ink-3)';
+    noteTd.textContent = text;
+    noteTr.appendChild(noteTd);
+    body.appendChild(noteTr);
+  }
+
   // Per-row cross-margin liquidation table. Exact for single-position
   // accounts; an approximation for multi-position cross-margin (the
   // formula assumes OTHER open positions hold their current uPnL).
-  function renderLiquidationTable(positions, marketsMap, subaccount) {
+  // openPositionsGap is processData's reason the OPEN rows are unknown
+  // ('' when known): the OPEN list failed, or the fills that resolve an
+  // OPEN/CLOSED collision are missing. The table then holds only that reason.
+  function renderLiquidationTable(positions, marketsMap, subaccount, openPositionsGap) {
     const F = window.Format;
     const D = window.AppDom;
 
     const body = document.getElementById('liquidationRiskBody');
     if (!body) return;
     body.innerHTML = '';
+    if (openPositionsGap) {
+      appendLiquidationNote(body, openPositionsGap);
+      return;
+    }
     const open = positions.filter(p => p.status === 'OPEN');
     if (!open.length) return;
     open.forEach(p => {
@@ -48,23 +69,30 @@
       body.appendChild(tr);
     });
     if (open.length > 1) {
-      const noteTr = document.createElement('tr');
-      const noteTd = document.createElement('td');
-      noteTd.colSpan = 8;
-      noteTd.style.textAlign = 'center';
-      noteTd.style.fontStyle = 'italic';
-      noteTd.style.color = 'var(--ink-3)';
-      noteTd.textContent = 'Multi-position cross-margin: liquidation prices assume other positions hold their current unrealized profit. Approximation.';
-      noteTr.appendChild(noteTd);
-      body.appendChild(noteTr);
+      appendLiquidationNote(body, 'Multi-position cross-margin: liquidation prices assume other positions hold their current unrealized profit. Approximation.');
     }
     D.tagCells('liquidationRiskBody');
   }
 
+  // The caption reads openPositionsGap (processData's reason the OPEN
+  // rows are unknown) while there is one, else the markup's own text.
+  function renderLeverageDetail(openPositionsGap) {
+    const detail = document.getElementById('leverageUtilDetail');
+    if (!detail) return;
+    if (detail.dataset.defaultText === undefined) {
+      detail.dataset.defaultText = detail.textContent;
+    }
+    detail.textContent = openPositionsGap || detail.dataset.defaultText;
+  }
+
   // Tier-based styling so high leverage never renders in profit-green
-  // by accident. Compute lives in RiskMetrics.leverageUtilization.
-  function renderLeverageUtilization(positions, subaccount, marketsMap) {
-    const lev = window.RiskMetrics.leverageUtilization(positions, subaccount, marketsMap);
+  // by accident. Compute lives in RiskMetrics.leverageUtilization. While
+  // openPositionsGap holds a reason the OPEN rows are unknown, the card
+  // reads '—' even when some OPEN rows are present.
+  function renderLeverageUtilization(positions, subaccount, marketsMap, openPositionsGap) {
+    renderLeverageDetail(openPositionsGap);
+    const lev = openPositionsGap ? null
+      : window.RiskMetrics.leverageUtilization(positions, subaccount, marketsMap);
     const el = document.getElementById('leverageUtil');
     if (el) {
       el.textContent = lev !== null ? lev.toFixed(2) + 'x' : '—';
@@ -87,8 +115,8 @@
     const F = window.Format;
     const D = window.AppDom;
     if (!returns || returns.length < 1 || !equityNow) {
-      D.updateMetric('var95', '—', false);
-      D.updateMetric('expectedShortfall', '—', false);
+      D.updateMetric('var95', '—');
+      D.updateMetric('expectedShortfall', '—');
       return;
     }
     const sorted = returns.slice().sort((a, b) => a - b);
@@ -100,8 +128,8 @@
       : var95Ret;
     const var95Usd = var95Ret * equityNow;
     const cvar95Usd = cvar95Ret * equityNow;
-    D.updateMetric('var95', F.formatCurrency(var95Usd), var95Usd >= 0);
-    D.updateMetric('expectedShortfall', F.formatCurrency(cvar95Usd), cvar95Usd >= 0);
+    D.updateMetric('var95', F.formatCurrency(var95Usd), F.signClass(var95Usd));
+    D.updateMetric('expectedShortfall', F.formatCurrency(cvar95Usd), F.signClass(cvar95Usd));
   }
 
   // Drawdown Periods table — every peak-to-trough event on cumulative

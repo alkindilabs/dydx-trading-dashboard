@@ -78,7 +78,6 @@
                 </div>
                 <div class="address mono" id="addressDisplay">-</div>
                 <button id="addressForgetBtn" class="address-btn" style="display:none;" title="Clear stored address">Forget</button>
-                <div id="loadErrorBanner" class="error-banner" hidden></div>
                 <div id="fetchCaption" class="fetch-caption" role="status" aria-live="polite">
                     <span class="gold" id="fetchCaptionVerb">Fetching</span>
                     <span class="sep">·</span>
@@ -95,6 +94,9 @@
                 <div class="fetch-bar__fill"></div>
             </div>
         </div>
+        <!-- Endpoint / validation errors. A row of its own below the
+             masthead so showing it never resizes the masthead. -->
+        <div id="loadErrorBanner" class="error-banner" role="alert" hidden></div>
 
         <!-- Disclosure / Notice strip -->
         <aside class="disclosure-strip" role="note" aria-label="Independence notice">
@@ -271,10 +273,10 @@
                         <h3 class="broadsheet-title">Trading Statistics</h3>
                     </header>
                     <table class="broadsheet-table">
-                        <tr><td title="Average $ realized profit on winning closed trades. Sum of gross profit on winners ÷ winning trade count.">Average Win</td><td class="mono profit" id="avgWin">-</td></tr>
-                        <tr><td title="Average $ realized loss on losing closed trades. Sum of gross loss on losers ÷ losing trade count. Rendered as a negative dollar figure.">Average Loss</td><td class="mono loss" id="avgLoss">-</td></tr>
+                        <tr><td title="Average $ profit on winning closed trades: fill-attributed profit (net of fees, excluding funding) summed over winners ÷ winning trade count.">Average Win</td><td class="mono profit" id="avgWin">-</td></tr>
+                        <tr><td title="Average $ loss on losing closed trades: fill-attributed profit (net of fees, excluding funding) summed over losers ÷ losing trade count. Rendered as a negative dollar figure.">Average Loss</td><td class="mono loss" id="avgLoss">-</td></tr>
                         <tr><td title="Payoff Ratio = avg win ÷ avg loss. Above 1 means winners are larger than losers. Pair with Win Rate: at this payoff you need WR ≥ 1 ÷ (1 + payoff) to break even.">Payoff Ratio</td><td class="mono" id="riskReward">-</td></tr>
-                        <tr><td title="Trade Expectancy = average $ realized profit per decisive (non-scratch) closed trade. Above 0 = the system has positive edge; below 0 = each trade on average loses money.">Trade Expectancy</td><td class="mono profit" id="expectancy">-</td></tr>
+                        <tr><td title="Trade Expectancy = average $ fill-attributed profit (net of fees, excluding funding) per decisive (non-scratch) closed trade. Above 0 = the system has positive edge; below 0 = each trade on average loses money.">Trade Expectancy</td><td class="mono" id="expectancy">-</td></tr>
                         <tr><td id="recoveryFactorLabel" title="Recovery Factor = lifetime profit ÷ max drawdown. Above 5 = strong recovery; above 1 = made back the worst DD; below 1 = haven't recovered the worst DD; ≤ 0 = lifetime loss. Numerator and denominator come from the SAME P&L series.">Recovery Factor</td><td class="mono" id="recoveryFactor">-</td></tr>
                     </table>
                 </article>
@@ -305,14 +307,14 @@
                 <div class="metric-card" title="Kelly Criterion = WR − (1 − WR) ÷ payoff. Optimal fraction of capital to risk per trade for max long-term growth. Negative = edge too thin to bet positively (don't size up). Most practitioners use fractional Kelly (½K or ¼K) to cut drawdown variance.">
                     <div class="metric-label">Kelly Criterion</div>
                     <div class="metric-value mono" id="kellyCriterion">-</div>
-                    <div class="metric-change mono">Optimal size</div>
+                    <div class="metric-change mono" id="kellyCriterionDetail">Optimal size</div>
                 </div>
-                <div class="metric-card" title="Longest unbroken winning streak in chronological closed-trade order. Detail shows the cumulative $ earned across the streak. Scratches (zero realized) break the streak.">
+                <div class="metric-card" title="Longest unbroken winning streak in chronological closed-trade order. Detail shows the cumulative $ earned across the streak. Scratches (zero profit) break the streak.">
                     <div class="metric-label">Max Consec. Wins</div>
                     <div class="metric-value mono" id="maxConsecWins">-</div>
                     <div class="metric-change mono profit" id="maxConsecWinsDetail"></div>
                 </div>
-                <div class="metric-card" title="Longest unbroken losing streak in chronological closed-trade order. Detail shows the cumulative $ lost across the streak. Scratches (zero realized) break the streak.">
+                <div class="metric-card" title="Longest unbroken losing streak in chronological closed-trade order. Detail shows the cumulative $ lost across the streak. Scratches (zero profit) break the streak.">
                     <div class="metric-label">Max Consec. Losses</div>
                     <div class="metric-value mono" id="maxConsecLosses">-</div>
                     <div class="metric-change mono loss" id="maxConsecLossesDetail"></div>
@@ -371,9 +373,9 @@
                             <th title="Trading fees paid (taker + maker) on this market's fills. Maker rebates show as positive dollars.">FEES</th>
                             <th>TRADES</th>
                             <th>WIN RATE</th>
-                            <th title="Realized P&L per decisive closed trade in this market — trade-quality metric, excludes funding and fees by design.">AVG PROFIT</th>
-                            <th>BEST</th>
-                            <th>WORST</th>
+                            <th title="Fill-attributed profit per decisive closed trade in this market — net of fees, excludes funding (trade-quality metric).">AVG PROFIT</th>
+                            <th title="Largest fill-attributed profit of a single closed trade in this market — net of fees, excludes funding. — when the market has no winning trade.">BEST</th>
+                            <th title="Largest fill-attributed loss of a single closed trade in this market — net of fees, excludes funding. Rendered as a negative dollar figure; — when the market has no losing trade.">WORST</th>
                             <th>SHARPE</th>
                         </tr>
                     </thead>
@@ -398,6 +400,7 @@
                 <div class="metric-card" title="Total notional ÷ subaccount equity, mark-price based (matches dYdX UI). Above 5x = high; above 2x = elevated; below 2x = conservative. Cross-margin: every open position contributes to the same leverage pool.">
                     <div class="metric-label">Leverage Utilization</div>
                     <div class="metric-value mono" id="leverageUtil">—</div>
+                    <div class="metric-change mono" id="leverageUtilDetail">Notional ÷ equity</div>
                     <div class="risk-bar">
                         <div class="risk-bar-fill" id="leverageUtilBar" style="width: 0%;"></div>
                     </div>
@@ -448,15 +451,15 @@
         <!-- Positions Tab -->
         <div class="tab-content" id="positions">
             <div class="metrics-grid">
-                <div class="metric-card" title="Count of currently OPEN positions across all markets. dYdX is cross-margin so every open position contributes to total leverage and shared liquidation risk — one bad position can trigger liquidation that closes others.">
+                <div class="metric-card" title="Count of currently OPEN positions across all markets. dYdX is cross-margin so every open position contributes to total leverage and shared liquidation risk — one bad position can trigger liquidation that closes others. Detail: open notional, Σ |size| × oracle price (the Risk tab's leverage definition).">
                     <div class="metric-label">Active Positions</div>
                     <div class="metric-value mono" id="positionsActiveCount">-</div>
                     <div class="metric-change mono" id="positionsActiveNotional">-</div>
                 </div>
-                <div class="metric-card" title="Filled orders ÷ submitted orders. Measures execution quality. Limit-order strategies typically run below 100%; market orders approach 100%. Low fill rate on limits = chasing price or stale quotes.">
-                    <div class="metric-label">Fill Rate</div>
-                    <div class="metric-value mono" id="positionsFillRate">-</div>
-                    <div class="metric-change mono">Taker share of fills</div>
+                <div class="metric-card" title="Share of fills executed as taker (crossing the spread). Taker fills pay higher fees; maker fills earn the lower maker rate or rebates.">
+                    <div class="metric-label">Taker Share</div>
+                    <div class="metric-value mono" id="positionsTakerShare">-</div>
+                    <div class="metric-change mono">Taker fills ÷ all fills, by count</div>
                 </div>
             </div>
 
@@ -467,16 +470,16 @@
                 <table>
                     <thead>
                         <tr>
-                            <th>TIME</th>
+                            <th title="Close time, in UTC">CLOSED (UTC)</th>
                             <th>ASSET</th>
-                            <th>SIDE</th>
-                            <th title="Max-instantaneous notional, not lifetime cumulative">SIZE</th>
-                            <th>ENTRY</th>
-                            <th>EXIT</th>
-                            <th>PROFIT</th>
-                            <th>PROFIT %</th>
+                            <th title="⇄ marks a row opened or closed by a reversing order">SIDE</th>
+                            <th title="Peak position size during the trade">SIZE</th>
+                            <th title="Size-weighted average price of the opening fills">ENTRY</th>
+                            <th title="Size-weighted average price of the closing fills">EXIT</th>
+                            <th title="Realized profit from fills, net of trading fees. Funding is separate (FUNDING column), so PROFIT + FUNDING = net result.">PROFIT</th>
+                            <th title="Profit ÷ peak notional (peak size × entry VWAP)">PROFIT %</th>
                             <th>DURATION</th>
-                            <th>FUNDING</th>
+                            <th title="Net funding received (+) or paid (−) while the position was open">FUNDING</th>
                         </tr>
                     </thead>
                     <tbody id="positionsHistoryBody"></tbody>
@@ -702,7 +705,7 @@
                             <th>CLOSED (UTC)</th>
                             <th>MARKET</th>
                             <th>SIDE</th>
-                            <th>SIZE (MAX)</th>
+                            <th title="Peak position size during the trade, from the fill history">SIZE (PEAK)</th>
                             <th>ENTRY</th>
                             <th>EXIT</th>
                             <th>REALIZED USD</th>
@@ -755,11 +758,11 @@
         </footer>
     </div>
 
+    <script src="./src/constants.js"></script>
     <script src="./risk-metrics.js"></script>
     <script src="./portfolio-cache.js"></script>
     <script src="./fx-rates.js"></script>
     <script src="./tax-report.js"></script>
-    <script src="./src/constants.js"></script>
     <script src="./src/format.js"></script>
     <script src="./src/charts/pnl-chart.js"></script>
     <script src="./src/charts/market-chart.js"></script>
@@ -816,8 +819,6 @@
             });
         });
 
-        // Render a histogram of bar counts into a .distribution-bars container.
-        // bins: [{ label, count }]; opt.colorize: 'split' (loss/gain by half), 'gain', 'loss', 'neutral'
         // Time selector functionality
         document.querySelectorAll('.time-option').forEach(option => {
             option.addEventListener('click', function() {
@@ -827,7 +828,7 @@
             });
         });
 
-        // Fetch progress controller. Drives the FETCHING badge state, the
+        // Fetch progress controller. Drives the status badge, the
         // determinate bar under the masthead, and the small endpoint caption
         // so a user staring at a slow indexer page knows the load is alive
         // AND how much remains. Per-label weight map: single-page endpoints
@@ -836,8 +837,14 @@
         // upfront — pagination walks until empty). The bar can never lie its
         // way to 100% on a paginated endpoint; the snap to 1 belongs to
         // taskDone alone.
+        //
+        // The badge describes the data on screen. While that data is a
+        // cached snapshot the cache had to evict fields from, the badge
+        // holds CACHED · PARTIAL through fetching and failed refreshes,
+        // and only lets go once loadDashboard swaps in fresh data.
         const FetchProgress = (() => {
             const badge   = document.getElementById('statusBadge');
+            const DEFAULT_BADGE_TITLE = badge ? badge.title : '';
             const bar     = document.getElementById('fetchBar');
             const barFill = bar && bar.querySelector('.fetch-bar__fill');
             const caption = document.getElementById('fetchCaption');
@@ -861,6 +868,62 @@
             let done = 0;
             let active = false;
             let settleTimer = null;
+            let badgeState = 'ok';
+            let failedEndpoints = [];
+            let cachedEviction = null;
+
+            function describeEviction(ev) {
+                const lines = ['Showing a cached snapshot that did not fit in browser storage.'];
+                if (ev.dropped.length) lines.push(`Dropped: ${ev.dropped.join(', ')}.`);
+                if (ev.trimmed.length) {
+                    const keptRows = window.PortfolioCache.HISTORICAL_PNL_TRIM.toLocaleString('en-US');
+                    lines.push(`Trimmed to the last ${keptRows} rows: ${ev.trimmed.join(', ')}.`);
+                }
+                lines.push('Clears when fresh data arrives.');
+                return lines.join(' ');
+            }
+
+            function describePartial(failed) {
+                return `Last fetch returned only some endpoints; failed: ${failed.join(', ')}. ` +
+                    'Metrics that need them show —. Not a streaming/websocket signal.';
+            }
+
+            function paintBadge(state /* 'fetching' | 'ok' | 'partial' | 'offline' */) {
+                badgeState = state;
+                if (!badge) return;
+                badge.classList.remove('fresh', 'fetching', 'offline', 'partial', 'cached-partial');
+                if (cachedEviction) {
+                    badge.classList.add('cached-partial');
+                    badge.textContent = 'CACHED · PARTIAL';
+                    const suffix = state === 'fetching' ? ' Refreshing now.'
+                                 : state === 'offline'  ? ' Latest refresh failed.'
+                                 : '';
+                    badge.title = describeEviction(cachedEviction) + suffix;
+                    return;
+                }
+                badge.title = DEFAULT_BADGE_TITLE;
+                if (state === 'fetching') {
+                    badge.classList.add('fetching');
+                    badge.textContent = 'FETCHING';
+                } else if (state === 'offline') {
+                    badge.classList.add('offline');
+                    badge.textContent = 'OFFLINE';
+                } else if (state === 'partial') {
+                    badge.classList.add('partial');
+                    badge.textContent = 'FRESH · PARTIAL';
+                    badge.title = describePartial(failedEndpoints);
+                } else {
+                    badge.classList.add('fresh');
+                    badge.textContent = 'FRESH';
+                }
+            }
+
+            // eviction: PortfolioCache.evictionOf(...) of the data now on
+            // screen, or null when that data is complete.
+            function setCachedEviction(eviction) {
+                cachedEviction = eviction || null;
+                paintBadge(badgeState);
+            }
 
             function progress() {
                 if (!total) return 0;
@@ -895,11 +958,7 @@
                 total = labels.length;
                 done = 0;
                 active = true;
-                if (badge) {
-                    badge.classList.remove('fresh', 'offline');
-                    badge.classList.add('fetching');
-                    badge.textContent = 'FETCHING';
-                }
+                paintBadge('fetching');
                 if (bar) {
                     bar.classList.remove('settling-partial');
                     // Reset to 0 BEFORE adding .active so the fade-in doesn't
@@ -937,21 +996,13 @@
                 paintCaption(label || (elLabel && elLabel.textContent), 0);
                 paintBar();
             }
-            function end(state /* 'ok' | 'partial' | 'offline' */) {
+            // failed: the endpoint keys that failed, named in the partial
+            // state's tooltip.
+            function end(state /* 'ok' | 'partial' | 'offline' */, failed = []) {
                 active = false;
+                failedEndpoints = failed.slice();
                 if (caption) caption.classList.remove('active');
-                if (badge) {
-                    badge.classList.remove('fetching');
-                    if (state === 'offline') {
-                        badge.classList.remove('fresh');
-                        badge.classList.add('offline');
-                        badge.textContent = 'OFFLINE';
-                    } else {
-                        badge.classList.remove('offline');
-                        badge.classList.add('fresh');
-                        badge.textContent = state === 'partial' ? 'FRESH · PARTIAL' : 'FRESH';
-                    }
-                }
+                paintBadge(state);
                 if (!bar) return;
                 if (settleTimer) { clearTimeout(settleTimer); settleTimer = null; }
                 if (state === 'ok') {
@@ -978,7 +1029,7 @@
                     }, SETTLE_PARTIAL_MS);
                 }
             }
-            return { begin, update, taskDone, end };
+            return { begin, update, taskDone, end, setCachedEviction };
         })();
 
         // Freshness controller. Tracks lastFetchAt so the user always knows
@@ -1130,7 +1181,7 @@
         // dYdX API Configuration
         const {
             BASE: DYDX_API,
-            fetchJson,
+            fetchJsonWithRetry,
             fetchAllHistoricalPnl, fetchAllClosedPositions, fetchAllFills, fetchAllFundingPayments
         } = window.DydxApi;
         const {
@@ -1139,6 +1190,7 @@
             HIST_PAGE_LIMIT, POS_PAGE_LIMIT, FILLS_PAGE_LIMIT, FUNDING_PAGE_LIMIT,
             MS_PER_MIN, MS_PER_HOUR, MS_PER_DAY,
             HOURS_PER_YEAR,
+            PERCENT,
             CLIPBOARD_FLASH_MS,
             TUNABLES
         } = window.AppConstants;
@@ -1146,14 +1198,13 @@
         const {
             formatCurrency, formatPercent, fmtNum, formatFundingApr, formatHourlyDetail,
             formatPrice, fmtRatio, formatShortNumber, fmtNotional, fmtSignedPct,
-            fmtDateShort
+            fmtDateShort, signClass, breakevenVerdict
         } = window.Format;
 
         const { safeText, appendCell, tagCells, updateElement, updateMetric } = window.AppDom;
 
         let currentAddress = null;
         let allData = {};
-        let _positionKeysLogged = false;
 
         // Chart.js editorial-dark defaults
         if (window.Chart) {
@@ -1244,6 +1295,7 @@
                     allData = cachedMeta.data;
                     if (renderFromAllData({ silent: true })) {
                         hadCache = true;
+                        FetchProgress.setCachedEviction(window.PortfolioCache.evictionOf(allData));
                         if (cachedMeta.fetchedAt) DataFreshness.mark(cachedMeta.fetchedAt);
                     } else {
                         // Cached payload no longer renders cleanly (schema
@@ -1257,7 +1309,8 @@
             // Single-page endpoints: openPositions are bounded (a subaccount
             // can't hold thousands of OPEN positions concurrently), orders is
             // a recent-only working set, subaccount is a single record,
-            // markets is a global catalog. closedPositions, fills, funding,
+            // markets is a global catalog. They retry transient failures the
+            // same way every paginated page does. closedPositions, fills, funding,
             // and historical-pnl all paginate to inception so every metric
             // reads from the FULL trading journey rather than the latest
             // window.
@@ -1292,7 +1345,7 @@
                 e => { FetchProgress.taskDone(label, false); throw e; }
             );
             const settled = await Promise.allSettled([
-                ...SINGLE_PAGE.map(([k, url]) => tagged(k, fetchJson(url))),
+                ...SINGLE_PAGE.map(([k, url]) => tagged(k, fetchJsonWithRetry(url, { label: k }))),
                 ...PAGINATED.map(([k, fn]) => tagged(k, fn()))
             ]);
 
@@ -1325,12 +1378,13 @@
             }
 
             allData = fresh;
+            FetchProgress.setCachedEviction(null);
             if (!renderFromAllData()) {
                 FetchProgress.end('offline');
                 return;
             }
 
-            FetchProgress.end(failed.length > 0 ? 'partial' : 'ok');
+            FetchProgress.end(failed.length > 0 ? 'partial' : 'ok', failed);
             // Mark the freshness clock on any path where at least one
             // endpoint succeeded. Partial counts — the user is still
             // looking at newer data than the cache.
@@ -1383,33 +1437,123 @@
             return {};
         }
 
+        // The OPEN and CLOSED lists are fetched concurrently, so a position
+        // that closes in between can come back in both. Positions are keyed
+        // by market + side + createdAtHeight (createdAt when the height is
+        // absent). Side is part of the key because a position opened and
+        // reversed within one block shares its height with the position the
+        // reversal opens; a stale copy of a position never changes side. A
+        // position closed and reopened on the same side within one block
+        // shares the key too, so on a collision the OPEN row stays only
+        // while the fills still hold it open; otherwise the CLOSED copy wins.
+        // `hasCollision` tells the caller a collision was decided by the
+        // fills, which cannot decide it when they are missing.
+        function mergeOpenAndClosed(openList, closedList, fills) {
+            const key = p => `${p.market}|${p.side}|${p.createdAtHeight || p.createdAt}`;
+            const closedKeys = new Set(closedList.map(key));
+            const collides = p => closedKeys.has(key(p));
+            return {
+                positions: openList
+                    .filter(p => !collides(p) || window.RiskMetrics.isOpenInFills(p, fills))
+                    .concat(closedList),
+                hasCollision: openList.some(collides)
+            };
+        }
+
+        // '' when allData[key] loaded, else why it is missing: a failed
+        // endpoint, or a field the cache evicted from the painted snapshot.
+        function missingDataReason(data, key, label) {
+            const eviction = window.PortfolioCache ? window.PortfolioCache.evictionOf(data) : null;
+            if (eviction && eviction.dropped.includes(key)) return `${label} not in cached snapshot`;
+            return data[key] == null ? `${label} failed to load` : '';
+        }
+
+        // Why each position / fill input is missing ('' when loaded).
+        function inputGaps(data) {
+            return {
+                fills: missingDataReason(data, 'fills', 'Fills'),
+                open: missingDataReason(data, 'openPositions', 'Open positions'),
+                closed: missingDataReason(data, 'closedPositions', 'Closed positions')
+            };
+        }
+
+        // The fills loaded, but in some market they end at a different
+        // net size than its OPEN row (attribution's openSizeDisagrees), so
+        // a fill is missing and that market's FIFO totals are off.
+        const OPEN_SIZE_MISMATCH_REASON = 'Fills do not match open positions';
+
+        // Each ledger component's gap ('' when computable). TRADING needs
+        // fills, an oracle price for every market with open lots, and
+        // fills that add up to every OPEN row; FUNDING needs the OPEN rows
+        // (openPositionsGap) and the CLOSED list; FEES needs fills.
+        // `marketProfit(market)` is the gap for one market's profit, which
+        // an open-size mismatch elsewhere does not touch.
+        function profitLedgerGaps({ fills, closed }, openPositionsGap, unpricedReason, openSizeMismatchMarkets) {
+            const inputTrading = fills || unpricedReason;
+            const mismatchIn = market => (openSizeMismatchMarkets.has(market) ? OPEN_SIZE_MISMATCH_REASON : '');
+            const funding = openPositionsGap || closed;
+            return {
+                trading: inputTrading || (openSizeMismatchMarkets.size > 0 ? OPEN_SIZE_MISMATCH_REASON : ''),
+                funding,
+                fees: fills,
+                marketProfit: market => inputTrading || mismatchIn(market) || funding || fills
+            };
+        }
+
         function processData() {
             const subaccount = extractSubaccount(allData.subaccount);
+            const fillsArr = (allData.fills && (allData.fills.fills || allData.fills.data || allData.fills)) || [];
 
-            let allPositions = [];
-            allPositions = allPositions.concat(extractPositions(allData.openPositions));
-            allPositions = allPositions.concat(extractPositions(allData.closedPositions));
-
-            // Repair indexer-zeroed realizedPnl. dYdX's indexer is observed
-            // to return realizedPnl=0 on closed positions older than a
-            // certain date even when prices clearly moved. Without this,
-            // entire months read as scratches/zero P&L despite real trades.
-            // See risk-metrics.js: normalizeRealizedPnl.
-            const correction = window.RiskMetrics.normalizeRealizedPnl(allPositions);
-            if (correction.correctedCount > 0) {
-                console.warn(`[dydx-dashboard] Repaired indexer realizedPnl on ${correction.correctedCount} closed positions (gross magnitude: $${correction.totalCorrectedAbs.toFixed(2)}). Underlying indexer rows had realizedPnl=0 despite price divergence.`);
-            }
+            // Every position is a shallow copy carrying its fill attribution
+            // (profit, peakSize, entryVwap, exitVwap, complete, flip flags).
+            // The raw indexer objects in allData, and therefore the cache
+            // snapshot, are never mutated.
+            const merged = mergeOpenAndClosed(
+                extractPositions(allData.openPositions),
+                extractPositions(allData.closedPositions),
+                fillsArr);
+            const rawPositions = merged.positions;
+            const attribution = window.RiskMetrics.attributeFillsToPositions(rawPositions, fillsArr);
+            const allPositions = rawPositions.map(p => ({ ...p, ...attribution.get(p) }));
 
             allData.positions = allPositions;
 
-            // One-time debug log so the developer can confirm whether the
-            // indexer exposes `maxSize`. tradeReturn() prefers maxSize over
-            // sumOpen for honest per-trade-return semantics.
-            if (!_positionKeysLogged && allPositions.length > 0) {
-                _positionKeysLogged = true;
-                console.debug('[dydx-dashboard] Position object keys:',
-                    Object.keys(allPositions[0]));
+            // FIFO unrealized: the lots the fill walk leaves open, marked at
+            // the oracle, on the same cost basis as FIFO realized.
+            const marketsMap = extractMarketsMap(allData.markets);
+            const unrealizedFifo = window.RiskMetrics.computeUnrealizedFromFills(fillsArr, marketsMap);
+            const unpricedReason = unrealizedFifo.unpricedMarkets.length === 0 ? ''
+                : missingDataReason(allData, 'markets', 'Markets')
+                    || `No oracle price for ${unrealizedFifo.unpricedMarkets.join(', ')}`;
+
+            // Which ledger components can be computed (profitLedgerGaps). A
+            // missing input renders '—' rather than a total that silently
+            // treats it as 0.
+            const inputs = inputGaps(allData);
+            // Which OPEN rows are current is unknown without the OPEN list,
+            // or without the fills that resolve an OPEN/CLOSED collision.
+            const openPositionsGap = inputs.open || (merged.hasCollision ? inputs.fills : '');
+            const openSizeMismatchMarkets = new Set(allPositions
+                .filter(p => p.status === 'OPEN' && p.openSizeDisagrees)
+                .map(p => p.market || 'Unknown'));
+            // Open lots in a market with no OPEN row are phantom inventory
+            // (a closing fill is missing). Only knowable while the OPEN rows
+            // are; otherwise openPositionsGap already blanks the profit.
+            if (!openPositionsGap) {
+                const openRowMarkets = new Set(allPositions
+                    .filter(p => p.status === 'OPEN')
+                    .map(p => p.market || 'Unknown'));
+                unrealizedFifo.openMarkets
+                    .filter(m => !openRowMarkets.has(m))
+                    .forEach(m => openSizeMismatchMarkets.add(m));
             }
+            const ledgerGaps = profitLedgerGaps(inputs, openPositionsGap, unpricedReason, openSizeMismatchMarkets);
+            const profitGap = ledgerGaps.trading || ledgerGaps.funding || ledgerGaps.fees;
+            // Without the CLOSED list the classifier's inputs are unknown,
+            // which must read '—' with the reason, never as "no trades".
+            // The Tax tab needs fills and both lists to tie fills to rows.
+            const closedGap = inputs.closed;
+            const taxGap = inputs.fills || inputs.closed || inputs.open;
 
             // Single source of truth for trade classification, drawdown, and
             // per-market P&L — computed ONCE up front and threaded through to
@@ -1421,15 +1565,14 @@
             // lifetime realized on heavy-scaling accounts (verified against
             // equity-truth via /historical-pnl totalPnl); FIFO over raw
             // fills reconciles to the equity-based number within rounding.
-            // Classifier still keys off realizedPnl for win-rate / profit-
-            // factor since those are trade-quality metrics and the per-
-            // position values are useful even when imperfect.
-            const cls = window.RiskMetrics.classifyClosed(allPositions);
-            const fillsArr = (allData.fills && (allData.fills.fills || allData.fills.data || allData.fills)) || [];
+            // The classifier buckets by the same fill-attributed profit and
+            // returns null ratios while any closed position is incomplete
+            // or the CLOSED list itself failed to load.
+            const cls = window.RiskMetrics.classifyClosed(allPositions, closedGap);
             const feesByMarket = window.RiskMetrics.marketFees(fillsArr);
             const realizedFifo = window.RiskMetrics.computeRealizedFromFills(fillsArr);
-            const marketAgg = window.RiskMetrics.marketPnL(allPositions, feesByMarket, realizedFifo.byMarket);
-            const marketsMap = extractMarketsMap(allData.markets);
+            const marketAgg = window.RiskMetrics.marketPnL(
+                allPositions, feesByMarket, realizedFifo.byMarket, unrealizedFifo.byMarket);
             const histArr = (allData.historicalPnl && allData.historicalPnl.historicalPnl) || [];
             // Drawdown source: historical-pnl totalPnl is the canonical
             // realized+unrealized cumulative trading P&L per timestamp. It
@@ -1452,12 +1595,20 @@
             const cdd = drawdownSource === 'hist'
                 ? histCDD
                 : window.RiskMetrics.tradeSystemCurrentDrawdown(allPositions);
+            // The classifier's ratios are null either because its inputs
+            // are incomplete (render '—' with cls.incompleteReason) or
+            // because the denominator is empty (render 'N/A'). The
+            // trade-system drawdown series is all-or-nothing the same way.
+            const classifierGap = cls.incompleteReason !== '';
+            const drawdownGap = drawdownSource === 'trade' && classifierGap
+                ? cls.incompleteReason
+                : '';
 
-            const totalUnrealizedPnL = allPositions
-                .filter(p => p.status === 'OPEN')
-                .reduce((s, p) => s + parseFloat(p.unrealizedPnl || 0), 0);
-            // FIFO from fills, not classifier's cls.totalRealized — see
-            // comment block above on why the indexer field is unreliable.
+            // Market-wide FIFO over every fill, not the classifier's
+            // cls.totalProfit: that is net of fees and covers only CLOSED
+            // positions, while TRADING is gross and includes the realized
+            // part of OPEN positions.
+            const totalUnrealizedPnL = unrealizedFifo.total;
             const totalRealizedPnL = realizedFifo.total;
             const totalNetFunding = window.RiskMetrics.netFundingTotal(allPositions);
             const totalFees = window.RiskMetrics.feesTotal(fillsArr);
@@ -1466,10 +1617,12 @@
 
             // Reconciliation guard. Two independent paths must arrive at the
             // same lifetime profit:
-            //   • component-based: FIFO realized over /fills + unrealized of
-            //     OPEN positions + netFunding − fees.
-            //   • equity-based: latest totalPnl row from /historical-pnl,
-            //     which the indexer computes as equity − net transfers.
+            //   • component-based: FIFO realized over /fills + FIFO lots
+            //     left open marked at the oracle + netFunding − fees.
+            //   • equity-based: latest totalPnl row from /historical-pnl
+            //     (equity − net transfers, sampled hourly) moved by the
+            //     equity change since that row, so price drift since the
+            //     hourly snapshot is not reported as a gap.
             // Empirically these reconcile within float-rounding when /fills
             // is complete to inception. A material gap signals one of:
             // /fills paginated short of inception, dYdX added an equity flow
@@ -1478,10 +1631,8 @@
             // Tolerance is 1% of the equity-based reference floored at $1
             // — tiny accounts still surface absolute-dollar drift, huge
             // accounts don't false-positive on per-row dollar rounding.
-            const sortedHist = histArr.slice().sort((a,b) => (a.createdAt||'').localeCompare(b.createdAt||''));
-            const latestEquityPnl = sortedHist.length
-                ? parseFloat(sortedHist.at(-1).totalPnl || 0)
-                : null;
+            const latestEquityPnl = window.RiskMetrics.equityAdjustedTotalPnl(
+                histArr, subaccount && subaccount.equity);
             // Isolated-margin guard. Dashboard analyses subaccount 0; users
             // who trade in child subaccounts (≥128 per dYdX convention) keep
             // separate equity, fills, and PnL ledgers per sub. The
@@ -1509,9 +1660,11 @@
                 );
             }
 
-            if (latestEquityPnl !== null && isFinite(latestEquityPnl)) {
+            if (!profitGap && latestEquityPnl !== null && isFinite(latestEquityPnl)) {
                 const gap = totalPnL - latestEquityPnl;
-                const tolerance = Math.max(1, Math.abs(latestEquityPnl) * 0.01);
+                const RECONCILE_FLOOR_USD = 1;
+                const RECONCILE_TOLERANCE_FRACTION = 0.01;
+                const tolerance = Math.max(RECONCILE_FLOOR_USD, Math.abs(latestEquityPnl) * RECONCILE_TOLERANCE_FRACTION);
                 if (Math.abs(gap) > tolerance) {
                     const childHint = activeChildren.length > 0
                         ? ` Active child subaccounts also present (${activeChildren.map(s => s.subaccountNumber).join(', ')}); ` +
@@ -1521,8 +1674,8 @@
                     console.error(
                         `[dydx-dashboard] Total Profit reconciliation FAILED — ` +
                         `headline disagrees with /historical-pnl by ${formatCurrency(gap)}. ` +
-                        `Headline (FIFO realized + unrealized + funding − fees) = ${formatCurrency(totalPnL)}; ` +
-                        `/historical-pnl latest totalPnl = ${formatCurrency(latestEquityPnl)}. ` +
+                        `Headline (FIFO realized + FIFO unrealized + funding − fees) = ${formatCurrency(totalPnL)}; ` +
+                        `/historical-pnl latest totalPnl adjusted to current equity = ${formatCurrency(latestEquityPnl)}. ` +
                         `Likely cause: /fills paginated short of inception, or an equity flow ` +
                         `(insurance fund, ADL, rewards) not exposed per-event by the indexer.` + childHint,
                         {
@@ -1550,31 +1703,47 @@
             Object.entries(marketAgg).forEach(([m, v]) => {
                 marketDistribution[m] = {
                     tradeCount: v.closedCount,
-                    openCount: v.openCount,
-                    totalPnL: v.total
+                    openCount: openPositionsGap ? null : v.openCount,
+                    openCountGap: openPositionsGap,
+                    totalPnL: ledgerGaps.marketProfit(m) ? null : v.total,
+                    totalPnLGap: ledgerGaps.marketProfit(m)
                 };
             });
             window.AppCharts.market.render(marketDistribution);
 
-            updateMetric('totalPnL', formatCurrency(totalPnL), totalPnL >= 0);
-            window.AppPanels.overview.renderTotalProfitBreakdown(totalTradingPnL, totalNetFunding, totalFees);
-            document.getElementById('totalPnLChange').textContent = 'All Time';
+            if (profitGap) {
+                updateMetric('totalPnL', '—');
+            } else {
+                updateMetric('totalPnL', formatCurrency(totalPnL), signClass(totalPnL));
+            }
+            window.AppPanels.overview.renderTotalProfitBreakdown(
+                ledgerGaps.trading ? null : totalTradingPnL,
+                ledgerGaps.funding ? null : totalNetFunding,
+                ledgerGaps.fees ? null : totalFees);
+            document.getElementById('totalPnLChange').textContent = profitGap || 'All Time';
 
-            if (cls.decisiveCount > 0) {
-                document.getElementById('winRate').textContent =
-                    formatPercent((cls.winCount / cls.decisiveCount) * 100);
+            if (cls.winRate !== null) {
+                document.getElementById('winRate').textContent = formatPercent(cls.winRate);
                 const scratchSuffix = cls.scratchCount > 0
                     ? ` (+${cls.scratchCount} scratches)`
                     : '';
                 document.getElementById('winRateDetail').textContent =
                     `${cls.winCount} / ${cls.decisiveCount} decisive trades${scratchSuffix}`;
             } else {
-                document.getElementById('winRate').textContent = 'N/A';
-                document.getElementById('winRateDetail').textContent = 'No decisive trades';
+                document.getElementById('winRate').textContent = classifierGap ? '—' : 'N/A';
+                document.getElementById('winRateDetail').textContent =
+                    classifierGap ? cls.incompleteReason : 'No decisive trades';
             }
 
-            if (cls.grossLoss > 0) {
-                const profitFactor = cls.grossWin / cls.grossLoss;
+            if (classifierGap) {
+                document.getElementById('profitFactor').textContent = '—';
+                document.getElementById('profitFactorDetail').textContent = cls.incompleteReason;
+                const pfl = document.getElementById('profitFactorLabel');
+                if (pfl) {
+                    pfl.title = `Gross profit / gross loss\nNot available: ${cls.incompleteReason}`;
+                }
+            } else if (cls.profitFactor !== null) {
+                const profitFactor = cls.profitFactor;
                 document.getElementById('profitFactor').textContent = profitFactor.toFixed(2);
                 document.getElementById('profitFactorDetail').textContent =
                     `${formatCurrency(cls.grossWin)} / ${formatCurrency(cls.grossLoss)}`;
@@ -1596,31 +1765,8 @@
             // that drive the headline Win Rate + Profit Factor cards
             // feed the plot, so the verdict can never disagree with
             // the cards above it.
-            (function paintStrategyEdge() {
-                const wrPct = cls.decisiveCount > 0
-                    ? (cls.winCount / cls.decisiveCount) * 100
-                    : null;
-                const pf = cls.grossLoss > 0 ? (cls.grossWin / cls.grossLoss) : null;
-                window.AppPanels.overview.renderStrategyEdge(wrPct, pf);
-            })();
+            window.AppPanels.overview.renderStrategyEdge(cls.winRate, cls.profitFactor, cls.payoff, cls.incompleteReason);
 
-            // Pull avgWin / avgLoss / totalTrades / totalLossAmount / totalWinAmount
-            // out of the classifier so downstream code reads the same numbers.
-            const wins = cls.winCount;
-            const losses = cls.lossCount;
-            const totalTrades = cls.decisiveCount;
-            const totalWinAmount = cls.grossWin;
-            const totalLossAmount = cls.grossLoss;
-            const avgWin = wins > 0 ? totalWinAmount / wins : 0;
-            const avgLoss = losses > 0 ? totalLossAmount / losses : 0;
-
-            // Latest cumulative trading P&L from historical-pnl. Used as the
-            // numerator of Recovery Factor when the headline drawdown comes
-            // from the historical-pnl path so numerator and denominator
-            // share the same P&L series.
-            const latestTotalPnl = histArr.length
-                ? parseFloat(histArr.slice().sort((a,b) => (a.createdAt||'').localeCompare(b.createdAt||'')).at(-1)?.totalPnl || 0)
-                : 0;
             // Pagination now walks /historical-pnl to inception (no page
             // cap; see fetchAllPaginated). Surface the earliest observed
             // date alongside the headline drawdown so the peak/trough
@@ -1646,9 +1792,8 @@
                 updateElement('maxDrawdownDetail', detail);
             } else {
                 updateElement('maxDrawdown', '—');
-                updateElement('maxDrawdownDetail', cls.closedCount > 0
-                    ? 'No drawdown recorded'
-                    : 'No closed trades');
+                updateElement('maxDrawdownDetail', drawdownGap
+                    || (cls.closedCount > 0 ? 'No drawdown recorded' : 'No closed trades'));
             }
 
             // Current Drawdown card. Same series as Max Drawdown above, but
@@ -1660,9 +1805,8 @@
             const cddEl = document.getElementById('currentDrawdown');
             if (!cdd.hasData) {
                 updateElement('currentDrawdown', '—');
-                updateElement('currentDrawdownDetail', cls.closedCount > 0
-                    ? 'No equity series available'
-                    : 'No closed trades');
+                updateElement('currentDrawdownDetail', drawdownGap
+                    || (cls.closedCount > 0 ? 'No equity series available' : 'No closed trades'));
                 if (cddEl) cddEl.className = 'metric-value mono';
             } else if (cdd.dollarDrawdown <= 0) {
                 updateElement('currentDrawdown', formatCurrency(0));
@@ -1703,8 +1847,8 @@
                     if (sortinoMeta) { sortinoMeta.textContent = note + ' ⓘ'; sortinoMeta.title = note; }
                 };
                 const setVarNA = (note = 'Insufficient data') => {
-                    updateMetric('var95', '—', false);
-                    updateMetric('expectedShortfall', '—', false);
+                    updateMetric('var95', '—');
+                    updateMetric('expectedShortfall', '—');
                     const v = document.getElementById('var95');
                     if (v) v.title = note;
                     const e = document.getElementById('expectedShortfall');
@@ -1717,10 +1861,11 @@
                 // produce events.
                 window.AppPanels.risk.renderDrawdownPeriods(allPositions, histArr);
 
+                const tableGaps = { ...ledgerGaps, openPositions: openPositionsGap, closed: closedGap, classifier: cls.incompleteReason };
                 if (!histArr.length) {
                     setRatioNA('Failed to load historical profit');
                     setVarNA('Failed to load historical profit');
-                    window.AppPanels.performance.renderTables(allPositions, [], marketAgg);
+                    window.AppPanels.performance.renderTables(allPositions, [], marketAgg, tableGaps);
                     return;
                 }
 
@@ -1732,19 +1877,20 @@
                 const equityNow = subaccount ? parseFloat(subaccount.equity || 0) : 0;
 
                 if (!adq.adequate) {
-                    // Per-trade fallback: independent statistic from realized
-                    // P&L of closed trades. Honest when the time-series sample
-                    // is unusable but the trade log is rich enough to summarize.
-                    const tm = window.AppPanels.performance.computeTradeBasedMetrics(allPositions);
+                    // Per-trade fallback: independent statistic from the
+                    // fill-attributed profit of closed trades. Honest when the
+                    // time-series sample is unusable but the trade log is rich
+                    // enough to summarize.
+                    const tm = window.AppPanels.performance.computeTradeBasedMetrics(cls);
                     if (tm.ok) {
                         window.AppPanels.performance.renderTradeBasedRatios(tm, adq.reason);
                     } else {
-                        setRatioNA(adq.reason);
+                        setRatioNA(tm.reason ? `${adq.reason}; per-trade fallback: ${tm.reason}` : adq.reason);
                     }
                     // VaR/CVaR share the time-series adequacy gate: a 4-day
                     // post-redeposit window is not a basis for portfolio VaR.
                     setVarNA(adq.reason);
-                    window.AppPanels.performance.renderTables(allPositions, histArr, marketAgg);
+                    window.AppPanels.performance.renderTables(allPositions, histArr, marketAgg, tableGaps);
                     return;
                 }
 
@@ -1776,91 +1922,109 @@ Sample: ${rets.length} returns over ${(adq.years*12).toFixed(1)} months (${(adq.
                 const wealthDD = window.RiskMetrics.validDrawdownFromEquity(compoundedWealth);
                 if (wealthDD && compoundFactor > 0 && adq.years > 0) {
                     const cagr = Math.pow(compoundFactor, 1 / adq.years) - 1;
-                    updateElement('calmarRatio', fmtRatio(cagr / (wealthDD.pct / 100)));
+                    updateElement('calmarRatio', fmtRatio(cagr / (wealthDD.pct / PERCENT)));
                 } else {
                     updateElement('calmarRatio', '—');
                 }
 
                 window.AppPanels.risk.renderFromHistorical(rets, equityNow);
-                window.AppPanels.performance.renderTables(allPositions, histArr, marketAgg);
+                window.AppPanels.performance.renderTables(allPositions, histArr, marketAgg, tableGaps);
             })();
 
             // Trading Statistics — losses always render as negative dollars so the
-            // sign convention matches the visual loss styling.
-            updateElement('avgWin', wins > 0 ? formatCurrency(avgWin) : 'N/A');
-            updateElement('avgLoss', losses > 0 ? formatCurrency(-avgLoss) : 'N/A');
-            const rrText = avgLoss > 0 ? `${(avgWin/avgLoss).toFixed(2)} : 1` : '—';
+            // sign convention matches the visual loss styling. Every value is
+            // the classifier's, so an incomplete position blanks all of them
+            // together ('—' + reason) and an empty bucket reads 'N/A'.
+            const unavailable = classifierGap ? '—' : 'N/A';
+            // Colour follows the value's sign (Format.signClass), so a
+            // negative expectancy never renders in the gain colour and an
+            // unavailable value is uncoloured.
+            const setStatCell = (id, value) => {
+                updateElement(id, value !== null ? formatCurrency(value) : unavailable);
+                const el = document.getElementById(id);
+                if (el) el.className = ['mono', signClass(value)].filter(Boolean).join(' ');
+            };
+            setStatCell('avgWin', cls.avgWin);
+            setStatCell('avgLoss', cls.avgLoss === null ? null : -cls.avgLoss);
+            const payoff = cls.payoff;
+            const rrText = payoff !== null ? `${payoff.toFixed(2)} : 1` : '—';
             updateElement('riskReward', rrText);
-            // Headline-grid version of the same number. Phase diagram derives
-            // the same value via PF × (1 − WR) / WR; surfacing as a top-level
-            // card lets the user scan it without leaving the metric row.
+            // Headline-grid version of the same number (the phase diagram's
+            // implied payoff reads cls.payoff too); surfacing it as a
+            // top-level card lets the user scan it without leaving the
+            // metric row.
             updateElement('riskRewardHero', rrText);
             const heroDetail = document.getElementById('riskRewardHeroDetail');
-            if (heroDetail && avgLoss > 0) {
-                // Breakeven WR at this payoff = 1 / (1 + payoff). Below this
-                // win rate, expectancy is negative at the current avg-win/
-                // avg-loss split — surfacing the threshold next to the actual
-                // WR turns the Payoff card into a self-contained verdict.
-                const payoff = avgWin / avgLoss;
-                const breakevenWR = (1 / (1 + payoff)) * 100;
-                const actualWR = cls.decisiveCount
-                    ? (cls.winCount / cls.decisiveCount) * 100
-                    : null;
-                const winLossPart = `${formatCurrency(avgWin)} / ${formatCurrency(avgLoss)}`;
-                if (actualWR !== null) {
-                    heroDetail.textContent = `${winLossPart} · WR ${actualWR.toFixed(1)}% vs ${breakevenWR.toFixed(1)}% breakeven`;
-                    heroDetail.className = `metric-change mono ${actualWR >= breakevenWR ? 'profit' : 'loss'}`;
+            // The markup's caption, captured before any render overwrites it.
+            if (heroDetail && heroDetail.dataset.defaultText === undefined) {
+                heroDetail.dataset.defaultText = heroDetail.textContent;
+            }
+            if (heroDetail && classifierGap) {
+                heroDetail.textContent = cls.incompleteReason;
+                heroDetail.className = 'metric-change mono';
+            } else if (heroDetail && payoff === null) {
+                heroDetail.textContent = heroDetail.dataset.defaultText;
+                heroDetail.className = 'metric-change mono';
+            } else if (heroDetail) {
+                // Below the breakeven win rate, expectancy is negative at the
+                // current avg-win/avg-loss split — surfacing the threshold
+                // next to the actual WR turns the Payoff card into a
+                // self-contained verdict.
+                const winLossPart = `${formatCurrency(cls.avgWin)} / ${formatCurrency(-cls.avgLoss)}`;
+                if (cls.winRate !== null) {
+                    const verdict = breakevenVerdict(cls.winRate, cls.breakevenWinRate);
+                    heroDetail.textContent = `${winLossPart} · ${verdict.text}`;
+                    heroDetail.className = `metric-change mono ${verdict.toneClass}`;
                 } else {
                     heroDetail.textContent = winLossPart;
                     heroDetail.className = 'metric-change mono';
                 }
             }
-            // Expectancy: average realized P&L per decisive trade. Numerator
-            // and denominator both come from the classifier (cls.totalRealized
-            // = grossWin − grossLoss over decisive positions; cls.decisiveCount
-            // = same set). Earlier version divided FIFO-from-/fills total by
-            // cls.decisiveCount — accounting paths from different sets, so the
-            // per-trade ratio was incoherent on accounts with open partial
-            // closes or scratches. Closes audit M5 per CLAUDE.md "no metric
-            // is better than a wrong metric".
-            updateElement('expectancy',
-                cls.decisiveCount > 0
-                    ? formatCurrency(cls.totalRealized / cls.decisiveCount)
-                    : 'N/A');
-            // Recovery Factor: numerator and denominator come from the SAME
-            // P&L series so the ratio is dimensionally honest.
-            //   hist  path → latestTotalPnl ÷ histPnlDrawdown
-            //   trade path → cls.totalRealized ÷ tradeSystemDrawdown
-            const recoveryNumer = drawdownSource === 'hist' ? latestTotalPnl : totalRealizedPnL;
+            // Expectancy: average fill-attributed profit per decisive trade,
+            // numerator and denominator from the same classified set.
+            setStatCell('expectancy', cls.expectancy);
+            // Recovery Factor: latest value of the series the headline
+            // drawdown was measured on, ÷ that drawdown, so numerator and
+            // denominator share one P&L series (cdd is on the same source):
+            //   hist  path → latest totalPnl ÷ histPnlDrawdown
+            //   trade path → cumulative profit ÷ tradeSystemDrawdown
             updateElement('recoveryFactor',
-                tsd.dollarDrawdown > 0
-                    ? fmtRatio(recoveryNumer / tsd.dollarDrawdown)
+                drawdownGap ? '—'
+                    : tsd.dollarDrawdown > 0 ? fmtRatio(cdd.currentValue / tsd.dollarDrawdown)
                     : 'N/A');
 
-            window.AppPanels.positions.render(allPositions, fillsArr, subaccount);
-            window.AppPanels.tax.render(allPositions, fillsArr, currentAddress);
+            window.AppPanels.positions.render(allPositions, fillsArr, {
+                marketsMap,
+                openPositionsGap
+            });
+            window.AppPanels.tax.render(allPositions, fillsArr, currentAddress, taxGap);
             window.AppPanels.performance.renderMetrics(allPositions, cls);
-            window.AppPanels.behavior.renderTimeAnalysis(allPositions);
-            window.AppPanels.behavior.renderActivityHeatmap(allPositions);
-            window.AppPanels.risk.renderLiquidationTable(allPositions, marketsMap, subaccount);
-            window.AppPanels.risk.renderLeverageUtilization(allPositions, subaccount, marketsMap);
-            window.AppPanels.behavior.renderDetectedPatterns(allPositions);
+            window.AppPanels.behavior.renderTimeAnalysis(allPositions, cls);
+            window.AppPanels.behavior.renderActivityHeatmap(allPositions, closedGap);
+            window.AppPanels.risk.renderLiquidationTable(allPositions, marketsMap, subaccount, openPositionsGap);
+            window.AppPanels.risk.renderLeverageUtilization(allPositions, subaccount, marketsMap, openPositionsGap);
+            window.AppPanels.behavior.renderDetectedPatterns(allPositions, cls);
 
-            // Kelly criterion — pWin denominator matches Header Win Rate
-            // (decisive trades only, scratches excluded). Renders N/A unless
-            // both wins and losses exist, since the formula needs avgLossAbs.
+            // Kelly criterion from the classifier's win rate (decisive
+            // trades only, scratches excluded) and payoff. Renders N/A
+            // unless both wins and losses exist, since it needs the payoff.
             (function renderKelly() {
-                if (cls.lossCount === 0 || cls.decisiveCount === 0) {
+                const detail = document.getElementById('kellyCriterionDetail');
+                if (detail && detail.dataset.defaultText === undefined) {
+                    detail.dataset.defaultText = detail.textContent;
+                }
+                if (detail) detail.textContent = classifierGap ? cls.incompleteReason : detail.dataset.defaultText;
+                if (classifierGap) {
+                    updateElement('kellyCriterion', '—');
+                    return;
+                }
+                if (cls.winRate === null || cls.payoff === null) {
                     updateElement('kellyCriterion', 'N/A');
                     return;
                 }
-                const pWin = cls.winCount / cls.decisiveCount;
-                const avgW = cls.grossWin / cls.winCount;
-                const avgLAbs = cls.grossLoss / cls.lossCount;
-                const b = avgLAbs > 0 ? (avgW / avgLAbs) : 0;
-                if (b <= 0) { updateElement('kellyCriterion', 'N/A'); return; }
-                const k = pWin - (1 - pWin) / b;
-                updateElement('kellyCriterion', isFinite(k) ? (k * 100).toFixed(1) + '%' : 'N/A');
+                const pWin = cls.winRate / PERCENT;
+                const k = pWin - (1 - pWin) / cls.payoff;
+                updateElement('kellyCriterion', isFinite(k) ? (k * PERCENT).toFixed(1) + '%' : 'N/A');
             })();
 
             // Funding views (Market Structure tab): hero APR + 3 KPI cards + per-asset table

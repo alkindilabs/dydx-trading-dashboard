@@ -1,11 +1,13 @@
 /**
- * Risk metrics utilities (no dependencies)
+ * Risk metrics utilities. Depends on window.AppConstants (PERCENT).
  * Exposes global `RiskMetrics` with helpers to compute Sharpe and Sortino.
  * All returns are fractional per-period returns (e.g., 0.01 = 1%).
  */
 
 (function () {
   'use strict';
+
+  const { PERCENT } = window.AppConstants;
 
   function isNumber(n) {
     return typeof n === 'number' && !isNaN(n) && isFinite(n);
@@ -158,57 +160,42 @@
   // drawdown calls these instead of recomputing inline.
   // ---------------------------------------------------------------------------
 
-  // Repair indexer-zeroed realizedPnl for older closed positions. dYdX's
-  // indexer is observed to return realizedPnl=0 for many positions before a
-  // certain date even when entry/exit prices clearly diverge. Without this
-  // patch the dashboard mis-classifies real losses/wins as scratches and
-  // shows $0 P&L for entire months. The fallback uses VWAP entry/exit and
-  // the maxSize field (peak position size; falls through to sumOpen / size
-  // when absent), producing gross price-difference P&L. Approximate — does
-  // NOT include fees — but a far better signal than zero.
-  //
-  // Mutates positions in place: sets `p.realizedPnl` to a stringified
-  // number and `p._derivedRealizedPnl = true` for transparency. Returns a
-  // summary `{correctedCount, totalCorrectedAbs}` so the caller can surface
-  // a banner.
-  function normalizeRealizedPnl(positions) {
-    let correctedCount = 0;
-    let totalCorrectedAbs = 0;
-    (positions || []).forEach(p => {
-      if (!p || p.status !== 'CLOSED') return;
-      const indexerRp = parseFloat(p.realizedPnl);
-      // Trust the indexer when it reports a non-zero value.
-      if (isNumber(indexerRp) && indexerRp !== 0) return;
-      const e = parseFloat(p.entryPrice || 0);
-      const x = parseFloat(p.exitPrice || 0);
-      const sz = Math.abs(parseFloat(p.maxSize || p.sumOpen || p.size || 0));
-      // Need real prices, real size, and a price move; otherwise leave the
-      // zero in place (truly a scratch or insufficient data).
-      if (!(e > 0) || !(x > 0) || !(sz > 0) || e === x) return;
-      const sideMult = (p.side || '').toUpperCase() === 'LONG' ? 1 : -1;
-      const computed = (x - e) * sz * sideMult;
-      if (!isNumber(computed) || computed === 0) return;
-      p.realizedPnl = String(computed);
-      p._derivedRealizedPnl = true;
-      correctedCount++;
-      totalCorrectedAbs += Math.abs(computed);
-    });
-    return { correctedCount, totalCorrectedAbs };
+  // True when attributeFillsToPositions tied the position to its fills
+  // (`complete === true`). A position without attribution fields is not
+  // complete. The one completeness rule every panel and the tax report use.
+  function hasCompleteAttribution(p) {
+    return !!p && p.complete === true;
   }
 
-  // Classify closed positions into wins / losses / scratches by realizedPnl
-  // sign. Scratches (realizedPnl == 0) are excluded from win-rate-style
-  // ratios. Derived fields (winRate, profitFactor, avgWin, avgLoss,
-  // expectancy) are computed once here so consumers cannot adopt different
-  // definitions in different panels. Each is null when its denominator is
-  // zero — surface as '—' per the no-metric-better-than-wrong-metric rule.
-  function classifyClosed(positions) {
+  // A position's fill-attributed profit (attributeFillsToPositions), or
+  // null when that attribution is incomplete or absent.
+  function completeProfit(p) {
+    if (!hasCompleteAttribution(p)) return null;
+    const profit = parseFloat(p.profit);
+    return isNumber(profit) ? profit : null;
+  }
+
+  // Classify closed positions into wins / losses / scratches by the sign
+  // of their fill-attributed `profit` (net of fees, excluding funding).
+  // Scratches (profit == 0) are excluded from win-rate-style ratios.
+  // Derived fields (winRate, profitFactor, avgWin, avgLoss, expectancy,
+  // payoff, breakevenWinRate) are computed once here so consumers cannot
+  // adopt different definitions in different panels. Each is null when
+  // its denominator is zero — surface as '—' per the
+  // no-metric-better-than-wrong-metric rule.
+  //
+  // All-or-nothing: a closed position without complete fill attribution
+  // lands in `incomplete`, and while any exists every derived ratio is
+  // null and `incompleteReason` says why. `unavailableReason` (e.g.
+  // 'Closed positions failed to load') does the same for a list that is
+  // itself unknown, so an endpoint failure never reads as "no trades".
+  function classifyClosed(positions, unavailableReason = '') {
     const closed = (positions || []).filter(p => p && p.status === 'CLOSED');
-    const wins = [], losses = [], scratches = [];
+    const wins = [], losses = [], scratches = [], incomplete = [];
     let grossWin = 0, grossLoss = 0;
     closed.forEach(p => {
-      const r = parseFloat(p.realizedPnl || 0);
-      if (!isNumber(r)) return;
+      const r = completeProfit(p);
+      if (r === null) { incomplete.push(p); return; }
       if (r > 0)      { wins.push(p);     grossWin  += r;          }
       else if (r < 0) { losses.push(p);   grossLoss += Math.abs(r); }
       else            { scratches.push(p); }
@@ -216,21 +203,33 @@
     const winCount = wins.length;
     const lossCount = losses.length;
     const decisiveCount = winCount + lossCount;
-    const totalRealized = grossWin - grossLoss;
+    const totalProfit = grossWin - grossLoss;
+    const incompleteCount = incomplete.length;
+    const incompleteReason = unavailableReason || (incompleteCount === 0 ? ''
+      : `${incompleteCount} position${incompleteCount === 1 ? '' : 's'} missing fill data`);
+    const ratio = (denominator, value) => (!incompleteReason && denominator > 0 ? value() : null);
+    const avgWin = ratio(winCount, () => grossWin / winCount);
+    const avgLoss = ratio(lossCount, () => grossLoss / lossCount);
+    const payoff = avgWin !== null && avgLoss !== null ? ratio(avgLoss, () => avgWin / avgLoss) : null;
     return {
-      wins, losses, scratches, all: closed,
+      wins, losses, scratches, incomplete, all: closed,
       grossWin, grossLoss,
-      totalRealized,
+      totalProfit,
       winCount,
       lossCount,
       scratchCount: scratches.length,
       decisiveCount,
       closedCount: closed.length,
-      winRate:      decisiveCount > 0 ? (winCount / decisiveCount) * 100 : null,
-      profitFactor: grossLoss > 0     ? grossWin / grossLoss            : null,
-      avgWin:       winCount > 0      ? grossWin / winCount              : null,
-      avgLoss:      lossCount > 0     ? grossLoss / lossCount            : null,
-      expectancy:   decisiveCount > 0 ? totalRealized / decisiveCount    : null
+      incompleteCount,
+      incompleteReason,
+      winRate:      ratio(decisiveCount, () => (winCount / decisiveCount) * PERCENT),
+      profitFactor: ratio(grossLoss,     () => grossWin / grossLoss),
+      avgWin,
+      avgLoss,
+      expectancy:   ratio(decisiveCount, () => totalProfit / decisiveCount),
+      payoff,
+      // Win rate (percent) at which expectancy is zero for this payoff.
+      breakevenWinRate: payoff === null ? null : PERCENT / (1 + payoff)
     };
   }
 
@@ -239,7 +238,10 @@
   // the "Month long, year numeric" format the Monthly Performance Breakdown
   // table uses. Months with zero closed positions are omitted — caller
   // merges them in from histPnlMonthly when funding-only months matter.
-  function classifyByMonth(positions) {
+  // `unavailableReason` (normally the account-wide classifier's
+  // incompleteReason) is applied to every month, so one incomplete
+  // position blanks the ratios of every month together.
+  function classifyByMonth(positions, unavailableReason = '') {
     const byMonth = {};
     (positions || []).forEach(p => {
       if (!p || p.status !== 'CLOSED') return;
@@ -250,27 +252,33 @@
       byMonth[key].push(p);
     });
     const out = {};
-    Object.keys(byMonth).forEach(k => { out[k] = classifyClosed(byMonth[k]); });
+    Object.keys(byMonth).forEach(k => { out[k] = classifyClosed(byMonth[k], unavailableReason); });
     return out;
   }
 
-  // Per-trade fractional return on max-instantaneous notional.
-  // Denominator: maxSize × entryPrice — the largest position notional
-  // ever held during the lifecycle, NOT the cumulative entered size.
-  // For scaled-in/out positions, sumOpen overstates capital deployed
-  // and biases per-trade ratios low; maxSize (when the indexer
-  // exposes it) is the honest "peak capital at risk." Falls back to
-  // sumOpen / size when maxSize is absent so legacy responses still
-  // produce a number, with the caveat that scaled positions read
-  // smaller-than-actual returns.
-  // Used by per-trade Sharpe (fallback) AND asset-level Sharpe AND
-  // win/loss distribution. Returns null when notional is undefined.
+  // Peak notional: peakSize × entryVwap from attributeFillsToPositions,
+  // the largest position value held during the lifecycle (NOT the
+  // cumulative entered size, which overstates capital deployed on scaled
+  // positions). Null when the attribution is incomplete or either factor
+  // is not positive. The denominator of tradeReturn and the size measure
+  // of the Position Size Distribution and the Behavior double-down detector.
+  function peakNotional(p) {
+    if (!hasCompleteAttribution(p)) return null;
+    const size = parseFloat(p.peakSize);
+    const entry = parseFloat(p.entryVwap);
+    return size > 0 && entry > 0 ? size * entry : null;
+  }
+
+  // Per-trade fractional return: profit / peakNotional, both from the fill
+  // attribution. Used by per-trade Sharpe (fallback), asset-level Sharpe,
+  // the win/loss distribution and the Positions board PROFIT % column.
+  // Returns null when the attribution is incomplete or the notional is
+  // undefined.
   function tradeReturn(p) {
-    const sz = Math.abs(parseFloat(p.maxSize || p.sumOpen || p.size || 0));
-    const px = parseFloat(p.entryPrice || 0);
-    const pnl = parseFloat(p.realizedPnl || 0);
-    if (!(sz > 0) || !(px > 0)) return null;
-    const r = pnl / (sz * px);
+    const profit = completeProfit(p);
+    const notional = peakNotional(p);
+    if (profit === null || notional === null) return null;
+    const r = profit / notional;
     return isNumber(r) ? r : null;
   }
 
@@ -298,7 +306,7 @@
     }
     if (peakAtMaxDD <= 0 || troughVal < 0) return null;
     return {
-      pct: Math.abs(maxDD) * 100,
+      pct: Math.abs(maxDD) * PERCENT,
       abs: Math.max(0, peakAtMaxDD - troughVal),
       peakIdx, troughIdx
     };
@@ -325,25 +333,29 @@
       reason = `Need ≥1 month of valid data (have ${(years * 12).toFixed(1)} months)`;
     } else if (coverage < ADEQUACY_MIN_COVERAGE) {
       adequate = false;
-      reason = `Coverage ${(coverage * 100).toFixed(0)}% — most periods filtered (likely post-wipeout sample bias)`;
+      reason = `Coverage ${(coverage * PERCENT).toFixed(0)}% — most periods filtered (likely post-wipeout sample bias)`;
     }
     return { adequate, reason, ppy, years, coverage, n };
   }
 
   // Sort closed positions chronologically and build the cumulative
-  // realizedPnl series. Shared by tradeSystemDrawdown (worst single event)
-  // and tradeSystemDrawdownEvents (every peak→recovery cycle) so the two
-  // can never operate on different inputs.
-  function buildCumulativeRealizedSeries(closedPositions) {
+  // fill-attributed profit series. Shared by tradeSystemDrawdown (worst
+  // single event), tradeSystemDrawdownEvents (every peak→recovery cycle)
+  // and tradeSystemCurrentDrawdown so they can never operate on different
+  // inputs. All-or-nothing like classifyClosed: while any closed position
+  // lacks complete fill attribution the series is empty, so every wrapper
+  // reports no drawdown and callers show the classifier's incompleteReason.
+  function buildCumulativeProfitSeries(closedPositions) {
     const closed = (closedPositions || [])
       .filter(p => p && p.status === 'CLOSED' && p.closedAt)
       .slice()
       .sort((a, b) => (
         new Date(a.closedAt).getTime() - new Date(b.closedAt).getTime()
       ));
+    if (closed.some(p => completeProfit(p) === null)) return { closed: [], cums: [] };
     let cum = 0;
     const cums = closed.map(p => {
-      cum += parseFloat(p.realizedPnl || 0);
+      cum += completeProfit(p);
       return { t: p.closedAt, c: cum };
     });
     return { closed, cums };
@@ -369,7 +381,7 @@
   }
 
   // Single peak-to-trough/peak-to-recovery scanner over a {t, c}[] series.
-  // Single source of truth for both the totalPnl-based and realizedPnl-based
+  // Single source of truth for both the totalPnl-based and trade-profit-based
   // drawdown views — the wrappers below only differ in which series they
   // build. Returns the worst-event summary AND the full event list so a
   // caller never has to re-scan.
@@ -429,7 +441,7 @@
     return {
       worst: {
         dollarDrawdown: ddAbs,
-        pctOfPeakProfit: ddPeak > 0 ? (ddAbs / ddPeak) * 100 : 0,
+        pctOfPeakProfit: ddPeak > 0 ? (ddAbs / ddPeak) * PERCENT : 0,
         n: cums.length,
         peakAt: cums[ddPeakIdx].t,
         troughAt: cums[ddTroughIdx].t,
@@ -456,23 +468,23 @@
     return scanDrawdownEvents(buildCumulativeTotalPnlSeries(historicalPnl)).events;
   }
 
-  // Trade-system drawdown: peak-to-trough on cumulative realizedPnl over
+  // Trade-system drawdown: peak-to-trough on cumulative profit over
   // closed trades, in chronological order. Used as the fallback when
-  // historical-pnl is unavailable. Cumulative realizedPnl never has
+  // historical-pnl is unavailable. Cumulative profit never has
   // synthetic-equity artifacts, so no negative-trough filter is needed.
   function tradeSystemDrawdown(closedPositions) {
-    const { closed, cums } = buildCumulativeRealizedSeries(closedPositions);
+    const { closed, cums } = buildCumulativeProfitSeries(closedPositions);
     const out = scanDrawdownEvents(cums).worst;
     out.n = closed.length;
     out.closed = closed;
     return out;
   }
 
-  // Find every peak-to-recovery drawdown event on the cumulative realizedPnl
+  // Find every peak-to-recovery drawdown event on the cumulative profit
   // curve. Used as the fallback for the Drawdown Periods table when
   // historical-pnl is unavailable.
   function tradeSystemDrawdownEvents(closedPositions) {
-    const { cums } = buildCumulativeRealizedSeries(closedPositions);
+    const { cums } = buildCumulativeProfitSeries(closedPositions);
     return scanDrawdownEvents(cums).events;
   }
 
@@ -511,7 +523,7 @@
     const dollarDrawdown = Math.max(0, peak - current);
     return {
       dollarDrawdown,
-      pctOfPeakProfit: peak > 0 ? (dollarDrawdown / peak) * 100 : 0,
+      pctOfPeakProfit: peak > 0 ? (dollarDrawdown / peak) * PERCENT : 0,
       peakAt: cums[peakIdx].t,
       peakValue: peak,
       currentAt: cums[lastIdx].t,
@@ -529,10 +541,10 @@
     return currentDrawdownFromSeries(buildCumulativeTotalPnlSeries(historicalPnl));
   }
 
-  // Fallback path: current drawdown on cumulative realizedPnl. Used when
+  // Fallback path: current drawdown on cumulative profit. Used when
   // historical-pnl is unavailable, mirroring tradeSystemDrawdown's role.
   function tradeSystemCurrentDrawdown(closedPositions) {
-    const { closed, cums } = buildCumulativeRealizedSeries(closedPositions);
+    const { closed, cums } = buildCumulativeProfitSeries(closedPositions);
     const out = currentDrawdownFromSeries(cums);
     out.closed = closed;
     return out;
@@ -552,13 +564,19 @@
   // gaps on heavy-scaling accounts. Omitting the override preserves the
   // legacy behavior for callers without /fills data.
   //
+  // Unrealized source: `unrealizedByMarket` (computeUnrealizedFromFills'
+  // byMarket, FIFO lots at the oracle) likewise OVERRIDES the sum of
+  // /perpetualPositions.unrealizedPnl, so realized and unrealized share one
+  // cost basis. A null entry (open lots without an oracle price) adds 0;
+  // the caller blanks totals whose unrealized is unknown.
+  //
   // `feesMap` is optional: `{ [market]: feesPaid }` where positive = USD
   // paid (taker / most maker), negative = maker rebate (dYdX fill.fee
   // convention). Subtracted from total so rebates ADD to the bottom line.
   //
   // Used by Overview chart tooltip AND Performance-by-Asset table so the
   // same market never reads two different P&L numbers.
-  function marketPnL(positions, feesMap, realizedByMarket) {
+  function marketPnL(positions, feesMap, realizedByMarket, unrealizedByMarket) {
     const byMarket = {};
     function ensureSlot(m) {
       if (!byMarket[m]) {
@@ -591,6 +609,14 @@
         ensureSlot(m).realizedClosed = v;
       });
     }
+    if (unrealizedByMarket) {
+      Object.keys(byMarket).forEach(m => { byMarket[m].unrealizedOpen = 0; });
+      Object.keys(unrealizedByMarket).forEach(m => {
+        const v = parseFloat(unrealizedByMarket[m]);
+        if (!isNumber(v)) return;
+        ensureSlot(m).unrealizedOpen = v;
+      });
+    }
     if (feesMap) {
       Object.keys(feesMap).forEach(m => {
         const v = parseFloat(feesMap[m]);
@@ -602,6 +628,21 @@
       s.total = s.realizedClosed + s.unrealizedOpen + s.netFunding - s.fees;
     });
     return byMarket;
+  }
+
+  // Lifetime trading profit now, on the equity-based definition: the latest
+  // /historical-pnl totalPnl (equity − net transfers, sampled hourly) moved
+  // by the equity change since that row. Assumes no transfer since the
+  // row. Null when there are no rows or either equity does not parse. The
+  // reference the Total Profit reconciliation guard compares against.
+  function equityAdjustedTotalPnl(historicalPnl, equityNow) {
+    if (!Array.isArray(historicalPnl) || historicalPnl.length === 0) return null;
+    const latest = historicalPnl.reduce((a, b) => ((b.createdAt || '') > (a.createdAt || '') ? b : a));
+    const totalPnl = parseFloat(latest.totalPnl);
+    const rowEquity = parseFloat(latest.equity);
+    const equity = parseFloat(equityNow);
+    if (!isNumber(totalPnl) || !isNumber(rowEquity) || !isNumber(equity)) return null;
+    return totalPnl + (equity - rowEquity);
   }
 
   // Sum of netFunding across every position (CLOSED + OPEN). Used by the
@@ -639,9 +680,130 @@
     });
   }
 
-  // FIFO realized P&L computed bottom-up from /fills. Walks each market's
-  // fills chronologically, maintaining a signed inventory of open lots;
-  // realizes profit/loss whenever a fill reduces the existing position.
+  // Net size within this tolerance of zero counts as flat. Fill sizes are
+  // decimal strings; summing them in binary floating point leaves residue
+  // that grows with magnitude (a few 1e-9 units on a 1e7-unit position)
+  // and stays behind after the position is scaled down, so the tolerance
+  // is the larger of an absolute floor and a fraction of the largest size
+  // involved since the market was last flat. Both stay far below any
+  // exchange step size.
+  var FLAT_SIZE_EPSILON = 1e-9;
+  var FLAT_SIZE_RELATIVE_EPSILON = 1e-12;
+
+  function flatTolerance(...sizes) {
+    return Math.max(FLAT_SIZE_EPSILON, ...sizes.map(s => Math.abs(s) * FLAT_SIZE_RELATIVE_EPSILON));
+  }
+
+  // Chain order shared by every FIFO walk: `createdAt`, then
+  // `createdAtHeight` (block times never decrease, so the two agree on real
+  // rows; `createdAt` first keeps a fill missing its height in place).
+  // Fills of one block keep their input order (the sort is stable), which is
+  // chain order because /fills is fetched in page mode, eventId ascending.
+  // Fill ids are hashes of the event id, so their order means nothing.
+  function compareFillsChronologically(a, b) {
+    const ta = a.createdAt || '';
+    const tb = b.createdAt || '';
+    if (ta !== tb) return ta < tb ? -1 : 1;
+    const ha = parseInt(a.createdAtHeight || '0', 10);
+    const hb = parseInt(b.createdAtHeight || '0', 10);
+    if (ha !== hb) return ha - hb;
+    return 0;
+  }
+
+  function groupFillsByMarketChronologically(fills) {
+    const buckets = {};
+    (fills || []).forEach(f => {
+      if (!f) return;
+      const m = f.market || 'Unknown';
+      if (!buckets[m]) buckets[m] = [];
+      buckets[m].push(f);
+    });
+    Object.values(buckets).forEach(arr => arr.sort(compareFillsChronologically));
+    return buckets;
+  }
+
+  // { size, price, signed } for a fill the FIFO walk can use, else null.
+  function parseFillTrade(f) {
+    const size = Math.abs(parseFloat(f && f.size));
+    const price = parseFloat(f && f.price);
+    if (!isNumber(size) || size <= 0 || !isNumber(price)) return null;
+    const side = (f.side || '').toUpperCase();
+    if (side !== 'BUY' && side !== 'SELL') return null;
+    return { size, price, signed: side === 'BUY' ? size : -size };
+  }
+
+  // True when the FIFO walk can use the fill: positive size, finite price,
+  // BUY or SELL side. Any other fill is skipped and makes the attribution
+  // of every position whose window holds it incomplete.
+  function isFifoUsableFill(f) {
+    return parseFillTrade(f) !== null;
+  }
+
+  // The one FIFO inventory walk over a single market's chronologically
+  // sorted fills. Every realized-P&L helper below is a fold over its steps.
+  //
+  // Cost-basis convention: FIFO (first-in, first-out). For a position
+  // that returns to zero size, the LIFETIME realized total is invariant
+  // to convention (FIFO / LIFO / HIFO all sum to the same number); only
+  // per-trade attribution differs. FIFO is the transparent default.
+  //
+  // Each usable fill yields one step splitting it into a closing portion
+  // (`closeQty`, which realizes `realized` against the oldest lots) and an
+  // opening portion (`openQty`, which becomes a new lot). A flip fill
+  // (long → through zero → short in one fill) has both: the chain treats
+  // it atomically, closing all inventory at the fill price and opening
+  // the residual on the other side at the same price. `netBefore` /
+  // `netAfter` are signed (positive = LONG) and snap to exactly 0 within
+  // flatTolerance. Fills whose size/price/side do not parse go to
+  // `onSkip` and leave inventory untouched. Returns the lots still open
+  // after the last fill ({ size, price }, FIFO order), their side and the
+  // signed net size the walk ends on (`netSize`, 0 when flat).
+  function walkMarketFifo(sortedFills, onStep, onSkip) {
+    const inventory = []; // [{ size, price }] FIFO order, always positive size
+    let netSize = 0;
+    let peakSinceFlat = 0;
+    sortedFills.forEach(fill => {
+      const trade = parseFillTrade(fill);
+      if (!trade) {
+        if (onSkip) onSkip(fill);
+        return;
+      }
+      const netBefore = netSize;
+      const tolerance = flatTolerance(netBefore, trade.size, peakSinceFlat);
+      const reducing = (netBefore > 0 && trade.signed < 0) || (netBefore < 0 && trade.signed > 0);
+      const closeQty = reducing ? Math.min(trade.size, Math.abs(netBefore)) : 0;
+      const residual = trade.size - closeQty;
+      const openQty = residual > tolerance ? residual : 0;
+      let realized = 0;
+      let toMatch = closeQty;
+      while (toMatch > tolerance && inventory.length > 0) {
+        const lot = inventory[0];
+        const matched = Math.min(toMatch, lot.size);
+        realized += netBefore > 0
+          ? (trade.price - lot.price) * matched
+          : (lot.price - trade.price) * matched;
+        lot.size -= matched;
+        toMatch -= matched;
+        if (lot.size <= tolerance) inventory.shift();
+      }
+      if (openQty > 0) inventory.push({ size: openQty, price: trade.price });
+      netSize = netBefore + trade.signed;
+      if (Math.abs(netSize) <= tolerance) {
+        netSize = 0;
+        inventory.length = 0;
+        peakSinceFlat = 0;
+      } else {
+        peakSinceFlat = Math.max(peakSinceFlat, Math.abs(netSize));
+      }
+      onStep({
+        fill, size: trade.size, price: trade.price,
+        closeQty, openQty, realized, netBefore, netAfter: netSize
+      });
+    });
+    return { lots: inventory, side: Math.sign(netSize), netSize };
+  }
+
+  // FIFO realized P&L computed bottom-up from /fills.
   //
   // Why this over /perpetualPositions.realizedPnl: the indexer's per-
   // position `realizedPnl` field has observed accounting gaps — it
@@ -651,173 +813,364 @@
   // within float-rounding, with no dependence on the indexer-computed
   // realizedPnl field.
   //
-  // Cost-basis convention: FIFO (first-in, first-out). For a position
-  // that returns to zero size, the LIFETIME realized total is invariant
-  // to convention (FIFO / LIFO / HIFO all sum to the same number); only
-  // per-trade attribution differs. FIFO is the transparent default.
-  //
-  // Handles position flips (long → through zero → short in a single
-  // fill) by closing all current inventory at the fill price, then
-  // opening fresh opposite-side inventory at the same price for the
-  // residual size.
-  //
   // Returns { total, byMarket } where byMarket maps market → realized.
   // Markets with only OPEN inventory (no closing fills yet) emit 0 —
   // their unrealized P&L still comes from /perpetualPositions.unrealizedPnl
   // mark-to-market.
-  //
-  // Tie-breaking for same-block fills: primary sort `createdAt`,
-  // secondary `createdAtHeight`, tertiary `id` (UUID string compare).
-  // dYdX sequences fills deterministically within a block; this matches
-  // their order so realized accrues in chain-time sequence.
   function computeRealizedFromFills(fills) {
-    if (!Array.isArray(fills) || fills.length === 0) {
-      return { total: 0, byMarket: {} };
-    }
-    const buckets = {};
-    for (const f of fills) {
-      if (!f) continue;
-      const m = f.market || 'Unknown';
-      if (!buckets[m]) buckets[m] = [];
-      buckets[m].push(f);
-    }
     let total = 0;
     const byMarket = {};
+    if (!Array.isArray(fills)) return { total, byMarket };
+    const buckets = groupFillsByMarketChronologically(fills);
     Object.entries(buckets).forEach(([market, mfills]) => {
-      mfills.sort((a, b) => {
-        const ta = a.createdAt || '';
-        const tb = b.createdAt || '';
-        if (ta !== tb) return ta < tb ? -1 : 1;
-        const ha = parseInt(a.createdAtHeight || '0', 10);
-        const hb = parseInt(b.createdAtHeight || '0', 10);
-        if (ha !== hb) return ha - hb;
-        const ia = a.id || '';
-        const ib = b.id || '';
-        return ia < ib ? -1 : ia > ib ? 1 : 0;
-      });
-      const inventory = []; // [{ size, price }] FIFO order, always positive size
-      let netSize = 0;     // signed: positive = LONG, negative = SHORT
       let realized = 0;
-      for (const f of mfills) {
-        const sz = Math.abs(parseFloat(f.size));
-        const px = parseFloat(f.price);
-        if (!isNumber(sz) || sz <= 0 || !isNumber(px)) continue;
-        const side = (f.side || '').toUpperCase();
-        if (side !== 'BUY' && side !== 'SELL') continue;
-        const signed = side === 'BUY' ? sz : -sz;
-        const extending =
-          netSize === 0 ||
-          (netSize > 0 && signed > 0) ||
-          (netSize < 0 && signed < 0);
-        if (extending) {
-          inventory.push({ size: sz, price: px });
-          netSize += signed;
-          continue;
-        }
-        // Reducing — consume FIFO lots. The sign of the EXISTING position
-        // (netSize before this fill) determines the P&L formula: long
-        // closed by a sell → (sellPrice − costBasis) × matched; short
-        // closed by a buy → (costBasis − buyPrice) × matched.
-        const closingLong = netSize > 0;
-        let remaining = sz;
-        while (remaining > 0 && inventory.length > 0) {
-          const lot = inventory[0];
-          const matched = Math.min(remaining, lot.size);
-          const pnl = closingLong
-            ? (px - lot.price) * matched
-            : (lot.price - px) * matched;
-          realized += pnl;
-          lot.size -= matched;
-          remaining -= matched;
-          if (lot.size <= 1e-12) inventory.shift();
-        }
-        netSize += signed;
-        // Flip residual opens fresh inventory in the new direction at
-        // the same fill price — the chain treats a flip atomically.
-        if (remaining > 1e-12) {
-          inventory.push({ size: remaining, price: px });
-        }
-      }
+      walkMarketFifo(mfills, step => { realized += step.realized; });
       byMarket[market] = realized;
       total += realized;
     });
     return { total, byMarket };
   }
 
-  // Same FIFO walk as computeRealizedFromFills, plus per-fill realized
-  // contributions keyed by fill object reference. Lets callers attribute
-  // realized P&L across position boundaries without restarting inventory
-  // per window.
-  function computeRealizedByFill(fills) {
-    if (!Array.isArray(fills) || fills.length === 0) {
-      return { total: 0, byMarket: {}, byFill: new Map() };
-    }
-    const buckets = {};
-    for (const f of fills) {
-      if (!f) continue;
-      const m = f.market || 'Unknown';
-      if (!buckets[m]) buckets[m] = [];
-      buckets[m].push(f);
-    }
-    let total = 0;
+  // FIFO unrealized P&L: the lots the walk leaves open in each market,
+  // marked at marketsMap[market].oraclePrice. Pairs with
+  // computeRealizedFromFills on the same cost basis, so realized +
+  // unrealized equals the fills' cash flow plus the marked inventory.
+  // (The indexer's per-position unrealizedPnl marks against the average
+  // entry of every opening fill, which double-counts profit FIFO has
+  // already realized on a partly reduced position.)
+  //
+  // Returns { total, byMarket, unpricedMarkets, openMarkets }. A flat market
+  // contributes 0. openMarkets lists every market with open lots. A market
+  // with open lots and no positive oracle price is null in byMarket and
+  // listed in unpricedMarkets, and total is then null.
+  function computeUnrealizedFromFills(fills, marketsMap) {
     const byMarket = {};
-    const byFill = new Map();
-    Object.entries(buckets).forEach(([market, mfills]) => {
-      mfills.sort((a, b) => {
-        const ta = a.createdAt || '';
-        const tb = b.createdAt || '';
-        if (ta !== tb) return ta < tb ? -1 : 1;
-        const ha = parseInt(a.createdAtHeight || '0', 10);
-        const hb = parseInt(b.createdAtHeight || '0', 10);
-        if (ha !== hb) return ha - hb;
-        const ia = a.id || '';
-        const ib = b.id || '';
-        return ia < ib ? -1 : ia > ib ? 1 : 0;
-      });
-      const inventory = [];
-      let netSize = 0;
-      let realized = 0;
-      for (const f of mfills) {
-        const sz = Math.abs(parseFloat(f.size));
-        const px = parseFloat(f.price);
-        if (!isNumber(sz) || sz <= 0 || !isNumber(px)) continue;
-        const side = (f.side || '').toUpperCase();
-        if (side !== 'BUY' && side !== 'SELL') continue;
-        const signed = side === 'BUY' ? sz : -sz;
-        const extending =
-          netSize === 0 ||
-          (netSize > 0 && signed > 0) ||
-          (netSize < 0 && signed < 0);
-        let fillRealized = 0;
-        if (extending) {
-          inventory.push({ size: sz, price: px });
-          netSize += signed;
-        } else {
-          const closingLong = netSize > 0;
-          let remaining = sz;
-          while (remaining > 0 && inventory.length > 0) {
-            const lot = inventory[0];
-            const matched = Math.min(remaining, lot.size);
-            const pnl = closingLong
-              ? (px - lot.price) * matched
-              : (lot.price - px) * matched;
-            fillRealized += pnl;
-            lot.size -= matched;
-            remaining -= matched;
-            if (lot.size <= 1e-12) inventory.shift();
-          }
-          netSize += signed;
-          if (remaining > 1e-12) {
-            inventory.push({ size: remaining, price: px });
-          }
-        }
-        realized += fillRealized;
-        byFill.set(f, fillRealized);
+    const unpricedMarkets = [];
+    const openMarkets = [];
+    let total = 0;
+    if (!Array.isArray(fills)) return { total, byMarket, unpricedMarkets, openMarkets };
+    Object.entries(groupFillsByMarketChronologically(fills)).forEach(([market, mfills]) => {
+      const { lots, side } = walkMarketFifo(mfills, () => {});
+      if (lots.length === 0) {
+        byMarket[market] = 0;
+        return;
       }
-      byMarket[market] = realized;
-      total += realized;
+      openMarkets.push(market);
+      const oracle = parseFloat(marketsMap && marketsMap[market] && marketsMap[market].oraclePrice);
+      if (!(oracle > 0)) {
+        byMarket[market] = null;
+        unpricedMarkets.push(market);
+        return;
+      }
+      byMarket[market] = lots.reduce((s, lot) => s + (oracle - lot.price) * lot.size * side, 0);
+      total += byMarket[market];
     });
-    return { total, byMarket, byFill };
+    return { total: unpricedMarkets.length ? null : total, byMarket, unpricedMarkets, openMarkets };
+  }
+
+  // Per-position P&L, size and prices attributed from /fills. Replaces the
+  // indexer's per-position realizedPnl / maxSize / entryPrice / exitPrice,
+  // which are wrong on scaled positions (realizedPnl undercounts), on every
+  // SHORT (maxSize is the max of the SIGNED size, i.e. the smallest short)
+  // and on both rows of a flip (the flip fill's size is split wrongly).
+  //
+  // One FIFO walk per market (walkMarketFifo) cuts the fills into segments:
+  // net size leaves 0 and returns to 0, or flips. A flip fill's closing
+  // portion ends the older segment and its opening portion starts the new
+  // one. Each segment belongs to the position in that market whose
+  // createdAt equals its first fill's time to the millisecond (when
+  // several share it, see createdAtOwner); failing that, to the
+  // earliest-created position whose [createdAt, closedAt] window
+  // (open-ended while OPEN) contains that fill.
+  //
+  // Cost: the per-market sort plus one FIFO pass, O(n log n) in fills,
+  // and a linear scan over the market's positions only for a segment whose
+  // first fill matches no position's createdAt.
+  //
+  // Returns Map<position, attribution> with an entry for every position:
+  //   realized    FIFO realized on the position's closing portions (gross)
+  //   fees        Σ fill.fee over its portions, a flip fill's fee split by
+  //               size (positive = paid, negative = rebate)
+  //   profit      realized − fees (funding is separate)
+  //   peakSize    largest |net size| during the position, base units, > 0
+  //   entryVwap   size-weighted price of the opening portions (null if none)
+  //   exitVwap    size-weighted price of the closing portions (null if none)
+  //   fillCount   fills touching the position (a flip fill counts for both)
+  //   openedByFlip / closedByFlip
+  //   complete    false when fills are missing, no segment (or more than
+  //               one) matched, the segment's side disagrees with the
+  //               position's, a CLOSED position's segment did not return to
+  //               flat by its closedAt, a same-side position shares both
+  //               its createdAt and closedAt, a fill in the market that
+  //               the walk cannot use lies inside the position's window, or
+  //               one of its segments starts or ends with a flip that no
+  //               opposite-side position closes or opens at that instant
+  //               (see flipPartnersListed), or an OPEN position's signed
+  //               indexer size is not the net size the walk ends its
+  //               market on (see openSizeMatchesWalk).
+  //               Consumers render '—' for an incomplete position's values.
+  //   openSizeDisagrees  true only for an OPEN position incomplete because
+  //               its indexer size is not the walk's final net size: the
+  //               market's fills do not add up to the open position, so
+  //               the market's FIFO totals are off too.
+  // Pure: the positions and fills passed in are never mutated.
+  function attributeFillsToPositions(positions, fills) {
+    const out = new Map();
+    const positionsByMarket = {};
+    (positions || []).forEach(p => {
+      if (!p) return;
+      out.set(p, emptyAttribution());
+      const m = p.market || 'Unknown';
+      if (!positionsByMarket[m]) positionsByMarket[m] = [];
+      const closeMs = timestampMs(p.closedAt);
+      positionsByMarket[m].push({
+        p,
+        openMs: timestampMs(p.createdAt),
+        windowEndMs: closeMs === null ? Infinity : closeMs,
+        segments: []
+      });
+    });
+    if (!Array.isArray(fills)) return out;
+
+    const timedFills = [];
+    const marketsWithUntimedFills = new Set();
+    fills.forEach(f => {
+      if (!f) return;
+      if (timestampMs(f.createdAt) === null) marketsWithUntimedFills.add(f.market || 'Unknown');
+      else timedFills.push(f);
+    });
+    const fillsByMarket = groupFillsByMarketChronologically(timedFills);
+
+    Object.entries(positionsByMarket).forEach(([market, candidates]) => {
+      candidates.sort((a, b) => (a.openMs ?? Infinity) - (b.openMs ?? Infinity));
+      const createdAtIndex = new Map();
+      candidates.forEach(c => {
+        if (c.openMs === null) return;
+        if (!createdAtIndex.has(c.openMs)) createdAtIndex.set(c.openMs, []);
+        createdAtIndex.get(c.openMs).push(c);
+      });
+      const indistinguishable = new Set();
+      createdAtIndex.forEach(sameMs => {
+        sameMs.sort((a, b) => a.windowEndMs - b.windowEndMs);
+        sameMs.forEach((c, i) => {
+          const twin = sameMs.find((o, j) => j !== i && o.windowEndMs === c.windowEndMs
+            && positionSide(o.p) === positionSide(c.p));
+          if (twin) indistinguishable.add(c);
+        });
+      });
+      const { segments, skippedMs, netSize } = segmentMarketFills(fillsByMarket[market] || []);
+      skippedMs.sort((a, b) => a - b);
+      const flipPartners = flipPartnerIndex(candidates);
+      const unpartneredFlip = new Set();
+      segments.forEach(seg => {
+        const owner = createdAtOwner(createdAtIndex.get(seg.startMs), seg)
+          || candidates.find(c => c.openMs !== null && c.openMs <= seg.startMs && seg.startMs <= c.windowEndMs);
+        if (!owner) return;
+        owner.segments.push(seg);
+        if (!flipPartnersListed(seg, flipPartners)) unpartneredFlip.add(owner);
+      });
+      candidates.forEach(c => {
+        const unusableFillInWindow = marketsWithUntimedFills.has(market)
+          || (c.openMs !== null && anyWithin(skippedMs, c.openMs, c.windowEndMs));
+        const summary = summarizeSegments(c.p, c.segments, c.windowEndMs, unusableFillInWindow);
+        const openSizeDisagrees = c.p.status === 'OPEN' && !openSizeMatchesWalk(c.p, netSize, summary.peakSize);
+        if (indistinguishable.has(c) || unpartneredFlip.has(c) || openSizeDisagrees) summary.complete = false;
+        summary.openSizeDisagrees = openSizeDisagrees;
+        out.set(c.p, summary);
+      });
+    });
+    return out;
+  }
+
+  // Among positions created in the segment's first millisecond (sorted by
+  // close time, OPEN last), the earliest-closing one on the segment's side
+  // that has no segment yet. Two positions share a createdAt when one is
+  // opened and reversed, or closed and reopened, within a block; segments
+  // arrive in chain order, so the earlier segment belongs to the position
+  // that closed first, whatever order the indexer listed them in. Same-side
+  // positions that also share a close time cannot be told apart and are
+  // marked incomplete by the caller. Falls back to the first position.
+  function createdAtOwner(sameMs, seg) {
+    if (!sameMs) return null;
+    return sameMs.find(c => c.segments.length === 0 && positionSide(c.p) === seg.side)
+      || sameMs[0];
+  }
+
+  function positionSide(p) {
+    return (p.side || '').toUpperCase();
+  }
+
+  const OPPOSITE_SIDE = { LONG: 'SHORT', SHORT: 'LONG' };
+
+  // Per side, the createdAt and closedAt milliseconds of the market's
+  // positions (OPEN ones close at Infinity).
+  function flipPartnerIndex(candidates) {
+    const index = {
+      LONG: { openMs: new Set(), closeMs: new Set() },
+      SHORT: { openMs: new Set(), closeMs: new Set() }
+    };
+    candidates.forEach(c => {
+      const times = index[positionSide(c.p)];
+      if (!times) return;
+      times.openMs.add(c.openMs);
+      times.closeMs.add(c.windowEndMs);
+    });
+    return index;
+  }
+
+  // A flip fill closes one position and opens the opposite-side one in
+  // the same fill, so a segment the walk opened by a flip needs an
+  // opposite-side position closed at its start, and one it closed by a
+  // flip needs an opposite-side position created at its reversal. A
+  // missing partner means a fill is missing and the walk's net size, and
+  // with it this segment, is off.
+  function flipPartnersListed(seg, flipPartners) {
+    const partner = flipPartners[OPPOSITE_SIDE[seg.side]];
+    return (!seg.openedByFlip || partner.closeMs.has(seg.startMs))
+      && (!seg.closedByFlip || partner.openMs.has(seg.flatMs));
+  }
+
+  // An OPEN row's indexer size is signed (negative for a SHORT) and
+  // reliable, so it must equal the net size the walk ends the market on,
+  // within the walk's flat tolerance. A fill missing before the position
+  // leaves the walk holding a different size, which the side and flip
+  // checks cannot see when the missing fill only shifts the size.
+  function openSizeMatchesWalk(position, walkNetSize, peakSize) {
+    const indexerSize = parseFloat(position.size);
+    return isNumber(indexerSize)
+      && Math.abs(walkNetSize - indexerSize) <= flatTolerance(walkNetSize, indexerSize, peakSize || 0);
+  }
+
+  // True when the fill walk over the position's market ends holding a
+  // position on its side that opened at its createdAt: the position is
+  // still open by its fills. Tells a position reopened on the same side
+  // within its predecessor's closing block apart from a stale OPEN copy
+  // of a position that has since closed.
+  function isOpenInFills(position, fills) {
+    const openMs = timestampMs(position && position.createdAt);
+    if (openMs === null || !Array.isArray(fills)) return false;
+    const timedFills = fills.filter(f => f && timestampMs(f.createdAt) !== null);
+    const marketFills = groupFillsByMarketChronologically(timedFills)[position.market || 'Unknown'];
+    const { segments } = segmentMarketFills(marketFills || []);
+    const last = segments[segments.length - 1];
+    return !!last && !last.flat && last.side === positionSide(position) && last.startMs === openMs;
+  }
+
+  // True when the ascending `sortedMs` holds a value in [fromMs, toMs].
+  function anyWithin(sortedMs, fromMs, toMs) {
+    let lo = 0, hi = sortedMs.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (sortedMs[mid] < fromMs) lo = mid + 1; else hi = mid;
+    }
+    return lo < sortedMs.length && sortedMs[lo] <= toMs;
+  }
+
+  // Milliseconds since epoch of an ISO timestamp, null when absent or
+  // unparseable. The one timestamp parser the attribution and the tax
+  // report share, so both window fills identically.
+  function timestampMs(iso) {
+    const t = Date.parse(iso || '');
+    return Number.isFinite(t) ? t : null;
+  }
+
+  function emptyAttribution() {
+    return {
+      realized: 0, fees: 0, profit: 0,
+      peakSize: null, entryVwap: null, exitVwap: null,
+      fillCount: 0, complete: false,
+      openedByFlip: false, closedByFlip: false,
+      openSizeDisagrees: false
+    };
+  }
+
+  // Cuts one market's sorted fills into position segments. Each segment
+  // holds its fill portions ({ fill, qty, price, feeShare, realized,
+  // closing }), its peak |net size|, whether it returned to flat and at
+  // which millisecond (`flatMs`), and its flip flags. `skippedMs` lists
+  // the timestamps of unusable fills; `netSize` is the signed net size
+  // the walk ends on.
+  function segmentMarketFills(sortedFills) {
+    const segments = [];
+    const skippedMs = [];
+    let current = null;
+    const { netSize } = walkMarketFifo(sortedFills, step => {
+      if (step.closeQty > 0 && current) {
+        current.portions.push({
+          fill: step.fill, qty: step.closeQty, price: step.price,
+          feeShare: step.closeQty / step.size, realized: step.realized, closing: true
+        });
+        const fullyClosed = step.netAfter === 0 || Math.sign(step.netAfter) !== Math.sign(step.netBefore);
+        if (fullyClosed) {
+          current.flat = true;
+          current.flatMs = timestampMs(step.fill.createdAt);
+          current.closedByFlip = step.openQty > 0;
+          current = null;
+        }
+      }
+      if (step.openQty > 0) {
+        if (!current) {
+          current = {
+            startMs: timestampMs(step.fill.createdAt),
+            side: step.netAfter > 0 ? 'LONG' : 'SHORT',
+            openedByFlip: step.closeQty > 0,
+            closedByFlip: false,
+            flat: false,
+            flatMs: null,
+            peakSize: 0,
+            portions: []
+          };
+          segments.push(current);
+        }
+        current.portions.push({
+          fill: step.fill, qty: step.openQty, price: step.price,
+          feeShare: step.openQty / step.size, realized: 0, closing: false
+        });
+        current.peakSize = Math.max(current.peakSize, Math.abs(step.netAfter));
+      }
+    }, fill => skippedMs.push(timestampMs(fill.createdAt)));
+    return { segments, skippedMs, netSize };
+  }
+
+  function summarizeSegments(position, segments, windowEndMs, unusableFillInWindow) {
+    if (segments.length === 0) return emptyAttribution();
+    let realized = 0, fees = 0, peakSize = 0;
+    let openQty = 0, openNotional = 0, closeQty = 0, closeNotional = 0;
+    const touched = new Set();
+    segments.forEach(seg => {
+      peakSize = Math.max(peakSize, seg.peakSize);
+      seg.portions.forEach(part => {
+        touched.add(part.fill);
+        realized += part.realized;
+        const fee = parseFloat(part.fill.fee);
+        if (isNumber(fee)) fees += fee * part.feeShare;
+        if (part.closing) {
+          closeQty += part.qty;
+          closeNotional += part.qty * part.price;
+        } else {
+          openQty += part.qty;
+          openNotional += part.qty * part.price;
+        }
+      });
+    });
+    const only = segments.length === 1 ? segments[0] : null;
+    const side = positionSide(position);
+    const sideAgrees = !side || (only !== null && only.side === side);
+    const flatByClose = only !== null && only.flat && only.flatMs <= windowEndMs;
+    const flatWhenRequired = position.status !== 'CLOSED' || flatByClose;
+    return {
+      realized,
+      fees,
+      profit: realized - fees,
+      peakSize,
+      entryVwap: openQty > 0 ? openNotional / openQty : null,
+      exitVwap: closeQty > 0 ? closeNotional / closeQty : null,
+      fillCount: touched.size,
+      complete: only !== null && sideAgrees && flatWhenRequired && !unusableFillInWindow,
+      openedByFlip: segments[0].openedByFlip,
+      closedByFlip: segments[segments.length - 1].closedByFlip,
+      openSizeDisagrees: false
+    };
   }
 
   // Sum of trading fees across every fill. dYdX v4 indexer convention:
@@ -859,8 +1212,8 @@
   // contributed no rows (the caller renders "—" per the no-metric-better-
   // than-wrong-metric rule). The earliest observed month receives
   // `delta = firstRow.totalPnl − 0`, which slightly overstates that
-  // first-month contribution when /historical-pnl was paginated-capped;
-  // the existing `historyCapped` banner already discloses that case.
+  // first-month contribution when the series does not start at the
+  // account's inception; the dashboard does not flag that case.
   function histPnlMonthly(historicalPnl) {
     if (!Array.isArray(historicalPnl) || historicalPnl.length === 0) return {};
     const sorted = historicalPnl
@@ -922,28 +1275,38 @@
     return null;
   }
 
-  // Account-level leverage utilization — sum of |size|×oracle across open
-  // positions ÷ subaccount equity. Notional prefers ORACLE (mark) over entry
-  // to match dYdX's official UI; falls back to entry when oracle is missing.
-  // Position objects from /perpetualPositions don't carry oraclePrice; the
-  // marketsMap lookup is the canonical source. Returns null when equity is
-  // non-positive or no usable notional exists.
+  // Open-position notional: |size| × price, where price prefers ORACLE
+  // (mark) to match dYdX's official UI: the position's own oraclePrice,
+  // then marketsMap[market].oraclePrice (position objects from
+  // /perpetualPositions don't carry oraclePrice; the markets map is the
+  // canonical source), then entryPrice. Null when no positive size or price.
+  // Single definition behind leverageUtilization, liquidationRow and the
+  // Positions board's Active Positions card.
+  function positionNotional(position, marketsMap) {
+    if (!position) return null;
+    const m = (marketsMap && marketsMap[position.market]) || {};
+    const size = Math.abs(parseFloat(position.size || 0));
+    const price = parseFloat(position.oraclePrice || m.oraclePrice || position.entryPrice || 0);
+    return size > 0 && price > 0 ? size * price : null;
+  }
+
+  // Account-level leverage utilization — sum of positionNotional across open
+  // positions ÷ subaccount equity. Returns null when equity is non-positive
+  // or no usable notional exists.
   function leverageUtilization(positions, subaccount, marketsMap) {
     const equity = subaccount ? parseFloat(subaccount.equity || 0) : 0;
     if (!(equity > 0)) return null;
-    const open = (positions || []).filter(p => p && p.status === 'OPEN');
-    const notional = open.reduce((s, p) => {
-      const sz = Math.abs(parseFloat(p.size || 0));
-      const m = (marketsMap && marketsMap[p.market]) || {};
-      const px = parseFloat(p.oraclePrice || m.oraclePrice || p.entryPrice || 0);
-      return (sz > 0 && px > 0) ? s + sz * px : s;
-    }, 0);
+    const notional = (positions || [])
+      .filter(p => p && p.status === 'OPEN')
+      .reduce((s, p) => s + (positionNotional(p, marketsMap) || 0), 0);
     return notional > 0 ? notional / equity : null;
   }
 
-  // Per-row liquidation table data. Pure compute; the caller renders. Notional
-  // / leverage source matches leverageUtilization (oracle-first) so the
-  // account-level card and per-row LEVERAGE column never diverge.
+  // Per-row liquidation table data. Pure compute; the caller renders.
+  // Notional and leverage use positionNotional (oracle-first, entry as
+  // fallback) so the account-level card and per-row LEVERAGE column never
+  // diverge. The oracle, liquidation price and distance need an oracle
+  // price and have no entry fallback (0 / null without one).
   function liquidationRow(position, subaccount, marketsMap) {
     if (!position || !subaccount) return null;
     const m = (marketsMap && marketsMap[position.market]) || {};
@@ -951,11 +1314,11 @@
     const entry = parseFloat(position.entryPrice || 0);
     const oracle = parseFloat(position.oraclePrice || m.oraclePrice || 0);
     const equity = parseFloat(subaccount.equity || 0);
-    const notional = size * (oracle || entry || 0);
+    const notional = positionNotional(position, marketsMap) || 0;
     const lev = (equity > 0 && notional > 0) ? notional / equity : null;
     const liq = crossMarginLiqPrice(position, subaccount, marketsMap);
     const distancePct = (oracle > 0 && liq !== null && isFinite(liq))
-      ? Math.abs((oracle - liq) / oracle) * 100
+      ? Math.abs((oracle - liq) / oracle) * PERCENT
       : null;
     return { size, entry, oracle, notional, lev, liq, distancePct };
   }
@@ -969,9 +1332,10 @@
     detectPeriodsPerYearFromTimestamps,
     computeAnnualizedFromReturns,
     computeAnnualizedFromHistoricalPnl,
+    hasCompleteAttribution,
     classifyClosed,
     classifyByMonth,
-    normalizeRealizedPnl,
+    peakNotional,
     tradeReturn,
     validDrawdownFromEquity,
     assessAdequacy,
@@ -987,10 +1351,16 @@
     feesTotal,
     marketFees,
     computeRealizedFromFills,
-    computeRealizedByFill,
+    computeUnrealizedFromFills,
+    equityAdjustedTotalPnl,
+    attributeFillsToPositions,
+    isOpenInFills,
+    isFifoUsableFill,
+    timestampMs,
     activeChildSubaccounts,
     histPnlMonthly,
     crossMarginLiqPrice,
+    positionNotional,
     leverageUtilization,
     liquidationRow,
     ADEQUACY: {

@@ -5,8 +5,8 @@
 // Depends on: window.AppConstants (TUNABLES.ALWAYS_SHOW_TICKERS,
 // HOURS_PER_YEAR, MS_PER_HOUR), window.Format (formatCurrency,
 // fmtNotional, fmtSignedPct, fmtDateShort, formatFundingApr,
-// formatHourlyDetail), window.AppDom (updateElement, appendCell,
-// tagCells).
+// fundingAprClass, formatHourlyDetail, signClass), window.AppDom
+// (updateElement, appendCell, tagCells).
 
 (function () {
   'use strict';
@@ -174,16 +174,16 @@
 
     filtered.forEach(e => {
       const tr = document.createElement('tr');
-      const status = e.net > 0 ? 'profit' : e.net < 0 ? 'loss' : '';
-      const currApr = (parseFloat(e.current) || 0);
+      const netClass = F.signClass(e.net);
+      const status = netClass === 'zero' ? '' : netClass;
       D.appendCell(tr, e.ticker);
-      const currTd = D.appendCell(tr, F.formatFundingApr(parseFloat(e.current)), ['mono', currApr < 0 ? 'loss' : 'profit']);
+      const currTd = D.appendCell(tr, F.formatFundingApr(e.current), ['mono', F.fundingAprClass(e.current)]);
       currTd.title = F.formatHourlyDetail(e.current);
       const predTd = D.appendCell(tr, F.formatFundingApr(parseFloat(e.predicted)), ['mono']);
       predTd.title = F.formatHourlyDetail(e.predicted);
-      D.appendCell(tr, F.formatCurrency(e.received), ['mono', 'profit']);
-      D.appendCell(tr, F.formatCurrency(-e.paid), ['mono', 'loss']);
-      D.appendCell(tr, F.formatCurrency(e.net), ['mono', status]);
+      D.appendCell(tr, F.formatCurrency(e.received), ['mono', F.signClass(e.received)]);
+      D.appendCell(tr, F.formatCurrency(-e.paid), ['mono', F.signClass(-e.paid)]);
+      D.appendCell(tr, F.formatCurrency(e.net), ['mono', netClass]);
       D.appendCell(tr, status ? status.toUpperCase() : '-', ['mono']);
       body.appendChild(tr);
     });

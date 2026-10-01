@@ -1,50 +1,9 @@
 import { test, expect } from '@playwright/test';
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const fixture = JSON.parse(
-  readFileSync(join(__dirname, 'fixtures', 'sample-trader.json'), 'utf-8')
-);
-const ADDRESS = fixture.address;
-
-// Map each indexer URL pattern to the fixture key whose JSON it should serve.
-// Order matters: the more specific patterns must match before the more general
-// /addresses/{addr} pattern (sub vs addressSubaccounts).
-const ROUTE_RULES = [
-  { match: /\/v4\/addresses\/[^/]+\/subaccountNumber\/0(?:\?|$)/, key: 'subaccount' },
-  { match: /\/v4\/addresses\/[^/?]+(?:\?|$)/,                       key: 'addressSubaccounts' },
-  { match: /\/v4\/perpetualPositions[^?]*\?[^#]*status=OPEN/,       key: 'openPositions' },
-  { match: /\/v4\/perpetualPositions[^?]*\?[^#]*status=CLOSED/,     key: 'closedPositions' },
-  { match: /\/v4\/orders\?/,                                        key: 'orders' },
-  { match: /\/v4\/perpetualMarkets(?:\?|$)/,                        key: 'markets' },
-  { match: /\/v4\/fills\?/,                                         key: 'fills' },
-  { match: /\/v4\/fundingPayments\?/,                               key: 'fundingPayments' },
-  { match: /\/v4\/historical-pnl\?/,                                key: 'historicalPnl' },
-  // Market-wide endpoints used by the Market Structure tab's funding
-  // history chart. Lazy-loaded on tab activation; the fixture has no
-  // data for these so the smoke verifies the empty-state path doesn't
-  // throw and doesn't log network errors.
-  { match: /\/v4\/historicalFunding\//,                             empty: { historicalFunding: [] } },
-  { match: /\/v4\/candles\/perpetualMarkets\//,                     empty: { candles: [] } },
-];
+import { ADDRESS, INDEXER_URL, serveFixture } from './indexer-fixture.mjs';
 
 test.describe('dashboard smoke', () => {
   test.beforeEach(async ({ page }) => {
-    await page.route(/indexer\.dydx\.trade/, async (route) => {
-      const url = route.request().url();
-      const rule = ROUTE_RULES.find(r => r.match.test(url));
-      if (!rule) {
-        return route.fulfill({ status: 404, contentType: 'application/json', body: '{}' });
-      }
-      const body = rule.key ? fixture[rule.key] : rule.empty;
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(body),
-      });
-    });
+    await page.route(INDEXER_URL, serveFixture);
     // Stub the ECB-proxy used by the Tax tab so the smoke run never
     // hits the live api.frankfurter.dev/v1 endpoint. Return a
     // real-looking rate for the fixture's single closed-position

@@ -3,15 +3,30 @@
 // "best trading hour" reads as a statement about when the trader chose
 // to enter, not when the position happened to close.
 //
-// Depends on: window.AppConstants (TUNABLES, MS_PER_MIN, MS_PER_HOUR),
-// window.Format (formatCurrency), window.AppDom (updateElement,
-// appendCell, tagCells).
+// Profit-based numbers (hold time of wins vs losses, best/worst hour,
+// pattern win rate and average) come from the account-wide
+// RiskMetrics.classifyClosed result processData passes in and the
+// fill-attributed `profit`; while its incompleteReason is set (a closed
+// position lacks complete fill data, or the CLOSED list failed to load)
+// they render '—'.
+//
+// Depends on: window.AppConstants (TUNABLES, MS_PER_HOUR),
+// window.RiskMetrics (classifyClosed, peakNotional, hasCompleteAttribution), window.Format
+// (formatCurrency, formatDuration, signClass), window.AppDom
+// (updateElement, appendCell, tagCells).
 
 (function () {
   'use strict';
 
-  function renderTimeAnalysis(positions) {
+  // Pattern verdicts: CONTINUE needs a positive average and at least
+  // CONTINUE_WIN_RATE; AVOID a negative average below BREAK_EVEN_WIN_RATE.
+  const BREAK_EVEN_WIN_RATE = 50;
+  const CONTINUE_WIN_RATE = 55;
+
+  // accountCls: RiskMetrics.classifyClosed over every position.
+  function renderTimeAnalysis(positions, accountCls) {
     const C = window.AppConstants;
+    const F = window.Format;
     const D = window.AppDom;
 
     const closed = positions.filter(p => p.status === 'CLOSED' && p.closedAt && p.createdAt);
@@ -20,31 +35,25 @@
         .forEach(id => D.updateElement(id, '—'));
       return;
     }
+    const cls = window.RiskMetrics.classifyClosed(closed);
+    const profitKnown = accountCls.incompleteReason === '';
     const holdMs = (p) => new Date(p.closedAt).getTime() - new Date(p.createdAt).getTime();
-    const fmtDur = (ms) => {
-      if (!isFinite(ms) || ms <= 0) return '—';
-      const totalMin = Math.round(ms / C.MS_PER_MIN);
-      const h = Math.floor(totalMin / 60);
-      const m = totalMin % 60;
-      return h > 0 ? `${h}h ${m}m` : `${m}m`;
-    };
-    const winsArr = closed.filter(p => parseFloat(p.realizedPnl || 0) > 0);
-    const lossArr = closed.filter(p => parseFloat(p.realizedPnl || 0) < 0);
-    const meanMs = (arr) => arr.length ? arr.reduce((s, p) => s + holdMs(p), 0) / arr.length : NaN;
-    D.updateElement('avgHoldWin',  winsArr.length ? fmtDur(meanMs(winsArr)) : '—');
-    D.updateElement('avgHoldLoss', lossArr.length ? fmtDur(meanMs(lossArr)) : '—');
+    const meanMs = (arr) => arr.reduce((s, p) => s + holdMs(p), 0) / arr.length;
+    D.updateElement('avgHoldWin',  profitKnown && cls.winCount  ? F.formatDuration(meanMs(cls.wins))   : '—');
+    D.updateElement('avgHoldLoss', profitKnown && cls.lossCount ? F.formatDuration(meanMs(cls.losses)) : '—');
 
-    // Hour-of-day buckets weighted by realized P&L. Min sample size
-    // guards against a single mega-loss owning the "worst hour" slot.
+    // Hour-of-day buckets weighted by fill-attributed profit (net of
+    // fees). Min sample size guards against a single mega-loss owning the
+    // "worst hour" slot.
     const hourPnl = new Array(24).fill(0);
     const hourCount = new Array(24).fill(0);
-    closed.forEach(p => {
+    if (profitKnown) closed.forEach(p => {
       const d = new Date(p.createdAt);
       const ms = d.getTime();
       if (!isFinite(ms)) return;
       const h = d.getUTCHours();
       if (!Number.isInteger(h) || h < 0 || h > 23) return;
-      hourPnl[h] += parseFloat(p.realizedPnl || 0);
+      hourPnl[h] += p.profit;
       hourCount[h] += 1;
     });
     let bestH = -1, worstH = -1, bestPnl = -Infinity, worstPnl = Infinity;
@@ -70,10 +79,20 @@
     D.updateElement('mostActiveDay', topDay >= 0 ? dayNames[topDay] : '—');
   }
 
-  function renderActivityHeatmap(positions) {
+  // closedGap: '' when the CLOSED list loaded, else why it did not; the
+  // grid then shows that reason instead of an empty-looking account.
+  function renderActivityHeatmap(positions, closedGap = '') {
     const container = document.getElementById('activityHeatmap');
     if (!container) return;
     container.innerHTML = '';
+    if (closedGap) {
+      const note = document.createElement('p');
+      note.className = 'distribution-empty';
+      note.style.gridColumn = '1 / -1';
+      note.textContent = closedGap;
+      container.appendChild(note);
+      return;
+    }
     const grid = Array.from({ length: 7 }, () => new Array(24).fill(0));
     const closed = positions.filter(p => p.status === 'CLOSED' && p.createdAt);
     closed.forEach(p => {
@@ -97,7 +116,8 @@
     }
   }
 
-  function renderDetectedPatterns(positions) {
+  // accountCls: RiskMetrics.classifyClosed over every position.
+  function renderDetectedPatterns(positions, accountCls) {
     const C = window.AppConstants;
     const F = window.Format;
     const D = window.AppDom;
@@ -110,8 +130,9 @@
       .sort((a, b) => new Date(a.closedAt) - new Date(b.closedAt));
     if (!closed.length) return;
 
-    const pnl = (p) => parseFloat(p.realizedPnl || 0);
-    const sizeUsd = (p) => Math.abs(parseFloat(p.maxSize || p.sumOpen || p.size || 0)) * parseFloat(p.entryPrice || 0);
+    // Peak notional from fills, the same size measure as tradeReturn and
+    // the Position Size Distribution; null when it cannot be computed.
+    const sizeUsd = (p) => window.RiskMetrics.peakNotional(p);
     const holdH = (p) => (new Date(p.closedAt) - new Date(p.createdAt)) / C.MS_PER_HOUR;
 
     // Pattern 1: Post-Loss Double Down — a loser followed within
@@ -120,23 +141,30 @@
     for (let i = 0; i < closed.length - 1; i++) {
       const cur = closed[i], nxt = closed[i + 1];
       if (cur.market !== nxt.market) continue;
-      if (pnl(cur) >= 0) continue;
+      if (!(window.RiskMetrics.hasCompleteAttribution(cur) && cur.profit < 0)) continue;
       const gapH = (new Date(nxt.createdAt) - new Date(cur.closedAt)) / C.MS_PER_HOUR;
       if (gapH < 0 || gapH > C.TUNABLES.DOUBLE_DOWN_GAP_HOURS) continue;
       const curSize = sizeUsd(cur), nxtSize = sizeUsd(nxt);
-      if (curSize > 0 && nxtSize >= C.TUNABLES.DOUBLE_DOWN_SIZE_MULT * curSize) doubleDown.push(nxt);
+      if (curSize !== null && nxtSize !== null
+          && nxtSize >= C.TUNABLES.DOUBLE_DOWN_SIZE_MULT * curSize) doubleDown.push(nxt);
     }
     const trend = closed.filter(p => holdH(p) > C.TUNABLES.TREND_HOLD_HOURS);
     const flips = closed.filter(p => holdH(p) < C.TUNABLES.FLIP_HOLD_HOURS);
 
+    // Win rate and average are the classifier's (decisive trades only).
+    // All-or-nothing across the account: the double-down detector can
+    // only see complete positions, so any incomplete one blanks every row.
+    const profitKnown = accountCls.incompleteReason === '';
     const summarize = (label, set, recommend) => {
       const n = set.length;
       if (n === 0) return null;
-      const wins = set.filter(p => pnl(p) > 0).length;
-      const wr = (wins / n) * 100;
-      const avg = set.reduce((s, p) => s + pnl(p), 0) / n;
+      const setCls = window.RiskMetrics.classifyClosed(set);
+      const wr = profitKnown ? setCls.winRate : null;
+      const avg = profitKnown ? setCls.expectancy : null;
       let rec, recCls;
-      if (typeof recommend === 'function') {
+      if (wr === null || avg === null) {
+        rec = '—'; recCls = '';
+      } else if (typeof recommend === 'function') {
         const r = recommend(wr, avg, n);
         rec = r.label; recCls = r.cls;
       } else {
@@ -146,8 +174,8 @@
     };
     const recommendByEdge = (wr, avg, n) => {
       if (n < C.TUNABLES.PATTERN_MIN_N) return { label: 'REVIEW (low n)', cls: 'warning' };
-      if (avg > 0 && wr >= 55) return { label: 'CONTINUE', cls: 'profit' };
-      if (avg < 0 && wr < 50)  return { label: 'AVOID',    cls: 'loss' };
+      if (avg > 0 && wr >= CONTINUE_WIN_RATE)  return { label: 'CONTINUE', cls: 'profit' };
+      if (avg < 0 && wr < BREAK_EVEN_WIN_RATE) return { label: 'AVOID',    cls: 'loss' };
       return { label: 'REVIEW', cls: 'warning' };
     };
     const rows = [
@@ -159,8 +187,9 @@
       const tr = document.createElement('tr');
       D.appendCell(tr, r.label);
       D.appendCell(tr, String(r.n), ['mono']);
-      D.appendCell(tr, r.wr.toFixed(1) + '%', ['mono', r.wr >= 50 ? 'profit' : 'loss']);
-      D.appendCell(tr, F.formatCurrency(r.avg), ['mono', r.avg >= 0 ? 'profit' : 'loss']);
+      D.appendCell(tr, r.wr === null ? '—' : r.wr.toFixed(1) + '%',
+        ['mono', r.wr === null ? '' : (r.wr >= BREAK_EVEN_WIN_RATE ? 'profit' : 'loss')]);
+      D.appendCell(tr, r.avg === null ? '—' : F.formatCurrency(r.avg), ['mono', F.signClass(r.avg)]);
       const recTd = D.appendCell(tr, r.rec);
       recTd.style.color = r.recCls === 'warning' ? 'var(--warn)'
         : r.recCls === 'profit' ? 'var(--gain)'
@@ -171,12 +200,6 @@
     D.tagCells('patternsBody');
   }
 
-  function render(positions) {
-    renderTimeAnalysis(positions);
-    renderActivityHeatmap(positions);
-    renderDetectedPatterns(positions);
-  }
-
   window.AppPanels = window.AppPanels || {};
-  window.AppPanels.behavior = { render, renderTimeAnalysis, renderActivityHeatmap, renderDetectedPatterns };
+  window.AppPanels.behavior = { renderTimeAnalysis, renderActivityHeatmap, renderDetectedPatterns };
 })();

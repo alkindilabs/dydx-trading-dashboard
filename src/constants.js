@@ -1,4 +1,5 @@
-// Centralized constants. Loaded before any inline script consumer.
+// Centralized constants. Loaded before every other script (risk-metrics.js
+// included), so any module may read window.AppConstants at load time.
 // Per CLAUDE.md "No magic numbers; use named constants."
 
 (function () {
@@ -30,9 +31,18 @@
   const MS_PER_MIN  = 60_000;
   const MS_PER_HOUR = 3_600_000;
   const MS_PER_DAY  = 86_400_000;
+  // Julian year, the convention every annualization in the dashboard uses.
+  const DAYS_PER_YEAR = 365.25;
+  const MS_PER_YEAR = DAYS_PER_YEAR * MS_PER_DAY;
 
   const HOURS_PER_YEAR     = 8760;
+  // Fraction → percent.
+  const PERCENT            = 100;
   const CLIPBOARD_FLASH_MS = 1500;
+
+  // Enough significant digits for any exchange step size while dropping
+  // the float noise that summing fill sizes leaves (0.30000000000000004).
+  const SIZE_SIGNIFICANT_DIGITS = 12;
 
   const TUNABLES = Object.freeze({
     TOP_MARKETS: 5,
@@ -53,9 +63,11 @@
     FETCH_TIMEOUT_MS,
     HIST_PAGE_LIMIT, POS_PAGE_LIMIT, FILLS_PAGE_LIMIT, FUNDING_PAGE_LIMIT,
     HISTORICAL_FUNDING_PAGE_LIMIT, CANDLES_PAGE_LIMIT, FUNDING_CHART_MAX_DAYS,
-    MS_PER_MIN, MS_PER_HOUR, MS_PER_DAY,
+    MS_PER_MIN, MS_PER_HOUR, MS_PER_DAY, MS_PER_YEAR,
     HOURS_PER_YEAR,
+    PERCENT,
     CLIPBOARD_FLASH_MS,
+    SIZE_SIGNIFICANT_DIGITS,
     TUNABLES
   };
 })();
