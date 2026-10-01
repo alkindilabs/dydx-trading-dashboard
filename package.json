@@ -28,7 +28,7 @@
     "url": "https://github.com/alkindilabs/dydx-trading-dashboard"
   },
   "devDependencies": {
-    "@playwright/test": "1.60.0",
+    "@playwright/test": "1.63.0",
     "wrangler": "3.114.17"
   }
 }
