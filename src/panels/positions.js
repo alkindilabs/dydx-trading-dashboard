@@ -7,10 +7,10 @@
 // those columns.
 //
 // Depends on: window.AppConstants (TUNABLES, PERCENT), window.RiskMetrics
-// (hasCompleteAttribution, tradeReturn, positionNotional), window.Format (formatPrice,
-// formatCurrency, fmtNotional, fmtSignedPct, signClass, formatDuration,
-// fmtDateTimeUTC, fmtAssetSize), window.AppDom (updateElement, appendCell,
-// tagCells).
+// (hasCompleteAttribution, tradeReturn, positionNotional, oppositeSide),
+// window.Format (formatPrice, formatCurrency, fmtNotional, fmtSignedPct,
+// signClass, formatDuration, fmtDateTimeUTC, fmtAssetSize), window.AppDom
+// (updateElement, appendCell, tagCells).
 
 (function () {
   'use strict';
@@ -20,15 +20,11 @@
   const FLIP_TAG = '⇄';
   const FLIP_SPLIT_NOTE = "the reversing fill's size and fee are split between both rows.";
 
-  function oppositeSide(side) {
-    return side === 'LONG' ? 'SHORT' : 'LONG';
-  }
-
   function flipNote(p) {
-    const side = (p.side || '').toUpperCase();
+    const otherSide = window.RiskMetrics.oppositeSide((p.side || '').toUpperCase());
     const notes = [];
-    if (p.openedByFlip) notes.push(`Opened by reversing a ${oppositeSide(side)} in one order; ${FLIP_SPLIT_NOTE}`);
-    if (p.closedByFlip) notes.push(`Closed by reversing into a ${oppositeSide(side)} in one order; ${FLIP_SPLIT_NOTE}`);
+    if (p.openedByFlip) notes.push(`Opened by reversing a ${otherSide} in one order; ${FLIP_SPLIT_NOTE}`);
+    if (p.closedByFlip) notes.push(`Closed by reversing into a ${otherSide} in one order; ${FLIP_SPLIT_NOTE}`);
     return notes.join(' ');
   }
 

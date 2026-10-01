@@ -179,9 +179,11 @@
   // of their fill-attributed `profit` (net of fees, excluding funding).
   // Scratches (profit == 0) are excluded from win-rate-style ratios.
   // Derived fields (winRate, profitFactor, avgWin, avgLoss, expectancy,
-  // payoff, breakevenWinRate) are computed once here so consumers cannot
-  // adopt different definitions in different panels. Each is null when
-  // its denominator is zero — surface as '—' per the
+  // payoff, breakevenWinRate, bestTrade, worstTrade) are computed once
+  // here so consumers cannot adopt different definitions in different
+  // panels. Each is null when its denominator is zero (bestTrade /
+  // worstTrade: the single largest win / most negative loss, null without
+  // a win / loss) — surface as '—' per the
   // no-metric-better-than-wrong-metric rule.
   //
   // All-or-nothing: a closed position without complete fill attribution
@@ -193,11 +195,12 @@
     const closed = (positions || []).filter(p => p && p.status === 'CLOSED');
     const wins = [], losses = [], scratches = [], incomplete = [];
     let grossWin = 0, grossLoss = 0;
+    let largestWin = -Infinity, largestLoss = Infinity;
     closed.forEach(p => {
       const r = completeProfit(p);
       if (r === null) { incomplete.push(p); return; }
-      if (r > 0)      { wins.push(p);     grossWin  += r;          }
-      else if (r < 0) { losses.push(p);   grossLoss += Math.abs(r); }
+      if (r > 0)      { wins.push(p);     grossWin  += r;          largestWin = Math.max(largestWin, r); }
+      else if (r < 0) { losses.push(p);   grossLoss += Math.abs(r); largestLoss = Math.min(largestLoss, r); }
       else            { scratches.push(p); }
     });
     const winCount = wins.length;
@@ -229,7 +232,9 @@
       expectancy:   ratio(decisiveCount, () => totalProfit / decisiveCount),
       payoff,
       // Win rate (percent) at which expectancy is zero for this payoff.
-      breakevenWinRate: payoff === null ? null : PERCENT / (1 + payoff)
+      breakevenWinRate: payoff === null ? null : PERCENT / (1 + payoff),
+      bestTrade:  ratio(winCount,  () => largestWin),
+      worstTrade: ratio(lossCount, () => largestLoss)
     };
   }
 
@@ -365,7 +370,7 @@
   // dYdX's `totalPnl` field is realized + unrealized P&L excluding net
   // transfers — the canonical "what did this account make from trading"
   // measurement at each timestamp. This series captures unrealized peaks
-  // (e.g. a +$364K open profit that later got given back) which the
+  // (e.g. a large open profit that was later given back) which the
   // closed-trade ledger cannot see.
   function buildCumulativeTotalPnlSeries(historicalPnl) {
     const arr = (historicalPnl || [])
@@ -868,6 +873,32 @@
     return { total: unpricedMarkets.length ? null : total, byMarket, unpricedMarkets, openMarkets };
   }
 
+  // Why attributeFillsToPositions left a position incomplete (its
+  // `incompleteCause`). Each value is a phrase a panel can show; declared
+  // in precedence order, root causes before the open-size symptom.
+  const INCOMPLETE_CAUSE = Object.freeze({
+    // A fill in the market that the walk cannot use (unparseable size,
+    // price or side, or no timestamp) lies inside the position's window.
+    UNUSABLE_FILL: 'Unusable fill',
+    // A segment starts or ends with a flip that no opposite-side position
+    // closes or opens at that instant (flipPartnersListed).
+    REVERSAL_PARTNER_MISSING: 'Reversal partner missing',
+    // A same-side position shares both its createdAt and its closedAt.
+    INDISTINGUISHABLE: 'Indistinguishable positions',
+    // No segment belongs to the position.
+    NO_MATCHING_FILLS: 'No matching fills',
+    // More than one segment belongs to it: its fills return to flat
+    // inside a window the indexer holds as one position.
+    FLAT_MID_POSITION: 'Fills go flat mid-position',
+    // Its segment is on the other side.
+    SIDE_MISMATCH: 'Fills on the opposite side',
+    // A CLOSED position's segment is not flat by its closedAt.
+    NOT_FLAT_AT_CLOSE: 'Fills not flat at close',
+    // An OPEN position's signed indexer size is not the net size the walk
+    // ends its market on (openSizeMatchesWalk).
+    OPEN_SIZE_MISMATCH: 'Fills do not match open positions'
+  });
+
   // Per-position P&L, size and prices attributed from /fills. Replaces the
   // indexer's per-position realizedPnl / maxSize / entryPrice / exitPrice,
   // which are wrong on scaled positions (realizedPnl undercounts), on every
@@ -897,22 +928,16 @@
   //   exitVwap    size-weighted price of the closing portions (null if none)
   //   fillCount   fills touching the position (a flip fill counts for both)
   //   openedByFlip / closedByFlip
-  //   complete    false when fills are missing, no segment (or more than
-  //               one) matched, the segment's side disagrees with the
-  //               position's, a CLOSED position's segment did not return to
-  //               flat by its closedAt, a same-side position shares both
-  //               its createdAt and closedAt, a fill in the market that
-  //               the walk cannot use lies inside the position's window, or
-  //               one of its segments starts or ends with a flip that no
-  //               opposite-side position closes or opens at that instant
-  //               (see flipPartnersListed), or an OPEN position's signed
-  //               indexer size is not the net size the walk ends its
-  //               market on (see openSizeMatchesWalk).
-  //               Consumers render '—' for an incomplete position's values.
-  //   openSizeDisagrees  true only for an OPEN position incomplete because
-  //               its indexer size is not the walk's final net size: the
-  //               market's fills do not add up to the open position, so
-  //               the market's FIFO totals are off too.
+  //   complete    false exactly when incompleteCause is set. Consumers
+  //               render '—' for an incomplete position's values.
+  //   incompleteCause  null when complete, else the INCOMPLETE_CAUSE value
+  //               naming why; when several apply, the first in
+  //               INCOMPLETE_CAUSE order (root causes before the open-size
+  //               symptom they produce).
+  //   openSizeDisagrees  true only for an OPEN position whose indexer size
+  //               is not the walk's final net size (whatever else made it
+  //               incomplete): the market's fills do not add up to the open
+  //               position, so the market's FIFO totals are off too.
   // Pure: the positions and fills passed in are never mutated.
   function attributeFillsToPositions(positions, fills) {
     const out = new Map();
@@ -972,11 +997,15 @@
       candidates.forEach(c => {
         const unusableFillInWindow = marketsWithUntimedFills.has(market)
           || (c.openMs !== null && anyWithin(skippedMs, c.openMs, c.windowEndMs));
-        const summary = summarizeSegments(c.p, c.segments, c.windowEndMs, unusableFillInWindow);
+        const summary = summarizeSegments(c.p, c.segments, c.windowEndMs);
         const openSizeDisagrees = c.p.status === 'OPEN' && !openSizeMatchesWalk(c.p, netSize, summary.peakSize);
-        if (indistinguishable.has(c) || unpartneredFlip.has(c) || openSizeDisagrees) summary.complete = false;
-        summary.openSizeDisagrees = openSizeDisagrees;
-        out.set(c.p, summary);
+        const incompleteCause = (unusableFillInWindow && INCOMPLETE_CAUSE.UNUSABLE_FILL)
+          || (unpartneredFlip.has(c) && INCOMPLETE_CAUSE.REVERSAL_PARTNER_MISSING)
+          || (indistinguishable.has(c) && INCOMPLETE_CAUSE.INDISTINGUISHABLE)
+          || summary.incompleteCause
+          || (openSizeDisagrees && INCOMPLETE_CAUSE.OPEN_SIZE_MISMATCH)
+          || null;
+        out.set(c.p, { ...summary, complete: incompleteCause === null, incompleteCause, openSizeDisagrees });
       });
     });
     return out;
@@ -1002,6 +1031,12 @@
 
   const OPPOSITE_SIDE = { LONG: 'SHORT', SHORT: 'LONG' };
 
+  // The other side of an upper-case position side ('LONG' ↔ 'SHORT'),
+  // null for anything else.
+  function oppositeSide(side) {
+    return OPPOSITE_SIDE[side] || null;
+  }
+
   // Per side, the createdAt and closedAt milliseconds of the market's
   // positions (OPEN ones close at Infinity).
   function flipPartnerIndex(candidates) {
@@ -1025,7 +1060,7 @@
   // missing partner means a fill is missing and the walk's net size, and
   // with it this segment, is off.
   function flipPartnersListed(seg, flipPartners) {
-    const partner = flipPartners[OPPOSITE_SIDE[seg.side]];
+    const partner = flipPartners[oppositeSide(seg.side)];
     return (!seg.openedByFlip || partner.closeMs.has(seg.startMs))
       && (!seg.closedByFlip || partner.openMs.has(seg.flatMs));
   }
@@ -1079,6 +1114,7 @@
       realized: 0, fees: 0, profit: 0,
       peakSize: null, entryVwap: null, exitVwap: null,
       fillCount: 0, complete: false,
+      incompleteCause: INCOMPLETE_CAUSE.NO_MATCHING_FILLS,
       openedByFlip: false, closedByFlip: false,
       openSizeDisagrees: false
     };
@@ -1132,7 +1168,9 @@
     return { segments, skippedMs, netSize };
   }
 
-  function summarizeSegments(position, segments, windowEndMs, unusableFillInWindow) {
+  // The position's figures from its segments, with the incompleteCause
+  // their shape alone shows (null when it shows none).
+  function summarizeSegments(position, segments, windowEndMs) {
     if (segments.length === 0) return emptyAttribution();
     let realized = 0, fees = 0, peakSize = 0;
     let openQty = 0, openNotional = 0, closeQty = 0, closeNotional = 0;
@@ -1158,6 +1196,10 @@
     const sideAgrees = !side || (only !== null && only.side === side);
     const flatByClose = only !== null && only.flat && only.flatMs <= windowEndMs;
     const flatWhenRequired = position.status !== 'CLOSED' || flatByClose;
+    const incompleteCause = (only === null && INCOMPLETE_CAUSE.FLAT_MID_POSITION)
+      || (!sideAgrees && INCOMPLETE_CAUSE.SIDE_MISMATCH)
+      || (!flatWhenRequired && INCOMPLETE_CAUSE.NOT_FLAT_AT_CLOSE)
+      || null;
     return {
       realized,
       fees,
@@ -1166,7 +1208,8 @@
       entryVwap: openQty > 0 ? openNotional / openQty : null,
       exitVwap: closeQty > 0 ? closeNotional / closeQty : null,
       fillCount: touched.size,
-      complete: only !== null && sideAgrees && flatWhenRequired && !unusableFillInWindow,
+      complete: incompleteCause === null,
+      incompleteCause,
       openedByFlip: segments[0].openedByFlip,
       closedByFlip: segments[segments.length - 1].closedByFlip,
       openSizeDisagrees: false
@@ -1259,9 +1302,9 @@
     const size = Math.abs(parseFloat(position.size || 0));
     const oracle = parseFloat(position.oraclePrice || m.oraclePrice || 0);
     const mmf = parseFloat(m.maintenanceMarginFraction || 0);
-    const equity = parseFloat(subaccount.equity || 0);
+    const equity = usableEquity(subaccount);
     const side = (position.side || '').toUpperCase();
-    if (!(size > 0) || !(oracle > 0) || !(mmf > 0) || !(equity > 0)) return null;
+    if (!(size > 0) || !(oracle > 0) || !(mmf > 0) || equity === null) return null;
     if (side === 'LONG') {
       const denom = size * (1 - mmf);
       if (denom <= 0) return null;
@@ -1290,12 +1333,20 @@
     return size > 0 && price > 0 ? size * price : null;
   }
 
+  // The subaccount's equity when it is positive, else null (no subaccount,
+  // missing, unparseable, zero or negative). The one rule every
+  // equity-denominated figure (leverage, liquidation price) gates on.
+  function usableEquity(subaccount) {
+    const equity = subaccount ? parseFloat(subaccount.equity) : NaN;
+    return equity > 0 ? equity : null;
+  }
+
   // Account-level leverage utilization — sum of positionNotional across open
-  // positions ÷ subaccount equity. Returns null when equity is non-positive
+  // positions ÷ subaccount equity. Returns null when usableEquity is null
   // or no usable notional exists.
   function leverageUtilization(positions, subaccount, marketsMap) {
-    const equity = subaccount ? parseFloat(subaccount.equity || 0) : 0;
-    if (!(equity > 0)) return null;
+    const equity = usableEquity(subaccount);
+    if (equity === null) return null;
     const notional = (positions || [])
       .filter(p => p && p.status === 'OPEN')
       .reduce((s, p) => s + (positionNotional(p, marketsMap) || 0), 0);
@@ -1313,9 +1364,9 @@
     const size = Math.abs(parseFloat(position.size || 0));
     const entry = parseFloat(position.entryPrice || 0);
     const oracle = parseFloat(position.oraclePrice || m.oraclePrice || 0);
-    const equity = parseFloat(subaccount.equity || 0);
+    const equity = usableEquity(subaccount);
     const notional = positionNotional(position, marketsMap) || 0;
-    const lev = (equity > 0 && notional > 0) ? notional / equity : null;
+    const lev = (equity !== null && notional > 0) ? notional / equity : null;
     const liq = crossMarginLiqPrice(position, subaccount, marketsMap);
     const distancePct = (oracle > 0 && liq !== null && isFinite(liq))
       ? Math.abs((oracle - liq) / oracle) * PERCENT
@@ -1354,6 +1405,8 @@
     computeUnrealizedFromFills,
     equityAdjustedTotalPnl,
     attributeFillsToPositions,
+    INCOMPLETE_CAUSE,
+    oppositeSide,
     isOpenInFills,
     isFifoUsableFill,
     timestampMs,
@@ -1361,6 +1414,7 @@
     histPnlMonthly,
     crossMarginLiqPrice,
     positionNotional,
+    usableEquity,
     leverageUtilization,
     liquidationRow,
     ADEQUACY: {

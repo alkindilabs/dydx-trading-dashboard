@@ -3,7 +3,7 @@
 // so the user's window preference survives reloads.
 //
 // Depends on: window.AppConstants (TUNABLES.ALWAYS_SHOW_TICKERS,
-// HOURS_PER_YEAR, MS_PER_HOUR), window.Format (formatCurrency,
+// HOURS_PER_YEAR, MS_PER_HOUR, MS_PER_DAY), window.Format (formatCurrency,
 // fmtNotional, fmtSignedPct, fmtDateShort, formatFundingApr,
 // fundingAprClass, formatHourlyDetail, signClass), window.AppDom
 // (updateElement, appendCell, tagCells).
@@ -22,8 +22,9 @@
   }
 
   function getFundingCutoff() {
+    const C = window.AppConstants;
     const w = getFundingWindowDays();
-    return w === 'all' ? 0 : Date.now() - parseInt(w, 10) * 24 * 3600 * 1000;
+    return w === 'all' ? 0 : Date.now() - parseInt(w, 10) * C.MS_PER_DAY;
   }
 
   function getFundingWindowLabel() {
@@ -199,8 +200,10 @@
   // re-activation when stale, or explicit consumer call.
 
   const CHART_FRESH_TTL_MS = 10 * 60 * 1000;
+  const PRICE_OVERLAY_UNAVAILABLE = 'Price overlay unavailable: candles failed to load';
+
   const ChartState = {
-    data: new Map(),     // ticker → { fundingRows, candleRows, fetchedAt }
+    data: new Map(),     // ticker → { fundingRows, candleRows, candlesMissing, fetchedAt }
     currentTicker: null,
     activeRequest: null, // Symbol() — latest-token-wins. The underlying
                          // DydxApi helpers don't accept a signal, so we
@@ -264,6 +267,7 @@
       if (window.AppCharts && window.AppCharts.fundingRate) {
         window.AppCharts.fundingRate.clear();
       }
+      setChartStatus('', null);
       setChartEmpty('No markets available');
       return;
     }
@@ -299,6 +303,9 @@
     el.textContent = text || '';
     el.classList.toggle('fetching', mode === 'fetching');
     el.classList.toggle('error', mode === 'error');
+    // The status line is a one-line ellipsized label; a notice is a
+    // sentence that must stay readable at phone width, so it wraps.
+    el.style.whiteSpace = mode === 'notice' ? 'normal' : '';
   }
 
   function setChartEmpty(text) {
@@ -317,10 +324,11 @@
     return Date.now() - days * C.MS_PER_DAY;
   }
 
+  // Returns whether funding bars were drawn.
   function renderChartFromCache(ticker) {
-    if (!window.AppCharts || !window.AppCharts.fundingRate) return;
+    if (!window.AppCharts || !window.AppCharts.fundingRate) return false;
     const entry = ChartState.data.get(ticker);
-    if (!entry) { window.AppCharts.fundingRate.clear(); return; }
+    if (!entry) { window.AppCharts.fundingRate.clear(); return false; }
     const cutoffMs = currentChartCutoff();
     setChartEmpty(null);
     // chart.render returns false when it could not draw (< 2 valid
@@ -336,6 +344,17 @@
     if (!rendered) {
       setChartEmpty(`Not enough funding history for ${ticker} in window`);
     }
+    return rendered;
+  }
+
+  // Draws the cached chart and settles the status line: bars drawn
+  // without their price line say so instead of leaving it silently absent.
+  function presentChartFromCache(ticker) {
+    const rendered = renderChartFromCache(ticker);
+    const entry = ChartState.data.get(ticker);
+    const overlayMissing = rendered && entry && entry.candlesMissing;
+    if (overlayMissing) setChartStatus(PRICE_OVERLAY_UNAVAILABLE, 'notice');
+    else setChartStatus('', null);
   }
 
   async function fetchChartData(ticker) {
@@ -376,8 +395,7 @@
       // eventually resolves, its post-await guard treats itself as
       // stale and doesn't paint the wrong ticker onto the canvas.
       ChartState.activeRequest = null;
-      renderChartFromCache(ticker);
-      setChartStatus('', null);
+      presentChartFromCache(ticker);
       return;
     }
     const token = Symbol(ticker);
@@ -393,8 +411,7 @@
       if (ChartState.activeRequest !== token) return;
       if (ChartState.currentTicker !== ticker) return;
       ChartState.data.set(ticker, data);
-      renderChartFromCache(ticker);
-      setChartStatus('', null);
+      presentChartFromCache(ticker);
     } catch (e) {
       if (ChartState.activeRequest !== token) return;
       if (ChartState.currentTicker !== ticker) return;
@@ -413,7 +430,7 @@
     if (!tk) return;
     const entry = ChartState.data.get(tk);
     if (isChartFresh(entry)) {
-      renderChartFromCache(tk);
+      presentChartFromCache(tk);
     } else {
       loadChartForTicker(tk);
     }
@@ -445,7 +462,7 @@
       if (marketTab && marketTab.classList.contains('active')) {
         ensureChartLoaded();
       } else {
-        renderChartFromCache(ChartState.currentTicker);
+        presentChartFromCache(ChartState.currentTicker);
       }
     }
   }

@@ -179,7 +179,7 @@
                     <div class="metric-value mono" id="sortinoRatio">-</div>
                     <div class="metric-change mono" id="sortinoMeta" title="">All time ⓘ</div>
                 </div>
-                <div class="metric-card" title="Worst peak-to-trough $ excursion of the cumulative totalPnl curve. Captures unrealized peaks the closed-trade ledger cannot see (e.g. a +$364K open profit later given back). Pair with Current Drawdown to see now-vs-worst, and Recovery Factor for the ratio of lifetime profit to this number.">
+                <div class="metric-card" title="Worst peak-to-trough $ excursion of the cumulative totalPnl curve. Captures unrealized peaks the closed-trade ledger cannot see (e.g. a large open profit that was later given back). Pair with Current Drawdown to see now-vs-worst, and Recovery Factor for the ratio of lifetime profit to this number.">
                     <div class="metric-label">Max Drawdown</div>
                     <div class="metric-value mono" id="maxDrawdown">-</div>
                     <div class="metric-change mono" id="maxDrawdownDetail">-</div>
@@ -1478,25 +1478,43 @@
         }
 
         // The fills loaded, but in some market they end at a different
-        // net size than its OPEN row (attribution's openSizeDisagrees), so
-        // a fill is missing and that market's FIFO totals are off.
-        const OPEN_SIZE_MISMATCH_REASON = 'Fills do not match open positions';
+        // net size than its OPEN row, or hold open lots where no OPEN row
+        // is listed: a fill is missing and that market's FIFO totals are off.
+        const OPEN_SIZE_MISMATCH_REASON = window.RiskMetrics.INCOMPLETE_CAUSE.OPEN_SIZE_MISMATCH;
+
+        // Why an OPEN position's market cannot be valued while its fill
+        // attribution is incomplete: the attribution's incompleteCause and
+        // the market, except the open-size case, which keeps its own wording.
+        function incompleteOpenPositionReason(p) {
+            const cause = p.incompleteCause;
+            return cause === OPEN_SIZE_MISMATCH_REASON ? cause : `${cause} in ${p.market || 'Unknown'}`;
+        }
+
+        // Why the open lots of `markets` cannot be marked ('' for none):
+        // the markets endpoint failed, or it has no oracle price for them.
+        function unpricedReason(data, markets) {
+            if (markets.length === 0) return '';
+            return missingDataReason(data, 'markets', 'Markets')
+                || `No oracle price for ${markets.join(', ')}`;
+        }
 
         // Each ledger component's gap ('' when computable). TRADING needs
-        // fills, an oracle price for every market with open lots, and
-        // fills that add up to every OPEN row; FUNDING needs the OPEN rows
-        // (openPositionsGap) and the CLOSED list; FEES needs fills.
+        // fills and every market's FIFO total, which is unknown in each of
+        // `unpricedMarkets` (open lots without an oracle price) and of
+        // `fillGapsByMarket` (market → why its fills are short: an
+        // incomplete OPEN position or phantom lots). FUNDING needs the OPEN
+        // rows (openPositionsGap) and the CLOSED list; FEES needs fills.
         // `marketProfit(market)` is the gap for one market's profit, which
-        // an open-size mismatch elsewhere does not touch.
-        function profitLedgerGaps({ fills, closed }, openPositionsGap, unpricedReason, openSizeMismatchMarkets) {
-            const inputTrading = fills || unpricedReason;
-            const mismatchIn = market => (openSizeMismatchMarkets.has(market) ? OPEN_SIZE_MISMATCH_REASON : '');
+        // a gap in another market's trading total does not touch.
+        function profitLedgerGaps(data, { fills, closed }, openPositionsGap, unpricedMarkets, fillGapsByMarket) {
+            const tradingReasons = [unpricedReason(data, unpricedMarkets), ...new Set(fillGapsByMarket.values())];
+            const unpricedIn = market => (unpricedMarkets.includes(market) ? unpricedReason(data, [market]) : '');
             const funding = openPositionsGap || closed;
             return {
-                trading: inputTrading || (openSizeMismatchMarkets.size > 0 ? OPEN_SIZE_MISMATCH_REASON : ''),
+                trading: fills || tradingReasons.filter(Boolean).join('; '),
                 funding,
                 fees: fills,
-                marketProfit: market => inputTrading || mismatchIn(market) || funding || fills
+                marketProfit: market => fills || fillGapsByMarket.get(market) || unpricedIn(market) || funding
             };
         }
 
@@ -1522,9 +1540,6 @@
             // the oracle, on the same cost basis as FIFO realized.
             const marketsMap = extractMarketsMap(allData.markets);
             const unrealizedFifo = window.RiskMetrics.computeUnrealizedFromFills(fillsArr, marketsMap);
-            const unpricedReason = unrealizedFifo.unpricedMarkets.length === 0 ? ''
-                : missingDataReason(allData, 'markets', 'Markets')
-                    || `No oracle price for ${unrealizedFifo.unpricedMarkets.join(', ')}`;
 
             // Which ledger components can be computed (profitLedgerGaps). A
             // missing input renders '—' rather than a total that silently
@@ -1533,9 +1548,16 @@
             // Which OPEN rows are current is unknown without the OPEN list,
             // or without the fills that resolve an OPEN/CLOSED collision.
             const openPositionsGap = inputs.open || (merged.hasCollision ? inputs.fills : '');
-            const openSizeMismatchMarkets = new Set(allPositions
-                .filter(p => p.status === 'OPEN' && p.openSizeDisagrees)
-                .map(p => p.market || 'Unknown'));
+            // Any OPEN position whose fill attribution is incomplete means
+            // its market's fills are short, so that market's FIFO totals
+            // are off. The first such position names the market's reason.
+            const fillGapsByMarket = new Map();
+            allPositions
+                .filter(p => p.status === 'OPEN' && !window.RiskMetrics.hasCompleteAttribution(p))
+                .forEach(p => {
+                    const market = p.market || 'Unknown';
+                    if (!fillGapsByMarket.has(market)) fillGapsByMarket.set(market, incompleteOpenPositionReason(p));
+                });
             // Open lots in a market with no OPEN row are phantom inventory
             // (a closing fill is missing). Only knowable while the OPEN rows
             // are; otherwise openPositionsGap already blanks the profit.
@@ -1545,9 +1567,10 @@
                     .map(p => p.market || 'Unknown'));
                 unrealizedFifo.openMarkets
                     .filter(m => !openRowMarkets.has(m))
-                    .forEach(m => openSizeMismatchMarkets.add(m));
+                    .forEach(m => fillGapsByMarket.set(m, OPEN_SIZE_MISMATCH_REASON));
             }
-            const ledgerGaps = profitLedgerGaps(inputs, openPositionsGap, unpricedReason, openSizeMismatchMarkets);
+            const ledgerGaps = profitLedgerGaps(
+                allData, inputs, openPositionsGap, unrealizedFifo.unpricedMarkets, fillGapsByMarket);
             const profitGap = ledgerGaps.trading || ledgerGaps.funding || ledgerGaps.fees;
             // Without the CLOSED list the classifier's inputs are unknown,
             // which must read '—' with the reason, never as "no trades".
@@ -1577,7 +1600,7 @@
             // Drawdown source: historical-pnl totalPnl is the canonical
             // realized+unrealized cumulative trading P&L per timestamp. It
             // captures unrealized peaks the closed-trade ledger cannot see
-            // (e.g. a +$364K open profit that later got given back). Falls
+            // (e.g. a large open profit that was later given back). Falls
             // back to the trade-system ledger only when historical-pnl is
             // unavailable.
             const histDD = window.RiskMetrics.histPnlDrawdown(histArr);

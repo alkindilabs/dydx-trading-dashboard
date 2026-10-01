@@ -12,7 +12,7 @@ globalThis.window = globalThis;
 require('../src/constants.js');
 require('../src/dydx-api.js');
 const Api = globalThis.window.DydxApi;
-const { FILLS_PAGE_LIMIT, HISTORICAL_FUNDING_PAGE_LIMIT, CANDLES_PAGE_LIMIT } = globalThis.window.AppConstants;
+const { FILLS_PAGE_LIMIT, HISTORICAL_FUNDING_PAGE_LIMIT, CANDLES_PAGE_LIMIT, CANDLES_MAX_PAGES } = globalThis.window.AppConstants;
 
 const HTTP_OK = 200;
 const HTTP_SERVER_ERROR = 500;
@@ -153,6 +153,49 @@ test('fetchCandles rejects when a page after the first fails on every retry', as
             const secondPageAttempts = requests.filter(u => u.includes('toISO=')).length;
             assert.ok(secondPageAttempts > 1,
                 `the failing page must be retried before the walk gives up (attempts: ${secondPageAttempts})`);
+        }
+    );
+});
+
+function candleRow(hoursBeforeInception) {
+    return {
+        ticker: 'ETH-USD',
+        resolution: '1HOUR',
+        close: '2000',
+        startedAt: new Date(INCEPTION_MS - hoursBeforeInception * MS_PER_HOUR).toISOString()
+    };
+}
+
+test('fetchCandles retry logs name the candles endpoint, not the request URL', async () => {
+    const debugLines = [];
+    const originalDebug = console.debug;
+    console.debug = (...args) => { debugLines.push(args.join(' ')); };
+    try {
+        await withFetch(
+            (_url, attempt) => (attempt === 1 ? serverError() : jsonResponse({ candles: [candleRow(0)] })),
+            async () => {
+                await Api.fetchCandles('ETH-USD', '1HOUR', { fromMs: 0 });
+            }
+        );
+    } finally {
+        console.debug = originalDebug;
+    }
+    assert.equal(debugLines.length, 1, `one retry expected, got: ${JSON.stringify(debugLines)}`);
+    assert.ok(debugLines[0].startsWith('[candles:ETH-USD] retry 1/'), debugLines[0]);
+    assert.ok(!debugLines[0].includes(Api.BASE), `retry log must not carry the URL: ${debugLines[0]}`);
+});
+
+test('fetchCandles stops at CANDLES_MAX_PAGES when the caller sets no page cap', async () => {
+    let served = 0;
+    const endlessPage = () => ({
+        candles: Array.from({ length: CANDLES_PAGE_LIMIT }, () => candleRow(served++))
+    });
+    await withFetch(
+        () => jsonResponse(endlessPage()),
+        async (requests) => {
+            const { candles } = await Api.fetchCandles('ETH-USD', '1HOUR', { fromMs: 0 });
+            assert.equal(requests.length, CANDLES_MAX_PAGES);
+            assert.equal(candles.length, CANDLES_MAX_PAGES * CANDLES_PAGE_LIMIT);
         }
     );
 });
