@@ -45,12 +45,13 @@
     if (el) el.textContent = safeText(value);
   }
 
-  // Set text + apply profit/loss class for currency-coded cells.
-  function updateMetric(id, value, isPositive = true) {
+  // Set text + apply a tone class ('profit' / 'loss' / 'zero', usually
+  // Format.signClass(value); '' for none) to a currency-coded metric.
+  function updateMetric(id, value, toneClass = '') {
     const el = document.getElementById(id);
     if (el) {
       el.textContent = safeText(value);
-      el.className = isPositive ? 'metric-value mono profit' : 'metric-value mono loss';
+      el.className = ['metric-value', 'mono', toneClass].filter(Boolean).join(' ');
     }
   }
 

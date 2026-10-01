@@ -3,7 +3,10 @@
 // can render instantly from cache while a fresh fetch runs in the background.
 //
 // Storage shape (compressed via LZString.compressToUTF16):
-//     { v: 1, address, fetchedAt, data: allData }
+//     { v: SCHEMA_VERSION, address, fetchedAt, data: allData }
+//
+// A snapshot of any other version reads as a miss, so SCHEMA_VERSION is
+// bumped whenever a cached field's shape or row order changes.
 //
 // The pure helpers `pack`, `unpack`, and `evictOnce` are exported on
 // `PortfolioCache._internal` for unit testing without LZString or
@@ -18,9 +21,10 @@
     'use strict';
 
     const KEY = 'dydxCache:v1';
-    const SCHEMA_VERSION = 1;
+    const SCHEMA_VERSION = 2;
     const HISTORICAL_PNL_TRIM = 5000;
-    const EVICTION_ORDER = ['fills', 'fundingPayments', 'historicalPnl', 'closedPositions'];
+    const TRIMMED_STEP = 'historicalPnl';
+    const EVICTION_ORDER = ['fills', 'fundingPayments', TRIMMED_STEP, 'closedPositions'];
 
     function pack(address, data) {
         return {
@@ -48,7 +52,7 @@
         if (!key) return null;
         const data = packed.data || {};
 
-        if (key === 'historicalPnl') {
+        if (key === TRIMMED_STEP) {
             const cur = data.historicalPnl;
             const arr = (cur && Array.isArray(cur.historicalPnl)) ? cur.historicalPnl
                       : (Array.isArray(cur) ? cur : null);
@@ -182,6 +186,19 @@
         console.warn('[dydx-cache] payload exceeds quota even after eviction; cache skipped');
     }
 
+    // Reads the _cacheMeta marker write() stamps on an evicted snapshot.
+    // Returns null for a complete snapshot, otherwise which fields were
+    // dropped outright and which were trimmed to their last
+    // HISTORICAL_PNL_TRIM rows.
+    function evictionOf(data) {
+        const meta = data && data._cacheMeta;
+        if (!meta || !meta.evicted || !Array.isArray(meta.evictedSteps)) return null;
+        return {
+            dropped: meta.evictedSteps.filter(k => k !== TRIMMED_STEP),
+            trimmed: meta.evictedSteps.filter(k => k === TRIMMED_STEP)
+        };
+    }
+
     function clear() {
         const storage = getStorage();
         if (!storage) return;
@@ -193,8 +210,10 @@
         readMeta,
         write,
         clear,
+        evictionOf,
         KEY,
         SCHEMA_VERSION,
+        HISTORICAL_PNL_TRIM,
         _internal: { pack, unpack, evictOnce, isQuotaError, EVICTION_ORDER, HISTORICAL_PNL_TRIM }
     };
 

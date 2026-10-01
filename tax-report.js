@@ -9,16 +9,17 @@
  * to spot crypto under Categoria G is NOT auto-applied to perp gains:
  * accountants decide on a case-by-case basis.
  *
- * Per-row realized P&L is derived from sliced /fills via FIFO
- * (RiskMetrics.computeRealizedFromFills), not from
+ * Per-row realized P&L and fees come from
+ * RiskMetrics.attributeFillsToPositions (one FIFO walk over /fills,
+ * a flip fill's fee split by size between its two positions), not from
  * /perpetualPositions.realizedPnl — the indexer field is known to
- * undercount heavily-scaled accounts and is also mutated upstream by
- * normalizeRealizedPnl, so its post-pipeline value is not a clean
- * reference. FIFO over fills is the dashboard-wide authoritative
- * source for realized P&L.
+ * undercount heavily-scaled accounts. FIFO over fills is the
+ * dashboard-wide authoritative source for realized P&L.
  *
- * Depends on window.RiskMetrics (computeRealizedFromFills must be
- * available at runtime; tax-report.js loads after risk-metrics.js).
+ * Depends on window.RiskMetrics (attributeFillsToPositions,
+ * hasCompleteAttribution, isFifoUsableFill and timestampMs must be
+ * available at runtime; tax-report.js loads after risk-metrics.js) and
+ * window.AppConstants (SIZE_SIGNIFICANT_DIGITS for the export cells).
  */
 
 (function () {
@@ -49,19 +50,8 @@
         return isNumber(n) ? n : 0;
     }
 
-    // Returns null for absent/invalid values so downstream code can
-    // distinguish "field unavailable" from a legitimate zero. Used for
-    // size/entry/exit columns where 0 has a real trading meaning and
-    // must not be conflated with missing data.
-    function maybeNum(v) {
-        if (v === null || v === undefined || v === '') return null;
-        const n = parseFloat(v);
-        return isNumber(n) ? n : null;
-    }
-
     function tsMs(s) {
-        const t = Date.parse(s || '');
-        return Number.isFinite(t) ? t : null;
+        return window.RiskMetrics.timestampMs(s);
     }
 
     function dateUTC(iso) {
@@ -86,231 +76,54 @@
         return [...seen].sort((a, b) => b - a);
     }
 
-    // Slice the fills array down to those in (same market,
-    // [createdAt, closedAt] window). Side is intentionally NOT filtered:
-    // /v4/fills sides are BUY/SELL while positions are LONG/SHORT, AND
-    // both sides legitimately belong to a position's lifecycle (BUY
-    // opens a LONG, SELL closes it; SELL opens a SHORT, BUY closes it).
-    function fillsInWindow(position, fills) {
-        if (!position) return [];
-        const market = position.market;
-        const openMs = tsMs(position.createdAt);
-        const closeMs = tsMs(position.closedAt);
-        if (openMs === null || closeMs === null) return [];
-        return (fills || []).filter(f => {
-            if (!f || f.market !== market) return false;
-            const ms = tsMs(f.createdAt);
-            return ms !== null && ms >= openMs && ms <= closeMs;
-        });
-    }
-
-    // Internal slice helper: caller already filtered by market, so we
-    // only check the time window. Used by the optimized batch path in
-    // buildYearReport to avoid re-scanning the full global fills list
-    // for every closed position.
-    function fillsInWindowFromMarketSlice(position, marketFills) {
-        const openMs = tsMs(position.createdAt);
-        const closeMs = tsMs(position.closedAt);
-        if (openMs === null || closeMs === null) return [];
-        return (marketFills || []).filter(f => {
-            if (!f) return false;
-            const ms = tsMs(f.createdAt);
-            return ms !== null && ms >= openMs && ms <= closeMs;
-        });
-    }
-
-    function hasOverlapInMarket(position, closedPositions) {
-        if (!position) return false;
-        const market = position.market;
-        const openMs = tsMs(position.createdAt);
-        const closeMs = tsMs(position.closedAt);
-        if (openMs === null || closeMs === null) return false;
-        return (closedPositions || []).some(other => {
-            if (!other || other === position) return false;
-            if (other.market !== market) return false;
-            const oOpen = tsMs(other.createdAt);
-            const oClose = tsMs(other.closedAt);
-            if (oOpen === null || oClose === null) return false;
-            return !(oClose < openMs || oOpen > closeMs);
-        });
-    }
-
-    function aggregateFeesForPosition(position, fills, closedPositions) {
-        const sliced = fillsInWindow(position, fills);
-        let totalFee = 0;
-        sliced.forEach(f => { totalFee += num(f.fee); });
-        return {
-            totalFee,
-            fillCount: sliced.length,
-            warning: hasOverlapInMarket(position, closedPositions) ? 'overlap' : null
-        };
-    }
-
-    function fifoRealizedForMarket(market, fills) {
-        const RM = (typeof window !== 'undefined' && window.RiskMetrics) || null;
-        if (!RM || typeof RM.computeRealizedFromFills !== 'function') {
-            return { realized: 0, error: 'no-RiskMetrics' };
-        }
-        const fifo = RM.computeRealizedFromFills(fills);
-        return { realized: (fifo.byMarket && fifo.byMarket[market]) || 0 };
-    }
-
-    // Unique-assigns each fill to the smallest-openMs closed position whose
-    // [open, close] contains it (ties: smaller closeMs). Without this,
-    // boundary fills land in two adjacent windows and double-count.
-    //
-    // fillsByMarket must be `{ [market]: [{ f, ms }] }` already sorted by
-    // ms ascending — buildYearReport produces it once and shares.
-    function buildFillOwnershipMap(closedPositions, fillsByMarket) {
-        const owner = new Map();
-        if (!Array.isArray(closedPositions) || !closedPositions.length) return owner;
-        if (!fillsByMarket) return owner;
-
-        const positionsByMarket = {};
-        closedPositions.forEach(p => {
-            if (!p || p.status !== 'CLOSED') return;
-            const openMs = tsMs(p.createdAt);
-            const closeMs = tsMs(p.closedAt);
-            if (openMs === null || closeMs === null) return;
-            const m = p.market || 'Unknown';
-            if (!positionsByMarket[m]) positionsByMarket[m] = [];
-            positionsByMarket[m].push({ p, openMs, closeMs });
-        });
-        Object.values(positionsByMarket).forEach(arr =>
-            arr.sort((a, b) => a.openMs - b.openMs || a.closeMs - b.closeMs)
-        );
-
-        Object.entries(positionsByMarket).forEach(([market, plist]) => {
-            const marketFills = fillsByMarket[market];
-            if (!marketFills || !marketFills.length) return;
-            let nextUnopenedIdx = 0;
-            const activeByOpenMs = [];
-            for (let i = 0; i < marketFills.length; i++) {
-                const fm = marketFills[i].ms;
-                while (nextUnopenedIdx < plist.length && plist[nextUnopenedIdx].openMs <= fm) {
-                    activeByOpenMs.push(plist[nextUnopenedIdx]);
-                    nextUnopenedIdx++;
-                }
-                for (let k = activeByOpenMs.length - 1; k >= 0; k--) {
-                    if (activeByOpenMs[k].closeMs < fm) activeByOpenMs.splice(k, 1);
-                }
-                if (!activeByOpenMs.length) continue;
-                owner.set(marketFills[i].f, activeByOpenMs[0].p);
-            }
-        });
-        return owner;
-    }
-
-    // True iff the signed BUY/SELL sizes across the slice sum to ~0,
-    // i.e. the slice contains a complete open + close history for the
-    // position. Tolerance covers float drift on scaled trades.
-    function fillsNetFlat(windowFills) {
-        let netSize = 0;
-        for (let i = 0; i < windowFills.length; i++) {
-            const f = windowFills[i];
-            const sz = Math.abs(parseFloat(f && f.size));
-            if (!isNumber(sz) || sz <= 0) continue;
-            const s = (f.side || '').toUpperCase();
-            if (s === 'BUY') netSize += sz;
-            else if (s === 'SELL') netSize -= sz;
-        }
-        return Math.abs(netSize) <= 1e-6;
-    }
-
-    // RiskMetrics.computeRealizedFromFills silently SKIPS fills with
-    // invalid price/size/side. A flat slice can still contain such
-    // fills; FIFO then returns 0 from the orphan inventory of the
-    // SKIPPED fills, and the caller would have no way to know the
-    // realized total is understated. Reject those slices explicitly
-    // so the row drops to the no-FIFO warning path.
+    // The FIFO walk skips fills with invalid price/size/side
+    // (RiskMetrics.isFifoUsableFill is the one definition), and such a
+    // fill inside a position's window leaves its attribution incomplete.
     function allFillsFifoUsable(windowFills) {
-        for (let i = 0; i < windowFills.length; i++) {
-            const f = windowFills[i];
-            if (!f) return false;
-            const sz = Math.abs(parseFloat(f.size));
-            if (!isNumber(sz) || sz <= 0) return false;
-            const px = parseFloat(f.price);
-            if (!isNumber(px)) return false;
-            const side = (f.side || '').toUpperCase();
-            if (side !== 'BUY' && side !== 'SELL') return false;
-        }
-        return true;
-    }
-
-    function realizedFromSlicedFills(position, fills) {
-        const sliced = fillsInWindow(position, fills);
-        if (!sliced.length) {
-            return { realized: 0, fillCount: 0, error: 'no-fills-in-window' };
-        }
-        // Same two gates buildYearReport uses:
-        //   1) the slice must net flat (open + close fills both present)
-        //   2) every fill must be FIFO-usable (valid price/size/side)
-        // so the helper and the batch path return the same authoritative
-        // / not-authoritative verdict and a future caller cannot
-        // re-introduce a silent-zero by skipping either check.
-        if (!fillsNetFlat(sliced)) {
-            return { realized: 0, fillCount: sliced.length, error: 'partial-fill-slice' };
-        }
-        if (!allFillsFifoUsable(sliced)) {
-            return { realized: 0, fillCount: sliced.length, error: 'invalid-fill-in-slice' };
-        }
-        const r = fifoRealizedForMarket(position.market, sliced);
-        return { realized: r.realized, fillCount: sliced.length, error: r.error };
+        return windowFills.every(f => window.RiskMetrics.isFifoUsableFill(f));
     }
 
     function netRealizedPnl(realizedPnlUSD, netFundingUSD, feesUSD) {
         return num(realizedPnlUSD) + num(netFundingUSD) - num(feesUSD);
     }
 
-    // With `attribution`, realized + fees come from the continuous-FIFO
-    // ownership map (year totals reconcile to /historical-pnl). Without
-    // it (single-position callers), falls back to per-window FIFO with
-    // gates that zero realized on suspect slices.
+    // Peak size and VWAP prices from the fill attribution, the same values
+    // the Positions board shows; null while the attribution is incomplete.
+    function attributedSizeAndPrices(attribution) {
+        if (!window.RiskMetrics.hasCompleteAttribution(attribution)) {
+            return { peakSize: null, entryPrice: null, exitPrice: null };
+        }
+        return {
+            peakSize: attribution.peakSize,
+            entryPrice: attribution.entryVwap,
+            exitPrice: attribution.exitVwap
+        };
+    }
+
+    // Why a row's fill attribution is incomplete, most specific first; null
+    // when it is complete.
+    function realizedFillError(complete, windowFills, hasInvalidFill) {
+        if (complete) return null;
+        if (!windowFills.length) return 'no-fills-in-window';
+        if (hasInvalidFill) return 'invalid-fill-in-slice';
+        return 'attribution-incomplete';
+    }
+
+    // `attribution` is this position's RiskMetrics.attributeFillsToPositions
+    // entry: realized + fees come from the market-wide FIFO walk, so year
+    // totals reconcile to /historical-pnl. While that attribution is
+    // incomplete they are null (the row reads '—' and blanks the year
+    // totals) rather than a number that may hold another position's fills.
+    // `windowFills` (the market's fills inside [createdAt, closedAt]) only
+    // feed the fill count and the invalid-fill flag.
     function buildRowFromWindowFills(position, windowFills, overlap, attribution) {
-        let realizedPnlUSD = 0;
-        let realizedError = null;
-        // hasInvalidFill is tracked independently of realizedError because
-        // a partial slice can ALSO contain invalid fills; if we only set
-        // 'invalid-fill-in-slice' when the slice nets flat, the partial
-        // case would silently hide the FIFO-skip risk that understates
-        // totals.
-        const hasInvalidFill = windowFills.length > 0 && !allFillsFifoUsable(windowFills);
-        if (!windowFills.length) {
-            realizedError = 'no-fills-in-window';
-        } else if (!fillsNetFlat(windowFills)) {
-            realizedError = 'partial-fill-slice';
-        } else if (hasInvalidFill) {
-            realizedError = 'invalid-fill-in-slice';
-        }
-        let feesUSD = 0;
-        if (attribution && attribution.realizedByFill && attribution.fillOwner) {
-            const { realizedByFill, fillOwner } = attribution;
-            windowFills.forEach(f => {
-                if (!f) return;
-                if (fillOwner.has(f) && fillOwner.get(f) !== position) return;
-                if (realizedByFill.has(f)) realizedPnlUSD += realizedByFill.get(f);
-                feesUSD += num(f.fee);
-            });
-        } else {
-            if (!realizedError) {
-                const r = fifoRealizedForMarket(position.market, windowFills);
-                realizedPnlUSD = r.realized;
-                if (r.error) realizedError = r.error;
-            }
-            windowFills.forEach(f => { feesUSD += num(f.fee); });
-        }
+        const complete = window.RiskMetrics.hasCompleteAttribution(attribution);
+        const hasInvalidFill = !allFillsFifoUsable(windowFills);
+        const realizedPnlUSD = complete ? attribution.realized : null;
+        const feesUSD = complete ? attribution.fees : null;
         const netFundingUSD = num(position.netFunding);
-        const netUSD = netRealizedPnl(realizedPnlUSD, netFundingUSD, feesUSD);
-        // Preserve null when source fields are absent so the UI/exports
-        // can render `—` instead of a misleading `0`. Do NOT fall back
-        // to `position.size`: closed positions on the dYdX indexer have
-        // `size: "0"` after close, which would turn an unavailable max
-        // size into a hard 0.
-        const rawMaxSize = maybeNum(position.maxSize)
-            ?? maybeNum(position.sumOpen);
-        const maxSize = rawMaxSize === null ? null : Math.abs(rawMaxSize);
-        const entryPrice = maybeNum(position.entryPrice);
-        const exitPrice = maybeNum(position.exitPrice);
+        const netUSD = complete ? netRealizedPnl(realizedPnlUSD, netFundingUSD, feesUSD) : null;
+        const { peakSize, entryPrice, exitPrice } = attributedSizeAndPrices(attribution);
         const openMs = tsMs(position.createdAt);
         const closeMs = tsMs(position.closedAt);
         const holdingDays = (openMs !== null && closeMs !== null && closeMs >= openMs)
@@ -322,7 +135,7 @@
             closedDateUTC: dateUTC(position.closedAt),
             market: position.market || '',
             side: (position.side || '').toUpperCase(),
-            maxSize,
+            peakSize,
             entryPrice,
             exitPrice,
             realizedPnlUSD,
@@ -336,39 +149,22 @@
             netEUR: undefined,
             fxRate: undefined,
             holdingDays,
-            // Flag name is historical; the same overlap makes BOTH fee
-            // and realized P&L attribution ambiguous (see CLAUDE.md
-            // Tax-report section). Downstream UI/CSV/JSON must treat it
-            // as a combined attribution warning.
+            // Flag name is historical: an audit hint that another closed
+            // position's window touches this one (every reversal pair
+            // does), covering fees and realized P&L alike (see CLAUDE.md
+            // Tax-report section). The attributed values stay exact.
             _feeAttributionWarning: !!overlap,
-            _realizedFromFills: !realizedError,
-            // Reason that downstream renderers (panel tooltip, status
-            // strip, CSV consumers) can branch on instead of guessing
-            // from `fillCount`. One of: null | 'no-fills-in-window' |
-            // 'partial-fill-slice' | 'invalid-fill-in-slice'.
-            _realizedFillError: realizedError,
+            _realizedFromFills: complete,
+            // Reason CSV consumers can branch on instead of guessing from
+            // `fillCount`. One of: null | 'no-fills-in-window' |
+            // 'invalid-fill-in-slice' | 'attribution-incomplete'.
+            _realizedFillError: realizedFillError(complete, windowFills, hasInvalidFill),
             _hasInvalidFill: hasInvalidFill,
+            // True when the fill attribution could not tie this position to
+            // exactly its own fills; realized / fees / net are then null.
+            _attributionIncomplete: !complete,
             _fxMissing: false
         };
-    }
-
-    // Back-compat wrapper for the optimized path: takes the full market
-    // slice (unsorted, time-unfiltered) and slices to the window. Used
-    // only by the public buildRow API; the batch path skips this step.
-    function buildRowFromSlice(position, marketFills, overlap) {
-        const windowFills = fillsInWindowFromMarketSlice(position, marketFills);
-        return buildRowFromWindowFills(position, windowFills, overlap);
-    }
-
-    // Public buildRow keeps the old signature for backward compatibility
-    // and unit tests. Internally uses the slice helper.
-    function buildRow(position, fills, closedPositions) {
-        const marketFills = (fills || []).filter(f => f && f.market === position.market);
-        return buildRowFromSlice(
-            position,
-            marketFills,
-            hasOverlapInMarket(position, closedPositions)
-        );
     }
 
     // Idempotent: clears any prior EUR fields / _fxMissing flag before
@@ -395,11 +191,12 @@
             row._fxMissing = false;
             const rate = fxRates && row.closedDateUTC ? fxRates[row.closedDateUTC] : undefined;
             if (isNumber(rate)) {
+                const toEur = usd => (isNumber(usd) ? usd * rate : undefined);
                 row.fxRate = rate;
-                row.realizedPnlEUR = row.realizedPnlUSD * rate;
-                row.netFundingEUR = row.netFundingUSD * rate;
-                row.feesEUR = row.feesUSD * rate;
-                row.netEUR = row.netUSD * rate;
+                row.realizedPnlEUR = toEur(row.realizedPnlUSD);
+                row.netFundingEUR = toEur(row.netFundingUSD);
+                row.feesEUR = toEur(row.feesUSD);
+                row.netEUR = toEur(row.netUSD);
             } else {
                 row._fxMissing = true;
                 if (row.closedDateUTC && missing.indexOf(row.closedDateUTC) === -1) {
@@ -413,6 +210,11 @@
 
     // EUR totals collapse to `undefined` when no row had a usable rate
     // — distinguishes "unconverted" from a real `€0.00` result.
+    // All-or-nothing like the dashboard classifier: while any row has
+    // incomplete fill attribution (`incompleteCount` > 0), every total that
+    // needs fills (net, gross gains / losses, fees, in USD and EUR) is
+    // `undefined`; funding and the row count stay. A partial year total
+    // would under- or over-state what is owed.
     function summarize(rows, classification) {
         const cls = (classification && CLASSIFICATIONS[classification.id || classification])
             || CLASSIFICATIONS.E;
@@ -423,11 +225,18 @@
         let count = 0, winCount = 0, lossCount = 0, scratchCount = 0;
         let eurRowCount = 0;
         let eurMissingCount = 0;
+        let incompleteCount = 0;
         (rows || []).forEach(row => {
             count++;
+            fundingUSD += row.netFundingUSD;
+            if (isNumber(row.fxRate)) fundingEUR += row.netFundingEUR;
+            if (row._attributionIncomplete) {
+                incompleteCount++;
+                if (!isNumber(row.fxRate)) eurMissingCount++;
+                return;
+            }
             netUSD += row.netUSD;
             feesUSD += row.feesUSD;
-            fundingUSD += row.netFundingUSD;
             if (row.netUSD > 0) { grossGainsUSD += row.netUSD; winCount++; }
             else if (row.netUSD < 0) { grossLossesUSD += row.netUSD; lossCount++; }
             else { scratchCount++; }
@@ -435,31 +244,33 @@
                 eurRowCount++;
                 netEUR += row.netEUR;
                 feesEUR += row.feesEUR;
-                fundingEUR += row.netFundingEUR;
                 if (row.netEUR > 0) grossGainsEUR += row.netEUR;
                 else if (row.netEUR < 0) grossLossesEUR += row.netEUR;
             } else {
                 eurMissingCount++;
             }
         });
+        const complete = incompleteCount === 0;
         const eurAvailable = eurRowCount > 0;
+        const fillsTotal = (value, available = true) => (complete && available ? value : undefined);
         return {
             label: cls.label,
             classificationId: cls.id,
-            netUSD,
-            netEUR: eurAvailable ? netEUR : undefined,
-            grossGainsUSD,
-            grossGainsEUR: eurAvailable ? grossGainsEUR : undefined,
-            grossLossesUSD,
-            grossLossesEUR: eurAvailable ? grossLossesEUR : undefined,
-            feesUSD,
-            feesEUR: eurAvailable ? feesEUR : undefined,
+            netUSD: fillsTotal(netUSD),
+            netEUR: fillsTotal(netEUR, eurAvailable),
+            grossGainsUSD: fillsTotal(grossGainsUSD),
+            grossGainsEUR: fillsTotal(grossGainsEUR, eurAvailable),
+            grossLossesUSD: fillsTotal(grossLossesUSD),
+            grossLossesEUR: fillsTotal(grossLossesEUR, eurAvailable),
+            feesUSD: fillsTotal(feesUSD),
+            feesEUR: fillsTotal(feesEUR, eurAvailable),
             fundingUSD,
             fundingEUR: eurAvailable ? fundingEUR : undefined,
             count,
             winCount,
             lossCount,
             scratchCount,
+            incompleteCount,
             eurRowCount,
             eurMissingCount,
             eurPartial: eurMissingCount > 0 && eurRowCount > 0
@@ -565,37 +376,26 @@
             feeAttributionAmbiguousCount: 0,
             missingFxDates: [],
             positionsWithoutFifoCount: 0,
-            positionsWithInvalidFillCount: 0
+            positionsWithInvalidFillCount: 0,
+            incompleteAttributionCount: 0
         };
         const closed = (positions || []).filter(p => p && p.status === 'CLOSED');
         const inYear = closed.filter(p => closedAtYearUTC(p) === year);
 
-        // Keep one parseable-fills subset shared by the FIFO walk AND the
-        // per-market window index. Fills with unparseable createdAt would
-        // otherwise mutate FIFO inventory yet never land in any window
-        // slice — their realized contribution would leak out of the row
-        // totals.
-        const parseableFills = [];
         const fillsByMarket = {};
         (fills || []).forEach(f => {
             if (!f || !f.market) return;
             const ms = tsMs(f.createdAt);
             if (ms === null) return;
-            parseableFills.push(f);
             if (!fillsByMarket[f.market]) fillsByMarket[f.market] = [];
             fillsByMarket[f.market].push({ f, ms });
         });
         Object.values(fillsByMarket).forEach(arr => arr.sort((a, b) => a.ms - b.ms));
 
-        const RM = (typeof window !== 'undefined' && window.RiskMetrics) || null;
-        const byFillResult = (RM && typeof RM.computeRealizedByFill === 'function')
-            ? RM.computeRealizedByFill(parseableFills)
-            : null;
-        const realizedByFill = byFillResult ? byFillResult.byFill : null;
-        const fillOwner = realizedByFill ? buildFillOwnershipMap(closed, fillsByMarket) : null;
-        const attribution = (realizedByFill && fillOwner)
-            ? { realizedByFill, fillOwner }
-            : null;
+        // Every position (OPEN included) takes part in the attribution so a
+        // fill belonging to a still-open position is never claimed by a
+        // closed one.
+        const attributionByPosition = window.RiskMetrics.attributeFillsToPositions(positions, fills);
 
         const overlapSet = new WeakSet();
         const closedByMarket = {};
@@ -619,7 +419,7 @@
                     for (let i = lo; i < hi; i++) windowFills[i - lo] = indexed[i].f;
                 }
             }
-            return buildRowFromWindowFills(p, windowFills, overlapSet.has(p), attribution);
+            return buildRowFromWindowFills(p, windowFills, overlapSet.has(p), attributionByPosition.get(p));
         });
         rows.sort((a, b) => {
             const at = tsMs(a.closedAtISO) || 0;
@@ -630,6 +430,7 @@
             if (r._feeAttributionWarning) warnings.feeAttributionAmbiguousCount++;
             if (!r._realizedFromFills) warnings.positionsWithoutFifoCount++;
             if (r._hasInvalidFill) warnings.positionsWithInvalidFillCount++;
+            if (r._attributionIncomplete) warnings.incompleteAttributionCount++;
         });
         if (fxRates) convertRowsToEur(rows, fxRates, warnings);
         const totals = summarize(rows, null);
@@ -654,8 +455,24 @@
         return isNumber(n) ? n.toFixed(2) : '';
     }
 
+    // Size and price cells at the precision the Positions board shows
+    // sizes in (AppConstants.SIZE_SIGNIFICANT_DIGITS), so the float noise
+    // of summed fills (0.30000000000000004) stays out of the exports.
+    function atSizePrecision(n) {
+        return isNumber(n) ? Number(n.toPrecision(window.AppConstants.SIZE_SIGNIFICANT_DIGITS)) : n;
+    }
+
+    function exportRow(row) {
+        return {
+            ...row,
+            peakSize: atSizePrecision(row.peakSize),
+            entryPrice: atSizePrecision(row.entryPrice),
+            exitPrice: atSizePrecision(row.exitPrice)
+        };
+    }
+
     function fmtSize(n) {
-        return isNumber(n) ? n.toString() : '';
+        return isNumber(n) ? atSizePrecision(n).toString() : '';
     }
 
     function toCsv(rows, classification, year) {
@@ -663,14 +480,14 @@
             || CLASSIFICATIONS.E;
         const header = [
             'closed_at_utc', 'opened_at_utc', 'market', 'side',
-            'max_size', 'entry_price', 'exit_price',
+            'peak_size', 'entry_price', 'exit_price',
             'realized_pnl_usd', 'net_funding_usd', 'fees_usd', 'net_usd',
             'fx_rate_usd_eur',
             'realized_pnl_eur', 'net_funding_eur', 'fees_eur', 'net_eur',
             'holding_days',
             'fill_count', 'realized_from_fills', 'realized_fill_error',
             'invalid_fill_in_window',
-            'attribution_warning', 'fx_missing'
+            'attribution_warning', 'attribution_incomplete', 'fx_missing'
         ];
         const meta = `# Categoria ${cls.id} — ${cls.label} — Portugal tax year ${year}`;
         const out = [meta, header.map(csvEscape).join(',')];
@@ -680,7 +497,7 @@
                 row.createdAtISO || '',
                 row.market,
                 row.side,
-                fmtSize(row.maxSize),
+                fmtSize(row.peakSize),
                 fmtSize(row.entryPrice),
                 fmtSize(row.exitPrice),
                 fmtUsd(row.realizedPnlUSD),
@@ -698,6 +515,7 @@
                 row._realizedFillError || '',
                 row._hasInvalidFill ? 'true' : 'false',
                 row._feeAttributionWarning ? 'true' : 'false',
+                row._attributionIncomplete ? 'true' : 'false',
                 row._fxMissing ? 'true' : 'false'
             ].map(csvEscape).join(','));
         });
@@ -721,6 +539,15 @@
         return value;
     }
 
+    // Bump when a CSV/JSON column is added, renamed or changes meaning.
+    // 2: max_size → peak_size (peak |net size| from fills), entry/exit are
+    // fill VWAPs, a reversing fill's fee is split by size, rows with
+    // incomplete fill attribution export empty profit cells with
+    // attribution_incomplete = true, and realized_from_fills /
+    // realized_fill_error follow that attribution's completeness (no
+    // per-window net-flat check, no 'partial-fill-slice' value).
+    const EXPORT_SCHEMA_VERSION = 2;
+
     function toJson(rows, totals, classification, year) {
         const cls = (classification && CLASSIFICATIONS[classification.id || classification])
             || CLASSIFICATIONS.E;
@@ -730,10 +557,10 @@
                 classificationLabel: cls.label,
                 year,
                 generatedAt: new Date().toISOString(),
-                schemaVersion: 1
+                schemaVersion: EXPORT_SCHEMA_VERSION
             },
             totals,
-            rows
+            rows: Array.isArray(rows) ? rows.map(exportRow) : rows
         });
         return JSON.stringify(payload, null, 2);
     }
@@ -741,8 +568,6 @@
     window.TaxReport = {
         CLASSIFICATIONS,
         buildYearReport,
-        aggregateFeesForPosition,
-        realizedFromSlicedFills,
         netRealizedPnl,
         convertRowsToEur,
         summarize,
@@ -750,6 +575,6 @@
         toJson,
         availableYearsFromPositions,
         closedAtYearUTC,
-        _internal: { csvEscape, buildRow, dateUTC, tsMs, fillsInWindow, hasOverlapInMarket }
+        _internal: { csvEscape, dateUTC, tsMs }
     };
 })();

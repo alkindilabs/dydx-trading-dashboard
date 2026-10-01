@@ -4,9 +4,10 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 // Tax module is browser-targeted and depends on window.RiskMetrics
-// (computeRealizedFromFills). Shim window onto globalThis, load
-// risk-metrics first, then tax-report.
+// (attributeFillsToPositions). Shim window onto globalThis, load
+// constants and risk-metrics first, then tax-report.
 globalThis.window = globalThis;
+require('../src/constants.js');
 require('../risk-metrics.js');
 require('../tax-report.js');
 const TR = globalThis.TaxReport;
@@ -47,135 +48,16 @@ test('availableYearsFromPositions: dedupes, sorts desc, ignores OPEN', () => {
 });
 
 // ---------------------------------------------------------------------------
-// aggregateFeesForPosition — window + market filter (NO side filter).
-// /v4/fills exposes side as BUY/SELL; positions are LONG/SHORT. Both
-// sides legitimately belong to a position's lifecycle (open + close
-// fills always use opposite sides), so the helper must not equality-
-// match on side.
+// buildYearReport row flags — _realizedFromFills / _realizedFillError and
+// warnings.positionsWithoutFifoCount follow the fill attribution's
+// completeness (RiskMetrics.hasCompleteAttribution); the same-market
+// overlap flag is a separate audit hint.
 // ---------------------------------------------------------------------------
 
-test('aggregateFeesForPosition: sums in-window fills for same market regardless of BUY vs SELL', () => {
-    const position = {
-        market: 'ETH-USD',
-        side: 'LONG',
-        createdAt: '2024-01-10T00:00:00Z',
-        closedAt: '2024-01-15T00:00:00Z'
-    };
-    const fills = [
-        { market: 'ETH-USD', side: 'BUY',  createdAt: '2024-01-10T01:00:00Z', fee: '1.50' },
-        { market: 'ETH-USD', side: 'SELL', createdAt: '2024-01-14T22:00:00Z', fee: '2.25' },
-        { market: 'BTC-USD', side: 'BUY',  createdAt: '2024-01-12T00:00:00Z', fee: '5.00' },
-        { market: 'ETH-USD', side: 'BUY',  createdAt: '2024-01-09T23:59:00Z', fee: '5.00' },
-        { market: 'ETH-USD', side: 'SELL', createdAt: '2024-01-15T00:00:01Z', fee: '5.00' }
-    ];
-    const result = TR.aggregateFeesForPosition(position, fills, [position]);
-    assert.ok(close(result.totalFee, 3.75, 1e-9), `expected 3.75, got ${result.totalFee}`);
-    assert.equal(result.fillCount, 2);
-    assert.equal(result.warning, null);
-});
-
-test('aggregateFeesForPosition: flags overlap when another closed position shares market window', () => {
-    const a = {
-        status: 'CLOSED', market: 'ETH-USD', side: 'LONG',
-        createdAt: '2024-01-10T00:00:00Z', closedAt: '2024-01-20T00:00:00Z'
-    };
-    const b = {
-        status: 'CLOSED', market: 'ETH-USD', side: 'SHORT',
-        createdAt: '2024-01-15T00:00:00Z', closedAt: '2024-01-25T00:00:00Z'
-    };
-    const fills = [
-        { market: 'ETH-USD', side: 'BUY', createdAt: '2024-01-17T00:00:00Z', fee: '1.00' }
-    ];
-    const result = TR.aggregateFeesForPosition(a, fills, [a, b]);
-    assert.equal(result.warning, 'overlap');
-});
-
-test('aggregateFeesForPosition: no fills returns zero, no warning', () => {
-    const position = {
-        market: 'ETH-USD', side: 'LONG',
-        createdAt: '2024-01-10T00:00:00Z', closedAt: '2024-01-15T00:00:00Z'
-    };
-    const result = TR.aggregateFeesForPosition(position, [], [position]);
-    assert.equal(result.totalFee, 0);
-    assert.equal(result.fillCount, 0);
-    assert.equal(result.warning, null);
-});
-
-// ---------------------------------------------------------------------------
-// realizedFromSlicedFills — FIFO over per-position-sliced fills.
-// Source of truth for taxable realized P&L. Aligns with the rest of
-// the dashboard's P&L pipeline (FIFO-from-fills is authoritative).
-// ---------------------------------------------------------------------------
-
-test('realizedFromSlicedFills: BUY-then-SELL within window yields exit-entry × size', () => {
-    const position = {
-        market: 'BTC-USD',
-        createdAt: '2024-01-10T00:00:00Z',
-        closedAt: '2024-01-15T00:00:00Z'
-    };
-    const fills = [
-        { market: 'BTC-USD', createdAt: '2024-01-10T00:00:00Z', side: 'BUY',  size: '1', price: '100' },
-        { market: 'BTC-USD', createdAt: '2024-01-15T00:00:00Z', side: 'SELL', size: '1', price: '150' }
-    ];
-    const r = TR.realizedFromSlicedFills(position, fills);
-    assert.ok(close(r.realized, 50), `expected 50, got ${r.realized}`);
-    assert.equal(r.fillCount, 2);
-});
-
-test('realizedFromSlicedFills: SELL-open SHORT then BUY-close', () => {
-    const position = {
-        market: 'BTC-USD',
-        createdAt: '2024-02-01T00:00:00Z',
-        closedAt: '2024-02-05T00:00:00Z'
-    };
-    const fills = [
-        { market: 'BTC-USD', createdAt: '2024-02-01T00:00:00Z', side: 'SELL', size: '1', price: '200' },
-        { market: 'BTC-USD', createdAt: '2024-02-05T00:00:00Z', side: 'BUY',  size: '1', price: '180' }
-    ];
-    const r = TR.realizedFromSlicedFills(position, fills);
-    assert.ok(close(r.realized, 20), `expected 20, got ${r.realized}`);
-});
-
-test('realizedFromSlicedFills: scaled-in LONG resolves via FIFO', () => {
-    const position = {
-        market: 'BTC-USD',
-        createdAt: '2024-03-01T00:00:00Z',
-        closedAt: '2024-03-10T00:00:00Z'
-    };
-    const fills = [
-        { market: 'BTC-USD', createdAt: '2024-03-01T00:00:00Z', side: 'BUY',  size: '1', price: '100' },
-        { market: 'BTC-USD', createdAt: '2024-03-05T00:00:00Z', side: 'BUY',  size: '1', price: '200' },
-        { market: 'BTC-USD', createdAt: '2024-03-10T00:00:00Z', side: 'SELL', size: '2', price: '300' }
-    ];
-    // FIFO: (300-100)*1 + (300-200)*1 = 300
-    const r = TR.realizedFromSlicedFills(position, fills);
-    assert.ok(close(r.realized, 300), `expected 300, got ${r.realized}`);
-});
-
-test('realizedFromSlicedFills: invalid fill in flat slice → invalid-fill-in-slice error', () => {
-    // RiskMetrics.computeRealizedFromFills silently skips fills with
-    // invalid price/size/side. A flat slice with a bad fill would
-    // produce realized=0 with no error if we trusted FIFO blindly.
-    const position = {
-        market: 'BTC-USD',
-        createdAt: '2024-01-10T00:00:00Z',
-        closedAt: '2024-01-15T00:00:00Z'
-    };
-    const fills = [
-        { market: 'BTC-USD', createdAt: '2024-01-11T00:00:00Z', side: 'BUY',  size: '1', price: '100' },
-        { market: 'BTC-USD', createdAt: '2024-01-12T00:00:00Z', side: 'BUY',  size: '1', price: 'NaN' }, // invalid price
-        { market: 'BTC-USD', createdAt: '2024-01-13T00:00:00Z', side: 'SELL', size: '2', price: '150' }
-    ];
-    const r = TR.realizedFromSlicedFills(position, fills);
-    assert.equal(r.error, 'invalid-fill-in-slice');
-    assert.equal(r.realized, 0);
-});
-
-test('buildYearReport: invalid-price fill in flat slice → invalid-fill-in-slice + warning counted', () => {
-    // Net-flat (BUY 1 + BUY 1 + SELL 2) so the partial-fill-slice gate
-    // doesn't trip. One fill carries a NaN price, which
-    // computeRealizedFromFills would silently skip — the new
-    // allFillsFifoUsable gate must catch it instead.
+test('buildYearReport: invalid-price fill in the window → invalid-fill-in-slice + both counters', () => {
+    // The sizes net flat (BUY 1 + BUY 1 + SELL 2), but the FIFO walk
+    // skips the NaN-price fill, so the attribution cannot vouch for the
+    // position.
     const p = {
         status: 'CLOSED', market: 'BTC-USD', side: 'LONG',
         createdAt: '2024-01-10T00:00:00Z', closedAt: '2024-01-15T00:00:00Z',
@@ -190,16 +72,13 @@ test('buildYearReport: invalid-price fill in flat slice → invalid-fill-in-slic
     assert.equal(r.rows[0]._realizedFromFills, false);
     assert.equal(r.rows[0]._realizedFillError, 'invalid-fill-in-slice');
     assert.equal(r.warnings.positionsWithoutFifoCount, 1);
-    assert.equal(r.warnings.positionsWithInvalidFillCount, 1,
-        'invalid-fill rows must increment the separate counter so the panel can warn the totals may be understated');
+    assert.equal(r.warnings.positionsWithInvalidFillCount, 1);
 });
 
-test('buildYearReport: invalid fill in a partial slice still flips the invalid-fill counter', () => {
-    // Slice has only a BUY (not net flat → partial-fill-slice), but the
-    // BUY's price is NaN. realizedError settles on 'partial-fill-slice'
-    // (first-failing gate), but the invalid-fill condition is independent
-    // and must still be counted — otherwise the panel would show "totals
-    // exact" while continuous FIFO has silently skipped the invalid fill.
+test('buildYearReport: a window holding only an unparseable fill reports invalid-fill-in-slice', () => {
+    // The only fill in the window has a NaN price: the FIFO walk skips it,
+    // so no fill ties to the position. The unparseable fill is the more
+    // specific reason than a bare incomplete attribution.
     const p = {
         status: 'CLOSED', market: 'BTC-USD', side: 'LONG',
         createdAt: '2024-01-10T00:00:00Z', closedAt: '2024-01-15T00:00:00Z',
@@ -209,11 +88,78 @@ test('buildYearReport: invalid fill in a partial slice still flips the invalid-f
         { market: 'BTC-USD', createdAt: '2024-01-11T00:00:00Z', side: 'BUY', size: '1', price: 'NaN' }
     ];
     const r = TR.buildYearReport([p], fills, 2024, {});
-    assert.equal(r.rows[0]._realizedFillError, 'partial-fill-slice');
+    assert.equal(r.rows[0]._realizedFromFills, false);
+    assert.equal(r.rows[0]._realizedFillError, 'invalid-fill-in-slice');
     assert.equal(r.rows[0]._hasInvalidFill, true);
     assert.equal(r.warnings.positionsWithoutFifoCount, 1);
-    assert.equal(r.warnings.positionsWithInvalidFillCount, 1,
-        'invalid-fill must be tracked independently of net-flat: the FIFO-skip risk applies regardless of slice completeness');
+    assert.equal(r.warnings.positionsWithInvalidFillCount, 1);
+});
+
+test('buildYearReport: a complete reversal pair is from fills, with only the overlap audit hint', () => {
+    // The reversing SELL lies whole in both rows' indexer windows, so
+    // neither window nets flat on its own; the attribution still ties
+    // each row to exactly its own fills (the SELL split by size).
+    const long = {
+        status: 'CLOSED', market: 'ETH-USD', side: 'LONG',
+        createdAt: '2024-01-10T00:00:00Z', closedAt: '2024-01-11T00:00:00Z', netFunding: '0'
+    };
+    const short = {
+        status: 'CLOSED', market: 'ETH-USD', side: 'SHORT',
+        createdAt: '2024-01-11T00:00:00Z', closedAt: '2024-01-12T00:00:00Z', netFunding: '0'
+    };
+    const fills = [
+        { market: 'ETH-USD', side: 'BUY',  createdAt: '2024-01-10T00:00:00Z', createdAtHeight: '1', size: '2', price: '100', fee: '1' },
+        { market: 'ETH-USD', side: 'SELL', createdAt: '2024-01-11T00:00:00Z', createdAtHeight: '2', size: '5', price: '150', fee: '5' },
+        { market: 'ETH-USD', side: 'BUY',  createdAt: '2024-01-12T00:00:00Z', createdAtHeight: '3', size: '3', price: '120', fee: '0.6' }
+    ];
+    const r = TR.buildYearReport([long, short], fills, 2024, {});
+    r.rows.forEach(row => {
+        assert.equal(row._realizedFromFills, true, `${row.side} is from fills`);
+        assert.equal(row._realizedFillError, null, `${row.side} has no fill error`);
+        assert.equal(row._attributionIncomplete, false);
+        assert.equal(row._feeAttributionWarning, true, `${row.side} keeps the overlap audit hint`);
+    });
+    assert.equal(r.warnings.positionsWithoutFifoCount, 0);
+    assert.equal(r.warnings.feeAttributionAmbiguousCount, 2);
+});
+
+test('buildYearReport: a window whose fills net flat but do not tie to the position is not from fills', () => {
+    // Two flat round trips inside one indexer position: the sizes in the
+    // window net flat, but the fills saw a flat moment the indexer did
+    // not, so the attribution is incomplete.
+    const merged = {
+        status: 'CLOSED', market: 'BTC-USD', side: 'LONG',
+        createdAt: '2024-01-10T00:00:00Z', closedAt: '2024-01-13T00:00:00Z', netFunding: '0'
+    };
+    const fills = [
+        { market: 'BTC-USD', side: 'BUY',  createdAt: '2024-01-10T00:00:00Z', size: '1', price: '100' },
+        { market: 'BTC-USD', side: 'SELL', createdAt: '2024-01-11T00:00:00Z', size: '1', price: '110' },
+        { market: 'BTC-USD', side: 'BUY',  createdAt: '2024-01-12T00:00:00Z', size: '1', price: '100' },
+        { market: 'BTC-USD', side: 'SELL', createdAt: '2024-01-13T00:00:00Z', size: '1', price: '110' }
+    ];
+    const r = TR.buildYearReport([merged], fills, 2024, {});
+    assert.equal(r.rows[0]._realizedFromFills, false);
+    assert.equal(r.rows[0]._realizedFillError, 'attribution-incomplete');
+    assert.equal(r.warnings.positionsWithoutFifoCount, 1);
+});
+
+test('buildYearReport: fill_count counts the market\'s BUY and SELL fills inside [createdAt, closedAt]', () => {
+    // /v4/fills sides are BUY/SELL while positions are LONG/SHORT, and
+    // both sides belong to a position's lifecycle, so the window has no
+    // side filter. Both window ends are inclusive.
+    const p = {
+        status: 'CLOSED', market: 'ETH-USD', side: 'LONG',
+        createdAt: '2024-01-10T00:00:00Z', closedAt: '2024-01-15T00:00:00Z', netFunding: '0'
+    };
+    const fills = [
+        { market: 'ETH-USD', side: 'SELL', createdAt: '2024-01-08T00:00:00Z', size: '1', price: '90' },
+        { market: 'ETH-USD', side: 'BUY',  createdAt: '2024-01-09T23:59:59Z', size: '1', price: '95' },
+        { market: 'ETH-USD', side: 'BUY',  createdAt: '2024-01-10T00:00:00Z', size: '1', price: '100' },
+        { market: 'BTC-USD', side: 'BUY',  createdAt: '2024-01-12T00:00:00Z', size: '1', price: '50000' },
+        { market: 'ETH-USD', side: 'SELL', createdAt: '2024-01-15T00:00:00Z', size: '1', price: '110' },
+        { market: 'ETH-USD', side: 'BUY',  createdAt: '2024-01-15T00:00:01Z', size: '1', price: '111' }
+    ];
+    assert.equal(TR.buildYearReport([p], fills, 2024, {}).rows[0].fillCount, 2);
 });
 
 test('buildYearReport: dense overlap (all positions overlap each other) marks all', () => {
@@ -235,44 +181,6 @@ test('buildYearReport: dense overlap (all positions overlap each other) marks al
     assert.equal(r.rows.every(row => row._feeAttributionWarning), true,
         'every overlapping position must be marked');
     assert.equal(r.warnings.feeAttributionAmbiguousCount, 8);
-});
-
-test('realizedFromSlicedFills: partial slice flagged with error matching buildYearReport', () => {
-    // Public helper must apply the same net-flat gate as the optimized
-    // batch path in buildYearReport, otherwise a future caller (or
-    // regression in either path) could silently re-introduce the
-    // FIFO-returns-0-for-orphan-inventory bug.
-    const position = {
-        market: 'BTC-USD',
-        createdAt: '2024-01-10T00:00:00Z',
-        closedAt: '2024-01-15T00:00:00Z'
-    };
-    const fills = [
-        { market: 'BTC-USD', createdAt: '2024-01-11T00:00:00Z', side: 'BUY', size: '1', price: '100' }
-        // SELL missing — net != 0
-    ];
-    const r = TR.realizedFromSlicedFills(position, fills);
-    assert.equal(r.realized, 0);
-    assert.equal(r.fillCount, 1);
-    assert.equal(r.error, 'partial-fill-slice');
-});
-
-test('realizedFromSlicedFills: ignores fills outside window or in other markets', () => {
-    const position = {
-        market: 'BTC-USD',
-        createdAt: '2024-04-01T00:00:00Z',
-        closedAt: '2024-04-05T00:00:00Z'
-    };
-    const fills = [
-        { market: 'BTC-USD', createdAt: '2024-04-01T00:00:00Z', side: 'BUY',  size: '1', price: '100' },
-        { market: 'BTC-USD', createdAt: '2024-04-05T00:00:00Z', side: 'SELL', size: '1', price: '150' },
-        { market: 'BTC-USD', createdAt: '2024-03-30T00:00:00Z', side: 'BUY',  size: '5', price: '999' },
-        { market: 'BTC-USD', createdAt: '2024-04-10T00:00:00Z', side: 'SELL', size: '5', price: '999' },
-        { market: 'ETH-USD', createdAt: '2024-04-02T00:00:00Z', side: 'BUY',  size: '5', price: '999' }
-    ];
-    const r = TR.realizedFromSlicedFills(position, fills);
-    assert.ok(close(r.realized, 50), `expected 50, got ${r.realized}`);
-    assert.equal(r.fillCount, 2);
 });
 
 // ---------------------------------------------------------------------------
@@ -368,45 +276,155 @@ test('buildYearReport: no fills in window flags row as not-from-FIFO', () => {
     ];
     const r = TR.buildYearReport([p], fills, 2024, {});
     const row = r.rows[0];
-    assert.equal(row.realizedPnlUSD, 0);
+    // No fills tie to the position, so its profit is unknown, not $0.
+    assert.equal(row.realizedPnlUSD, null);
+    assert.equal(row._attributionIncomplete, true);
     assert.equal(row._realizedFromFills, false);
     assert.equal(r.warnings.positionsWithoutFifoCount, 1);
 });
 
-test('buildYearReport: missing maxSize/entry/exit render as null (distinguishable from real 0)', () => {
+test('buildYearReport: SIZE / ENTRY / EXIT come from the fill attribution, not the indexer fields', () => {
+    // The indexer's maxSize on a SHORT is the least-negative signed size
+    // (-0.5 here) and its entryPrice is not the VWAP of a scaled entry.
     const p = {
-        status: 'CLOSED', market: 'BTC-USD', side: 'LONG',
-        createdAt: '2024-01-01T00:00:00Z', closedAt: '2024-01-02T00:00:00Z',
-        netFunding: '0'
-        // maxSize, sumOpen, size, entryPrice, exitPrice all absent
+        status: 'CLOSED', market: 'ETH-USD', side: 'SHORT',
+        createdAt: '2024-05-01T00:00:00Z', closedAt: '2024-05-03T00:00:00Z',
+        netFunding: '0', maxSize: '-0.5', entryPrice: '3000', exitPrice: '2950'
     };
-    const r = TR.buildYearReport([p], [], 2024, {});
-    const row = r.rows[0];
-    assert.equal(row.maxSize, null);
+    const fills = [
+        { market: 'ETH-USD', side: 'SELL', createdAt: '2024-05-01T00:00:00Z', size: '2', price: '3000', fee: '0' },
+        { market: 'ETH-USD', side: 'SELL', createdAt: '2024-05-02T00:00:00Z', size: '4', price: '3100', fee: '0' },
+        { market: 'ETH-USD', side: 'BUY',  createdAt: '2024-05-03T00:00:00Z', size: '6', price: '2900', fee: '0' }
+    ];
+    const row = TR.buildYearReport([p], fills, 2024, {}).rows[0];
+    assert.equal(row.peakSize, 6);
+    assert.ok(close(row.entryPrice, (2 * 3000 + 4 * 3100) / 6), `entry ${row.entryPrice}`);
+    assert.equal(row.exitPrice, 2900);
+});
+
+test('buildYearReport: SIZE / ENTRY / EXIT are null when the fill attribution is incomplete', () => {
+    // No fills: the attribution cannot size or price the position, and the
+    // indexer fields are not used as a substitute.
+    const p = {
+        status: 'CLOSED', market: 'ETH-USD', side: 'SHORT',
+        createdAt: '2024-05-01T00:00:00Z', closedAt: '2024-05-03T00:00:00Z',
+        netFunding: '0', maxSize: '-0.5', entryPrice: '3000', exitPrice: '2950'
+    };
+    const row = TR.buildYearReport([p], [], 2024, {}).rows[0];
+    assert.equal(row.peakSize, null);
     assert.equal(row.entryPrice, null);
     assert.equal(row.exitPrice, null);
 });
 
-test('buildYearReport: closed-position size=0 alone does NOT seed maxSize', () => {
-    // dYdX closed-position rows commonly have size:"0" after close.
-    // Falling back to that would turn an unavailable max into a hard 0,
-    // which is misleading because the position clearly had non-zero
-    // size at some point.
-    const p = {
-        status: 'CLOSED', market: 'BTC-USD', side: 'LONG',
-        createdAt: '2024-01-01T00:00:00Z', closedAt: '2024-01-02T00:00:00Z',
-        netFunding: '0', size: '0'
-        // maxSize and sumOpen intentionally absent
+test('buildYearReport: an incomplete row with fill segments does not leak their SIZE / ENTRY / EXIT', () => {
+    // The SELL 3 flips the LONG into a SHORT missing from the position
+    // list, so the orphaned SHORT segment lands on the LONG: the
+    // attribution holds a peak size and VWAPs, but they mix both segments.
+    const long = {
+        status: 'CLOSED', market: 'ETH-USD', side: 'LONG',
+        createdAt: '2025-01-01T00:00:00Z', closedAt: '2025-01-10T00:00:00Z', netFunding: '0'
     };
-    const r = TR.buildYearReport([p], [], 2024, {});
-    assert.equal(r.rows[0].maxSize, null);
+    const fills = [
+        { market: 'ETH-USD', side: 'BUY',  createdAt: '2025-01-01T00:00:00Z', createdAtHeight: '1', size: '1', price: '100', fee: '0' },
+        { market: 'ETH-USD', side: 'SELL', createdAt: '2025-01-10T00:00:00Z', createdAtHeight: '2', size: '3', price: '110', fee: '0' },
+        { market: 'ETH-USD', side: 'BUY',  createdAt: '2026-02-01T00:00:00Z', createdAtHeight: '3', size: '2', price: '50',  fee: '0' }
+    ];
+    const attribution = window.RiskMetrics.attributeFillsToPositions([long], fills).get(long);
+    assert.equal(window.RiskMetrics.hasCompleteAttribution(attribution), false);
+    assert.ok(attribution.peakSize > 0 && attribution.entryVwap > 0 && attribution.exitVwap > 0,
+        'precondition: the incomplete attribution carries segment values');
+    const row = TR.buildYearReport([long], fills, 2025, {}).rows[0];
+    assert.equal(row.peakSize, null);
+    assert.equal(row.entryPrice, null);
+    assert.equal(row.exitPrice, null);
+    const lines = TR.toCsv([row], 'E', 2025).split('\r\n');
+    const header = lines[1].split(',');
+    const cells = lines[2].split(',');
+    assert.equal(cells[header.indexOf('peak_size')], '');
+    assert.equal(cells[header.indexOf('entry_price')], '');
+    assert.equal(cells[header.indexOf('exit_price')], '');
 });
 
-test('buildYearReport: partial fill slice (no closing fill) flagged as not-FIFO', () => {
-    // Only the opening BUY arrived in the indexer window — net size is
-    // not zero, so FIFO would silently return 0 realized for orphan
-    // inventory. The row must drop _realizedFromFills so the panel
-    // surfaces a warning instead of a misleading $0.
+test('toCsv / toJson: SIZE / ENTRY / EXIT drop the float noise of summed fills', () => {
+    // 0.1 + 0.2 sums to 0.30000000000000004 and the entry VWAP to
+    // 100.16666666666667; the exports carry the size precision the
+    // Positions board shows.
+    const p = {
+        status: 'CLOSED', market: 'ETH-USD', side: 'LONG',
+        createdAt: '2024-05-01T00:00:00Z', closedAt: '2024-05-03T00:00:00Z', netFunding: '0'
+    };
+    const fills = [
+        { market: 'ETH-USD', side: 'BUY',  createdAt: '2024-05-01T00:00:00Z', size: '0.1', price: '100',    fee: '0' },
+        { market: 'ETH-USD', side: 'BUY',  createdAt: '2024-05-02T00:00:00Z', size: '0.2', price: '100.25', fee: '0' },
+        { market: 'ETH-USD', side: 'SELL', createdAt: '2024-05-03T00:00:00Z', size: '0.1', price: '101',    fee: '0' },
+        { market: 'ETH-USD', side: 'SELL', createdAt: '2024-05-03T00:00:00Z', size: '0.2', price: '101',    fee: '0' }
+    ];
+    const report = TR.buildYearReport([p], fills, 2024, {});
+    const lines = TR.toCsv(report.rows, 'E', 2024).split('\r\n');
+    const header = lines[1].split(',');
+    const cells = lines[2].split(',');
+    assert.equal(cells[header.indexOf('peak_size')], '0.3');
+    assert.equal(cells[header.indexOf('entry_price')], '100.166666667');
+    assert.equal(cells[header.indexOf('exit_price')], '101');
+    const jsonRow = JSON.parse(TR.toJson(report.rows, report.totals, 'E', 2024)).rows[0];
+    assert.equal(jsonRow.peakSize, 0.3);
+    assert.equal(jsonRow.entryPrice, 100.166666667);
+    assert.equal(jsonRow.exitPrice, 101);
+});
+
+test('buildYearReport: a row with incomplete fill attribution reads null profit and blanks the year totals', () => {
+    // The SELL 3 flips the LONG into a SHORT that is missing from the
+    // position list (its endpoint failed). The orphaned SHORT segment,
+    // including its 2026 close, would otherwise land in the 2025 LONG row.
+    const long = {
+        status: 'CLOSED', market: 'ETH-USD', side: 'LONG',
+        createdAt: '2025-01-01T00:00:00Z', closedAt: '2025-01-10T00:00:00Z', netFunding: '-2'
+    };
+    const fills = [
+        { market: 'ETH-USD', side: 'BUY',  createdAt: '2025-01-01T00:00:00Z', createdAtHeight: '1', size: '1', price: '100', fee: '1' },
+        { market: 'ETH-USD', side: 'SELL', createdAt: '2025-01-10T00:00:00Z', createdAtHeight: '2', size: '3', price: '110', fee: '3' },
+        { market: 'ETH-USD', side: 'BUY',  createdAt: '2026-02-01T00:00:00Z', createdAtHeight: '3', size: '1', price: '50',  fee: '10' }
+    ];
+    const r = TR.buildYearReport([long], fills, 2025, { '2025-01-10': 0.9 });
+    const row = r.rows[0];
+    assert.equal(row._attributionIncomplete, true);
+    assert.equal(row.realizedPnlUSD, null);
+    assert.equal(row.feesUSD, null);
+    assert.equal(row.netUSD, null);
+    assert.equal(row.netEUR, undefined);
+    assert.ok(close(row.netFundingEUR, -1.8), 'funding does not depend on fills and still converts');
+    assert.equal(r.warnings.incompleteAttributionCount, 1);
+    assert.equal(r.totals.incompleteCount, 1);
+    assert.equal(r.totals.netUSD, undefined);
+    assert.equal(r.totals.feesUSD, undefined);
+    assert.equal(r.totals.grossGainsUSD, undefined);
+    assert.equal(r.totals.netEUR, undefined);
+    assert.equal(r.totals.fundingUSD, -2);
+});
+
+test('toCsv / toJson: schema 2 exports peak_size and flags incomplete rows with empty profit cells', () => {
+    const row = {
+        closedAtISO: '2025-01-10T00:00:00Z', market: 'ETH-USD', side: 'LONG',
+        peakSize: null, entryPrice: null, exitPrice: null,
+        realizedPnlUSD: null, netFundingUSD: -2, feesUSD: null, netUSD: null,
+        holdingDays: 9, fillCount: 2, _attributionIncomplete: true
+    };
+    const lines = TR.toCsv([row], 'E', 2025).split('\r\n');
+    const header = lines[1].split(',');
+    const cells = lines[2].split(',');
+    assert.ok(header.includes('peak_size') && !header.includes('max_size'));
+    assert.equal(cells[header.indexOf('attribution_incomplete')], 'true');
+    assert.equal(cells[header.indexOf('realized_pnl_usd')], '');
+    assert.equal(cells[header.indexOf('fees_usd')], '');
+    assert.equal(cells[header.indexOf('net_usd')], '');
+    assert.equal(cells[header.indexOf('net_funding_usd')], '-2.00');
+    const json = JSON.parse(TR.toJson([row], TR.summarize([row], 'E'), 'E', 2025));
+    assert.equal(json.meta.schemaVersion, 2);
+});
+
+test('buildYearReport: a position whose closing fill is missing is not from fills', () => {
+    // Only the opening BUY arrived: the fills never return to flat, so the
+    // attribution is incomplete and the row reads null, not a misleading $0.
     const p = {
         status: 'CLOSED', market: 'BTC-USD', side: 'LONG',
         createdAt: '2024-02-01T00:00:00Z', closedAt: '2024-02-05T00:00:00Z',
@@ -418,12 +436,14 @@ test('buildYearReport: partial fill slice (no closing fill) flagged as not-FIFO'
     ];
     const r = TR.buildYearReport([p], fills, 2024, {});
     assert.equal(r.rows[0]._realizedFromFills, false);
-    assert.equal(r.rows[0].realizedPnlUSD, 0);
+    assert.equal(r.rows[0]._realizedFillError, 'attribution-incomplete');
+    assert.equal(r.rows[0].realizedPnlUSD, null);
+    assert.equal(r.rows[0]._attributionIncomplete, true);
     assert.equal(r.warnings.positionsWithoutFifoCount, 1);
 });
 
-test('buildYearReport: partial fill slice (no opening fill) flagged as not-FIFO', () => {
-    // Symmetric case: closing SELL present but opening BUY out of window.
+test('buildYearReport: a position whose opening fill is missing is not from fills', () => {
+    // Symmetric case: closing SELL present but opening BUY absent.
     const p = {
         status: 'CLOSED', market: 'BTC-USD', side: 'LONG',
         createdAt: '2024-03-01T00:00:00Z', closedAt: '2024-03-05T00:00:00Z',
@@ -435,19 +455,6 @@ test('buildYearReport: partial fill slice (no opening fill) flagged as not-FIFO'
     const r = TR.buildYearReport([p], fills, 2024, {});
     assert.equal(r.rows[0]._realizedFromFills, false);
     assert.equal(r.warnings.positionsWithoutFifoCount, 1);
-});
-
-test('buildYearReport: real 0 entry/exit preserved (not coerced to null)', () => {
-    const p = {
-        status: 'CLOSED', market: 'BTC-USD', side: 'LONG',
-        createdAt: '2024-01-01T00:00:00Z', closedAt: '2024-01-02T00:00:00Z',
-        entryPrice: '0', exitPrice: '0', maxSize: '0', netFunding: '0'
-    };
-    const r = TR.buildYearReport([p], [], 2024, {});
-    const row = r.rows[0];
-    assert.equal(row.maxSize, 0);
-    assert.equal(row.entryPrice, 0);
-    assert.equal(row.exitPrice, 0);
 });
 
 test('buildYearReport: chained overlaps mark every member of the chain', () => {
@@ -479,8 +486,9 @@ test('buildYearReport: boundary fill attributed to closer, not double-counted', 
     //   B: open 11:00, close 12:00
     // The 11:00 fills land in BOTH windows under inclusive [open, close]
     // semantics. Old per-window code summed each fill's fee into both
-    // positions; the attribution rule (smallest-openMs claims it) places
-    // the boundary fill into A alone.
+    // positions. Segment attribution gives each fill to exactly one
+    // position: the 11:00 SELL closes A's segment, and the 11:00 BUY
+    // starts the segment whose first fill matches B's createdAt.
     const a = {
         status: 'CLOSED', market: 'BTC-USD', side: 'LONG',
         createdAt: '2024-01-10T10:00:00Z', closedAt: '2024-01-10T11:00:00Z',
@@ -491,8 +499,8 @@ test('buildYearReport: boundary fill attributed to closer, not double-counted', 
         createdAt: '2024-01-10T11:00:00Z', closedAt: '2024-01-10T12:00:00Z',
         netFunding: '0', maxSize: '1'
     };
-    // BUY 1@100 opens A. SELL 1@110 closes A (flip-out). BUY 1@110 opens
-    // B. SELL 1@120 closes B.
+    // BUY 1@100 opens A. SELL 1@110 closes A. BUY 1@110 opens B.
+    // SELL 1@120 closes B.
     const fills = [
         { market: 'BTC-USD', side: 'BUY',  createdAt: '2024-01-10T10:00:00Z', size: '1', price: '100', fee: '0.10' },
         { market: 'BTC-USD', side: 'SELL', createdAt: '2024-01-10T11:00:00Z', size: '1', price: '110', fee: '0.20' },
@@ -512,16 +520,13 @@ test('buildYearReport: boundary fill attributed to closer, not double-counted', 
     assert.ok(close(sumNet, 19.40), `net sum: ${sumNet}`);
 });
 
-test('buildYearReport: realized attributed by continuous FIFO across position boundaries', () => {
-    // Pathological-but-real scenario from a heavily-scaled live account:
-    // the indexer marks position A CLOSED at 11:00 with only its opening
-    // BUY in its slice (closing fill landed at 12:00 inside B's window).
-    // Continuous FIFO (BUY 2@100 → SELL 2@160) realizes 120 at the SELL.
-    // The SELL is in B's window only, so it's attributed to B.
-    //
-    // Old per-window code: A's slice not flat → realized=0; B's slice
-    // not flat → realized=0; total = 0. Wrong by $120.
-    // New: A's realized=0 (only extending fill), B's realized=120.
+test('buildYearReport: a segment that returns to flat after its position closed leaves both rows incomplete', () => {
+    // The indexer closes A at 11:00 and opens B at 10:30, but the fills
+    // hold one segment: BUY 2 at A's createdAt, SELL 2 at 12:00 (B's
+    // closedAt). The SELL cannot be A's closing fill, since A was already
+    // closed, and B has no opening fill, so neither row ties to its own
+    // fills: both read null and the year's fills-derived totals are
+    // undefined rather than crediting A with the SELL's 120.
     const a = {
         status: 'CLOSED', market: 'BTC-USD', side: 'LONG',
         createdAt: '2024-01-10T10:00:00Z', closedAt: '2024-01-10T11:00:00Z',
@@ -537,9 +542,41 @@ test('buildYearReport: realized attributed by continuous FIFO across position bo
         { market: 'BTC-USD', side: 'SELL', createdAt: '2024-01-10T12:00:00Z', size: '2', price: '160' }
     ];
     const r = TR.buildYearReport([a, b], fills, 2024, {});
-    const sumRealized = r.rows.reduce((s, row) => s + row.realizedPnlUSD, 0);
-    assert.ok(close(sumRealized, 120),
-        `continuous FIFO must surface the 120 realized at the closing SELL even though neither slice is flat in isolation; got ${sumRealized}`);
+    const rowA = r.rows.find(row => row.createdAtISO === a.createdAt);
+    const rowB = r.rows.find(row => row.createdAtISO === b.createdAt);
+    assert.equal(rowA.realizedPnlUSD, null);
+    assert.equal(rowA._attributionIncomplete, true);
+    assert.equal(rowB.realizedPnlUSD, null);
+    assert.equal(rowB._attributionIncomplete, true);
+    assert.equal(r.totals.netUSD, undefined);
+    assert.equal(r.totals.incompleteCount, 2);
+});
+
+test('buildYearReport: flip fill fee split pro-rata between the closed LONG and the SHORT it opens', () => {
+    // SELL 5 @150 closes the 2-unit LONG and opens a 3-unit SHORT in one
+    // fill. Its $5 fee is split by size: 2/5 to the LONG row, 3/5 to the
+    // SHORT row. The year's fee total is unchanged by the split.
+    const long = {
+        status: 'CLOSED', market: 'ETH-USD', side: 'LONG',
+        createdAt: '2024-01-10T00:00:00Z', closedAt: '2024-01-11T00:00:00Z', netFunding: '0'
+    };
+    const short = {
+        status: 'CLOSED', market: 'ETH-USD', side: 'SHORT',
+        createdAt: '2024-01-11T00:00:00Z', closedAt: '2024-01-12T00:00:00Z', netFunding: '0'
+    };
+    const fills = [
+        { market: 'ETH-USD', side: 'BUY',  createdAt: '2024-01-10T00:00:00Z', createdAtHeight: '1', size: '2', price: '100', fee: '1' },
+        { market: 'ETH-USD', side: 'SELL', createdAt: '2024-01-11T00:00:00Z', createdAtHeight: '2', size: '5', price: '150', fee: '5' },
+        { market: 'ETH-USD', side: 'BUY',  createdAt: '2024-01-12T00:00:00Z', createdAtHeight: '3', size: '3', price: '120', fee: '0.6' }
+    ];
+    const r = TR.buildYearReport([long, short], fills, 2024, {});
+    const longRow = r.rows.find(row => row.side === 'LONG');
+    const shortRow = r.rows.find(row => row.side === 'SHORT');
+    assert.ok(close(longRow.realizedPnlUSD, 100), `long realized ${longRow.realizedPnlUSD}`);
+    assert.ok(close(longRow.feesUSD, 3), `long fees ${longRow.feesUSD}`);
+    assert.ok(close(shortRow.realizedPnlUSD, 90), `short realized ${shortRow.realizedPnlUSD}`);
+    assert.ok(close(shortRow.feesUSD, 3.6), `short fees ${shortRow.feesUSD}`);
+    assert.ok(close(r.totals.feesUSD, 6.6));
 });
 
 test('buildYearReport: heavy-scaling LONG matches continuous FIFO realized', () => {
@@ -793,11 +830,9 @@ test('toJson: undefined fields serialize as null (stable schema across FX covera
     assert.ok('netEUR' in out.totals);
 });
 
-test('toCsv: invalid_fill_in_window column reflects _hasInvalidFill independent of error tag', () => {
-    // Partial+invalid combo: _realizedFillError settles on partial-fill-slice
-    // but the row still carries _hasInvalidFill=true. The CSV must surface
-    // that flag so external consumers can branch on it without re-deriving
-    // the condition from `realized_fill_error`.
+test('toCsv: invalid_fill_in_window column exports _hasInvalidFill', () => {
+    // External consumers branch on this column without re-deriving the
+    // condition from `realized_fill_error`.
     const rows = [{
         closedAtISO: '2024-01-15T00:00:00Z',
         createdAtISO: '2024-01-10T00:00:00Z',
@@ -809,8 +844,9 @@ test('toCsv: invalid_fill_in_window column reflects _hasInvalidFill independent 
         feesEUR: undefined, netEUR: undefined,
         holdingDays: 5, fillCount: 1,
         _realizedFromFills: false,
-        _realizedFillError: 'partial-fill-slice',
+        _realizedFillError: 'invalid-fill-in-slice',
         _hasInvalidFill: true,
+        _attributionIncomplete: true,
         _feeAttributionWarning: false,
         _fxMissing: true
     }];
@@ -820,16 +856,13 @@ test('toCsv: invalid_fill_in_window column reflects _hasInvalidFill independent 
     const dataRow = lines[2].split(',');
     const idx = header.indexOf('invalid_fill_in_window');
     assert.ok(idx >= 0, 'header must include invalid_fill_in_window column');
-    assert.equal(dataRow[idx], 'true',
-        'partial+invalid row must export invalid_fill_in_window=true even when realized_fill_error is partial-fill-slice');
+    assert.equal(dataRow[idx], 'true');
 });
 
-test('buildYearReport: fills with unparseable createdAt do not leak realized into byFill', () => {
-    // computeRealizedByFill was previously called on the unfiltered `fills`
-    // array, but window slicing rejected fills with null tsMs. A fill with
-    // invalid createdAt would mutate the FIFO inventory yet never be
-    // attributed to a row, silently dropping its realized contribution.
-    // buildYearReport must filter both consumers to the same parseable set.
+test('buildYearReport: a fill with unparseable createdAt stays out of FIFO and leaves the row incomplete', () => {
+    // A fill with no usable timestamp cannot be placed in the market's
+    // chronology, so the attribution walk leaves it out (it must not
+    // consume inventory) and cannot vouch for any position in that market.
     const p = {
         status: 'CLOSED', market: 'BTC-USD', side: 'LONG',
         createdAt: '2024-01-10T00:00:00Z', closedAt: '2024-01-15T00:00:00Z',
@@ -841,13 +874,16 @@ test('buildYearReport: fills with unparseable createdAt do not leak realized int
         { market: 'BTC-USD', createdAt: '2024-01-11T00:00:00Z', side: 'BUY',  size: '1',   price: '100' },
         { market: 'BTC-USD', createdAt: '2024-01-14T00:00:00Z', side: 'SELL', size: '1',   price: '150' }
     ];
+    // If the bad fill leaked into FIFO, the BUY 999@1 would consume the
+    // SELL and produce ~-149,851 of attributed realized.
+    const attribution = globalThis.RiskMetrics.attributeFillsToPositions([p], fills).get(p);
+    assert.ok(close(attribution.realized, 50),
+        `unparseable-createdAt fill must NOT affect FIFO inventory; expected 50, got ${attribution.realized}`);
+    assert.equal(attribution.complete, false);
     const r = TR.buildYearReport([p], fills, 2024, {});
     assert.equal(r.rows.length, 1);
-    // If the bad fill leaked into FIFO, the BUY 999@1 would consume the
-    // SELL and produce ~-149,851 of attributed realized. With the filter,
-    // we expect a clean +50.
-    assert.ok(close(r.rows[0].realizedPnlUSD, 50),
-        `unparseable-createdAt fill must NOT affect FIFO inventory; expected 50, got ${r.rows[0].realizedPnlUSD}`);
+    assert.equal(r.rows[0]._attributionIncomplete, true);
+    assert.equal(r.rows[0].realizedPnlUSD, null);
 });
 
 test('toCsv: ends with CRLF', () => {
@@ -870,7 +906,7 @@ test('toJson: meta block carries classification, year, schemaVersion', () => {
     assert.equal(out.meta.classification, 'E');
     assert.equal(out.meta.classificationLabel, 'Categoria E (derivativos)');
     assert.equal(out.meta.year, 2024);
-    assert.equal(out.meta.schemaVersion, 1);
+    assert.equal(out.meta.schemaVersion, 2);
     assert.ok(typeof out.meta.generatedAt === 'string'
         && /^\d{4}-\d{2}-\d{2}T/.test(out.meta.generatedAt),
         'generatedAt must be ISO');
@@ -929,20 +965,4 @@ test('csvEscape: null/undefined empty string', () => {
     assert.equal(TR._internal.csvEscape(undefined), '');
 });
 
-// ---------------------------------------------------------------------------
-// _internal.fillsInWindow — verify NO side filter (BUY and SELL both in).
-// ---------------------------------------------------------------------------
 
-test('fillsInWindow: includes BUY and SELL fills indiscriminately', () => {
-    const position = {
-        market: 'ETH-USD',
-        createdAt: '2024-01-10T00:00:00Z',
-        closedAt: '2024-01-15T00:00:00Z'
-    };
-    const fills = [
-        { market: 'ETH-USD', side: 'BUY',  createdAt: '2024-01-11T00:00:00Z' },
-        { market: 'ETH-USD', side: 'SELL', createdAt: '2024-01-14T00:00:00Z' }
-    ];
-    const out = TR._internal.fillsInWindow(position, fills);
-    assert.equal(out.length, 2);
-});

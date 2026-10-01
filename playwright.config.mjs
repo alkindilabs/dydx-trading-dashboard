@@ -15,7 +15,7 @@ export default defineConfig({
     { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
   ],
   webServer: {
-    command: 'python3 -m http.server 8000',
+    command: 'python3 test/static-server.py 8000',
     url: 'http://127.0.0.1:8000',
     reuseExistingServer: !process.env.CI,
     timeout: 30_000,

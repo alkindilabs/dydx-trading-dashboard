@@ -33,8 +33,11 @@
 
     if (sortedMarkets.length === 0) return;
 
+    // openCount is null while the OPEN rows are unknown (openCountGap
+    // says why): it reads '—', never as no open position.
     const labels = sortedMarkets.map(([market, data]) => {
-      const openSuffix = data.openCount ? ` + ${data.openCount} open` : '';
+      const openSuffix = data.openCount === null ? ' + — open'
+        : data.openCount ? ` + ${data.openCount} open` : '';
       return `${market} (${data.tradeCount} closed${openSuffix})`;
     });
     const data = sortedMarkets.map(([_, d]) => d.tradeCount);
@@ -70,8 +73,10 @@
               label: function (context) {
                 const [, md] = sortedMarkets[context.dataIndex];
                 const lines = [`Closed Positions: ${md.tradeCount}`];
-                if (md.openCount) lines.push(`Open Positions: ${md.openCount}`);
-                lines.push(`Profit (incl. funding − fees): ${formatCurrency(md.totalPnL)}`);
+                if (md.openCount === null) lines.push(`Open Positions: — (${md.openCountGap})`);
+                else if (md.openCount) lines.push(`Open Positions: ${md.openCount}`);
+                const profit = md.totalPnL === null ? `— (${md.totalPnLGap})` : formatCurrency(md.totalPnL);
+                lines.push(`Profit (incl. funding − fees): ${profit}`);
                 return lines;
               }
             }
