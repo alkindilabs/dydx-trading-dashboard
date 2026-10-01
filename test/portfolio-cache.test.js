@@ -62,11 +62,11 @@ const Internal = Cache._internal;
 // pack
 // ---------------------------------------------------------------------------
 
-test('pack lowercases address, sets v=1, includes timestamp and data', () => {
+test('pack lowercases address, stamps the schema version, includes timestamp and data', () => {
     const before = Date.now();
     const p = Internal.pack('DyDx1ABC', { foo: 1 });
     const after = Date.now();
-    assert.equal(p.v, 1);
+    assert.equal(p.v, Cache.SCHEMA_VERSION);
     assert.equal(p.address, 'dydx1abc');
     assert.deepEqual(p.data, { foo: 1 });
     assert.ok(p.fetchedAt >= before && p.fetchedAt <= after);
@@ -93,17 +93,17 @@ test('unpack returns null on schema version mismatch', () => {
 });
 
 test('unpack returns null on missing data', () => {
-    const p = { v: 1, address: 'a', fetchedAt: 0 };
+    const p = { v: Cache.SCHEMA_VERSION, address: 'a', fetchedAt: 0 };
     assert.equal(Internal.unpack(p, 'a'), null);
 });
 
 test('unpack returns null on address mismatch', () => {
-    const p = { v: 1, address: 'addra', fetchedAt: 0, data: {} };
+    const p = { v: Cache.SCHEMA_VERSION, address: 'addra', fetchedAt: 0, data: {} };
     assert.equal(Internal.unpack(p, 'addrb'), null);
 });
 
 test('unpack matches case-insensitively and returns the parsed object', () => {
-    const p = { v: 1, address: 'dydx1abc', fetchedAt: 0, data: { x: 1 } };
+    const p = { v: Cache.SCHEMA_VERSION, address: 'dydx1abc', fetchedAt: 0, data: { x: 1 } };
     assert.deepEqual(Internal.unpack(p, 'DYDX1ABC'), p);
 });
 
@@ -193,6 +193,16 @@ test('read returns null when the slot belongs to a different address', () => {
     globalThis.localStorage = makeLocalStorage();
     Cache.write('dydx1aaa', { x: 1 });
     assert.equal(Cache.read('dydx1bbb'), null);
+});
+
+test('read misses on a snapshot whose fills were fetched newest-first', () => {
+    // Version 1 snapshots hold /fills fetched in cursor mode, whose order
+    // inside a block is arbitrary; the FIFO walk needs chain order.
+    const CURSOR_ORDER_FILLS_VERSION = 1;
+    globalThis.localStorage = makeLocalStorage();
+    const snapshot = { v: CURSOR_ORDER_FILLS_VERSION, address: 'dydx1abc', fetchedAt: 0, data: { fills: { fills: [] } } };
+    globalThis.localStorage.setItem(Cache.KEY, LZStringStub.compressToUTF16(JSON.stringify(snapshot)));
+    assert.equal(Cache.read('dydx1abc'), null);
 });
 
 test('read returns null when no slot exists', () => {
@@ -301,4 +311,40 @@ test('eviction: read of evicted snapshot carries _cacheMeta marker', () => {
     assert.ok(Array.isArray(got._cacheMeta.evictedSteps));
     assert.ok(got._cacheMeta.evictedSteps.includes('fills'),
         'evictedSteps should name the dropped key');
+});
+
+// ---------------------------------------------------------------------------
+// evictionOf: what the CACHED · PARTIAL badge tells the user
+// ---------------------------------------------------------------------------
+
+test('evictionOf is null for a snapshot that fit without eviction', () => {
+    globalThis.localStorage = makeLocalStorage();
+    Cache.write('dydx1abc', { fills: [1], orders: 'small' });
+    assert.equal(Cache.evictionOf(Cache.read('dydx1abc')), null);
+});
+
+test('evictionOf separates dropped fields from the trimmed historicalPnl', () => {
+    const TRIM = Cache.HISTORICAL_PNL_TRIM;
+    const OVERFLOW_ROWS = 100;
+    const bulky = (n) => Array.from({ length: n }, () => 'x'.repeat(200));
+    // The rows trimmed away are the bulky ones, so only dropping fills and
+    // fundingPayments AND trimming historicalPnl brings the slot under quota.
+    const historicalPnl = { historicalPnl: bulky(OVERFLOW_ROWS).concat(Array(TRIM).fill(0)) };
+    const trimmedSize = JSON.stringify({ historicalPnl: Array(TRIM).fill(0) }).length;
+    globalThis.localStorage = makeLocalStorage(trimmedSize * 2 + 2000);
+    Cache.write('dydx1abc', {
+        fills: bulky(OVERFLOW_ROWS),
+        fundingPayments: bulky(OVERFLOW_ROWS),
+        historicalPnl,
+        closedPositions: ['kept'],
+        orders: 'small'
+    });
+
+    const got = Cache.read('dydx1abc');
+    assert.ok(got, 'expected a stored snapshot after eviction');
+    assert.equal(got.historicalPnl.historicalPnl.length, TRIM);
+    assert.deepEqual(Cache.evictionOf(got), {
+        dropped: ['fills', 'fundingPayments'],
+        trimmed: ['historicalPnl']
+    });
 });

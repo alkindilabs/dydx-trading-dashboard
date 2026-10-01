@@ -175,54 +175,608 @@ test('liquidationRow distancePct from oracle and liq', () => {
     assert.ok(close(row.distancePct, 92.17, 0.05), `expected ~92.17%, got ${row.distancePct}`);
 });
 
+test('positionNotional values an open position at oracle without needing the subaccount', () => {
+    const markets = { 'BTC-USD': { oraclePrice: '100000' } };
+    assert.equal(RM.positionNotional({ market: 'BTC-USD', size: '-2', entryPrice: '90000' }, markets), 200000,
+        'a SHORT size counts by magnitude, priced at the market oracle');
+    assert.equal(RM.positionNotional({ market: 'BTC-USD', size: '2', oraclePrice: '110000' }, markets), 220000,
+        'a position-level oracle wins over the market map');
+    assert.equal(RM.positionNotional({ market: 'ETH-USD', size: '3', entryPrice: '2000' }, markets), 6000,
+        'entry price is the fallback when no oracle exists');
+    assert.equal(RM.positionNotional({ market: 'ETH-USD', size: '3' }, markets), null, 'no price at all');
+    assert.equal(RM.positionNotional({ market: 'BTC-USD', size: '0' }, markets), null, 'no size');
+});
+
 // ---------------------------------------------------------------------------
-// normalizeRealizedPnl — indexer-zero repair.
+// attributeFillsToPositions — per-position P&L, size and prices from one
+// FIFO walk over /fills. Replaces the indexer's realizedPnl / maxSize /
+// entryPrice / exitPrice, which are wrong on scaled, SHORT and flip rows.
 // ---------------------------------------------------------------------------
 
-test('normalizeRealizedPnl LONG: zero realizedPnl + valid prices → derived', () => {
-    const positions = [{
-        status: 'CLOSED', side: 'LONG',
-        entryPrice: '100', exitPrice: '120', maxSize: '2',
-        realizedPnl: '0'
-    }];
-    const out = RM.normalizeRealizedPnl(positions);
-    assert.equal(out.correctedCount, 1);
-    assert.equal(parseFloat(positions[0].realizedPnl), 40); // (120-100)·2·(+1)
-    assert.equal(positions[0]._derivedRealizedPnl, true);
+function mkFill(market, createdAt, height, side, size, price, fee) {
+    return {
+        id: `${market}-${height}-${side}`, market, createdAt,
+        createdAtHeight: String(height), side,
+        size: String(size), price: String(price), fee: String(fee)
+    };
+}
+
+const T1 = '2025-01-01T00:00:00.000Z';
+const T2 = '2025-01-02T00:00:00.000Z';
+const T3 = '2025-01-03T00:00:00.000Z';
+const T4 = '2025-01-04T00:00:00.000Z';
+
+test('attributeFillsToPositions splits a flip fill between the closed LONG and the SHORT it opens', () => {
+    const long  = { market: 'ETH-USD', status: 'CLOSED', side: 'LONG',  createdAt: T1, closedAt: T2 };
+    const short = { market: 'ETH-USD', status: 'CLOSED', side: 'SHORT', createdAt: T2, closedAt: T3 };
+    const fills = [
+        mkFill('ETH-USD', T1, 1, 'BUY',  2, 100, 1),
+        mkFill('ETH-USD', T2, 2, 'SELL', 5, 150, 5),   // closes 2 LONG, opens 3 SHORT
+        mkFill('ETH-USD', T3, 3, 'BUY',  3, 120, 0.6)
+    ];
+    const rawSnapshot = JSON.parse(JSON.stringify([long, short]));
+    const byPosition = RM.attributeFillsToPositions([long, short], fills);
+    const L = byPosition.get(long);
+    const S = byPosition.get(short);
+
+    // LONG: (150−100)·2 realized; fee 1 + 5·(2/5) of the flip fill.
+    assert.ok(close(L.realized, 100), `long realized ${L.realized}`);
+    assert.ok(close(L.fees, 3), `long fees ${L.fees}`);
+    assert.ok(close(L.profit, 97));
+    assert.equal(L.peakSize, 2);
+    assert.ok(close(L.entryVwap, 100));
+    assert.ok(close(L.exitVwap, 150));
+    assert.equal(L.fillCount, 2);
+    assert.equal(L.openedByFlip, false);
+    assert.equal(L.closedByFlip, true);
+    assert.equal(L.complete, true);
+
+    // SHORT: opened by the flip's residual 3 @150, closed 3 @120.
+    assert.ok(close(S.realized, 90), `short realized ${S.realized}`);
+    assert.ok(close(S.fees, 3.6), `short fees ${S.fees}`);
+    assert.ok(close(S.profit, 86.4));
+    assert.equal(S.peakSize, 3);
+    assert.ok(close(S.entryVwap, 150));
+    assert.ok(close(S.exitVwap, 120));
+    assert.equal(S.fillCount, 2);
+    assert.equal(S.openedByFlip, true);
+    assert.equal(S.closedByFlip, false);
+    assert.equal(S.complete, true);
+
+    // Per-position values partition the market-wide totals exactly.
+    assert.ok(close(L.realized + S.realized, RM.computeRealizedFromFills(fills).total));
+    assert.ok(close(L.fees + S.fees, RM.feesTotal(fills)));
+    assert.deepEqual([long, short], rawSnapshot, 'raw indexer positions must not be mutated');
 });
 
-test('normalizeRealizedPnl preserves indexer non-zero value', () => {
-    const positions = [{
-        status: 'CLOSED', side: 'LONG',
-        entryPrice: '100', exitPrice: '120', maxSize: '2',
-        realizedPnl: '37.5'
-    }];
-    const out = RM.normalizeRealizedPnl(positions);
-    assert.equal(out.correctedCount, 0);
-    assert.equal(positions[0].realizedPnl, '37.5');
-    assert.equal(positions[0]._derivedRealizedPnl, undefined);
+test('attributeFillsToPositions: SHORT peakSize is the largest short exposure, not the indexer maxSize', () => {
+    // The indexer reports maxSize as max() over the SIGNED size, which on a
+    // SHORT is the size left before the final closing BUY (-0.7 here).
+    const short = {
+        market: 'BTC-USD', status: 'CLOSED', side: 'SHORT',
+        createdAt: T1, closedAt: T3, maxSize: '-0.7'
+    };
+    const fills = [
+        mkFill('BTC-USD', T1, 1, 'SELL', 5,   100, 0),
+        mkFill('BTC-USD', T2, 2, 'SELL', 5,   100, 0),
+        mkFill('BTC-USD', T3, 3, 'BUY',  9.3, 90,  0),
+        mkFill('BTC-USD', T3, 4, 'BUY',  0.7, 90,  0)
+    ];
+    const a = RM.attributeFillsToPositions([short], fills).get(short);
+    assert.equal(a.peakSize, 10);
+    assert.ok(close(a.realized, 100), `realized ${a.realized}`);
+    assert.equal(a.complete, true);
 });
 
-test('normalizeRealizedPnl leaves zero in place when prices missing', () => {
-    const positions = [{
-        status: 'CLOSED', side: 'LONG',
-        entryPrice: '0', exitPrice: '0', maxSize: '2',
-        realizedPnl: '0'
-    }];
-    const out = RM.normalizeRealizedPnl(positions);
-    assert.equal(out.correctedCount, 0);
-    assert.equal(positions[0].realizedPnl, '0');
+test('attributeFillsToPositions: scaled position uses FIFO realized, peak size and VWAP prices', () => {
+    // BUY 2@100, SELL 1@150 (net 1), BUY 3@200 (net 4 = peak), SELL 4@250.
+    // FIFO: 1·(150−100) + 1·(250−100) + 3·(250−200) = 350.
+    // Peak 4, not sumOpen 5; entry VWAP (2·100 + 3·200)/5 = 160;
+    // exit VWAP (1·150 + 4·250)/5 = 230.
+    const p = { market: 'BTC-USD', status: 'CLOSED', side: 'LONG', createdAt: T1, closedAt: T4 };
+    const fills = [
+        mkFill('BTC-USD', T1, 1, 'BUY',  2, 100, 0),
+        mkFill('BTC-USD', T2, 2, 'SELL', 1, 150, 0),
+        mkFill('BTC-USD', T3, 3, 'BUY',  3, 200, 0),
+        mkFill('BTC-USD', T4, 4, 'SELL', 4, 250, 0)
+    ];
+    const a = RM.attributeFillsToPositions([p], fills).get(p);
+    assert.ok(close(a.realized, 350), `realized ${a.realized}`);
+    assert.equal(a.peakSize, 4);
+    assert.ok(close(a.entryVwap, 160));
+    assert.ok(close(a.exitVwap, 230));
+    assert.equal(a.fillCount, 4);
+    assert.equal(a.complete, true);
 });
 
-test('normalizeRealizedPnl SHORT: side multiplier flips sign', () => {
-    const positions = [{
-        status: 'CLOSED', side: 'SHORT',
-        entryPrice: '120', exitPrice: '100', maxSize: '2',
-        realizedPnl: '0'
-    }];
-    RM.normalizeRealizedPnl(positions);
-    // (100-120)·2·(-1) = +40 (short profits when price drops)
-    assert.equal(parseFloat(positions[0].realizedPnl), 40);
+test('attributeFillsToPositions: a segment starting at another position\'s close instant goes to the position created then', () => {
+    // A closes and B opens at the same millisecond via two separate fills
+    // (heights 10 and 11). B's first fill also lies inside A's inclusive
+    // [createdAt, closedAt] window; the exact createdAt match must win.
+    const a = { market: 'BTC-USD', status: 'CLOSED', side: 'LONG', createdAt: T1, closedAt: T2 };
+    const b = { market: 'BTC-USD', status: 'CLOSED', side: 'LONG', createdAt: T2, closedAt: T3 };
+    const fills = [
+        mkFill('BTC-USD', T1, 1,  'BUY',  1, 100, 0.1),
+        mkFill('BTC-USD', T2, 10, 'SELL', 1, 110, 0.2),
+        mkFill('BTC-USD', T2, 11, 'BUY',  1, 110, 0.3),
+        mkFill('BTC-USD', T3, 20, 'SELL', 1, 120, 0.4)
+    ];
+    const byPosition = RM.attributeFillsToPositions([a, b], fills);
+    const A = byPosition.get(a);
+    const B = byPosition.get(b);
+    assert.ok(close(A.realized, 10));
+    assert.ok(close(A.fees, 0.3));
+    assert.equal(A.fillCount, 2);
+    assert.equal(A.complete, true);
+    assert.ok(close(B.realized, 10));
+    assert.ok(close(B.fees, 0.7));
+    assert.equal(B.fillCount, 2);
+    assert.equal(B.complete, true);
+    assert.equal(A.closedByFlip || B.openedByFlip, false, 'separate fills are not a flip');
+});
+
+test('attributeFillsToPositions: OPEN position with partial closes is complete and carries realized so far', () => {
+    const p = { market: 'BTC-USD', status: 'OPEN', side: 'LONG', size: '2', createdAt: T1, closedAt: null };
+    const fills = [
+        mkFill('BTC-USD', T1, 1, 'BUY',  3, 100, 0),
+        mkFill('BTC-USD', T2, 2, 'SELL', 1, 130, 0)
+    ];
+    const a = RM.attributeFillsToPositions([p], fills).get(p);
+    assert.ok(close(a.realized, 30));
+    assert.equal(a.peakSize, 3);
+    assert.equal(a.exitVwap, 130);
+    assert.equal(a.complete, true);
+});
+
+test('attributeFillsToPositions: CLOSED position whose fills never return to flat is incomplete', () => {
+    const p = { market: 'BTC-USD', status: 'CLOSED', side: 'LONG', createdAt: T1, closedAt: T3 };
+    const fills = [
+        mkFill('BTC-USD', T1, 1, 'BUY',  2, 100, 0),
+        mkFill('BTC-USD', T2, 2, 'SELL', 1, 120, 0)
+        // the closing SELL of the second unit is missing
+    ];
+    const a = RM.attributeFillsToPositions([p], fills).get(p);
+    assert.equal(a.complete, false);
+    assert.ok(close(a.realized, 20), 'the realized that IS attributable is still reported');
+});
+
+test('attributeFillsToPositions: CLOSED position whose fills return to flat only after its closedAt is incomplete', () => {
+    // The indexer closed the position at T2, but the fills stay open until
+    // T3: the closing fill in between is missing, and the T3 SELL may
+    // belong to a position absent from the list.
+    const p = { market: 'BTC-USD', status: 'CLOSED', side: 'LONG', createdAt: T1, closedAt: T2 };
+    const fills = [
+        mkFill('BTC-USD', T1, 1, 'BUY',  1, 100, 0),
+        mkFill('BTC-USD', T3, 2, 'SELL', 1, 120, 0)
+    ];
+    const a = RM.attributeFillsToPositions([p], fills).get(p);
+    assert.equal(a.complete, false);
+    assert.ok(close(a.realized, 20), 'the realized that IS attributable is still reported');
+
+    const closedAtFlat = { ...p, closedAt: T3 };
+    assert.equal(RM.attributeFillsToPositions([closedAtFlat], fills).get(closedAtFlat).complete, true,
+        'returning to flat exactly at closedAt is complete');
+});
+
+test('attributeFillsToPositions: position with no matching fill segment is incomplete with no prices', () => {
+    const p = { market: 'BTC-USD', status: 'CLOSED', side: 'LONG', createdAt: T2, closedAt: T3 };
+    const fills = [
+        // A segment that starts before p opened does not belong to p.
+        mkFill('BTC-USD', T1, 1, 'BUY',  1, 100, 0),
+        mkFill('BTC-USD', T4, 2, 'SELL', 1, 120, 0)
+    ];
+    const a = RM.attributeFillsToPositions([p], fills).get(p);
+    assert.equal(a.complete, false);
+    assert.equal(a.realized, 0);
+    assert.equal(a.fees, 0);
+    assert.equal(a.peakSize, null);
+    assert.equal(a.entryVwap, null);
+    assert.equal(a.exitVwap, null);
+    assert.equal(a.fillCount, 0);
+});
+
+test('isFifoUsableFill accepts exactly the fills the FIFO walk can use', () => {
+    const ok = { side: 'BUY', size: '1', price: '100' };
+    assert.equal(RM.isFifoUsableFill(ok), true);
+    assert.equal(RM.isFifoUsableFill({ ...ok, side: 'sell' }), true, 'side is case-insensitive');
+    assert.equal(RM.isFifoUsableFill({ ...ok, size: '0' }), false);
+    assert.equal(RM.isFifoUsableFill({ ...ok, price: 'Infinity' }), false);
+    assert.equal(RM.isFifoUsableFill({ ...ok, side: 'LONG' }), false);
+    assert.equal(RM.isFifoUsableFill(null), false);
+});
+
+test('attributeFillsToPositions: unparseable fill inside a window marks only that position incomplete', () => {
+    const hit  = { market: 'BTC-USD', status: 'CLOSED', side: 'LONG', createdAt: T1, closedAt: T2 };
+    const miss = { market: 'BTC-USD', status: 'CLOSED', side: 'LONG', createdAt: T3, closedAt: T4 };
+    const fills = [
+        mkFill('BTC-USD', T1, 1, 'BUY',  1, 100, 0),
+        { ...mkFill('BTC-USD', T1, 2, 'BUY', 1, 100, 0), price: 'NaN' },
+        mkFill('BTC-USD', T2, 3, 'SELL', 1, 110, 0),
+        mkFill('BTC-USD', T3, 4, 'BUY',  1, 100, 0),
+        mkFill('BTC-USD', T4, 5, 'SELL', 1, 105, 0)
+    ];
+    const byPosition = RM.attributeFillsToPositions([hit, miss], fills);
+    assert.equal(byPosition.get(hit).complete, false);
+    assert.equal(byPosition.get(miss).complete, true);
+});
+
+test('attributeFillsToPositions: fills that disagree with the indexer position mark it incomplete', () => {
+    // Two flat round trips inside one indexer position's window: the fills
+    // saw a flat moment the indexer did not, so a fill is missing somewhere.
+    const merged = { market: 'BTC-USD', status: 'CLOSED', side: 'LONG', createdAt: T1, closedAt: T4 };
+    const twoTrips = [
+        mkFill('BTC-USD', T1, 1, 'BUY',  1, 100, 0),
+        mkFill('BTC-USD', T2, 2, 'SELL', 1, 110, 0),
+        mkFill('BTC-USD', T3, 3, 'BUY',  1, 100, 0),
+        mkFill('BTC-USD', T4, 4, 'SELL', 1, 110, 0)
+    ];
+    const m = RM.attributeFillsToPositions([merged], twoTrips).get(merged);
+    assert.equal(m.complete, false);
+    assert.ok(close(m.realized, 20), 'both round trips are still attributed');
+
+    // A LONG whose window holds only a SHORT round trip.
+    const long = { market: 'BTC-USD', status: 'CLOSED', side: 'LONG', createdAt: T1, closedAt: T2 };
+    const shortTrip = [
+        mkFill('BTC-USD', T1, 1, 'SELL', 1, 110, 0),
+        mkFill('BTC-USD', T2, 2, 'BUY',  1, 100, 0)
+    ];
+    assert.equal(RM.attributeFillsToPositions([long], shortTrip).get(long).complete, false);
+});
+
+test('attributeFillsToPositions: missing fills array marks every position incomplete', () => {
+    const p = { market: 'BTC-USD', status: 'CLOSED', side: 'LONG', createdAt: T1, closedAt: T2 };
+    const byPosition = RM.attributeFillsToPositions([p], null);
+    assert.equal(byPosition.get(p).complete, false);
+    assert.equal(byPosition.get(p).peakSize, null);
+});
+
+test('attributeFillsToPositions: a multi-million-unit position built from fractional fills still returns to flat', () => {
+    // Summing 4194304.1 three times in binary floating point leaves a
+    // residue of a few 1e-9 units against the decimal close size, more
+    // than any fixed sub-step tolerance allows at this magnitude.
+    const p = { market: 'TIA-USD', status: 'CLOSED', side: 'LONG', createdAt: T1, closedAt: T4 };
+    const fills = [
+        mkFill('TIA-USD', T1, 1, 'BUY',  '4194304.1',  5, 0),
+        mkFill('TIA-USD', T2, 2, 'BUY',  '4194304.1',  5, 0),
+        mkFill('TIA-USD', T3, 3, 'BUY',  '4194304.1',  5, 0),
+        mkFill('TIA-USD', T4, 4, 'SELL', '12582912.3', 6, 0)
+    ];
+    const a = RM.attributeFillsToPositions([p], fills).get(p);
+    assert.equal(a.complete, true);
+    assert.ok(close(a.peakSize, 12582912.3, 1e-6), `peak ${a.peakSize}`);
+    assert.ok(close(a.realized, 12582912.3, 1e-6), `realized ${a.realized}`);
+    assert.equal(a.closedByFlip, false);
+});
+
+test('attributeFillsToPositions: a position opened and reversed in the same millisecond keeps both rows complete', () => {
+    // LONG opens and is reversed into a SHORT within one block, so both
+    // positions share createdAt. The flip's closing portion belongs to the
+    // LONG and its opening portion to the SHORT.
+    const long  = { market: 'ETH-USD', status: 'CLOSED', side: 'LONG',  createdAt: T1, closedAt: T1 };
+    const short = { market: 'ETH-USD', status: 'CLOSED', side: 'SHORT', createdAt: T1, closedAt: T2 };
+    const fills = [
+        mkFill('ETH-USD', T1, 1, 'BUY',  2, 100, 0),
+        mkFill('ETH-USD', T1, 2, 'SELL', 5, 110, 0),   // closes 2 LONG, opens 3 SHORT
+        mkFill('ETH-USD', T2, 3, 'BUY',  3, 100, 0)
+    ];
+    for (const order of [[long, short], [short, long]]) {
+        const byPosition = RM.attributeFillsToPositions(order, fills);
+        const L = byPosition.get(long);
+        const S = byPosition.get(short);
+        assert.equal(L.complete, true, 'LONG complete');
+        assert.ok(close(L.realized, 20));
+        assert.equal(L.peakSize, 2);
+        assert.equal(L.closedByFlip, true);
+        assert.equal(S.complete, true, 'SHORT complete');
+        assert.ok(close(S.realized, 30));
+        assert.equal(S.peakSize, 3);
+        assert.equal(S.openedByFlip, true);
+    }
+});
+
+test('attributeFillsToPositions: float residue left from a multi-million-unit peak does not survive a small final close', () => {
+    // Exact decimal net is 0, but the float running sum ends at -2.2e-9:
+    // residue accumulated near the 1e7 peak, measured against a final
+    // 10.1-unit fill. It must not become a phantom SHORT that poisons the
+    // next position in the market.
+    const p1 = { market: 'BERA-USD', status: 'CLOSED', side: 'LONG', createdAt: T1, closedAt: T2 };
+    const p2 = { market: 'BERA-USD', status: 'CLOSED', side: 'LONG', createdAt: T3, closedAt: T4 };
+    const fills = [
+        mkFill('BERA-USD', T1, 1, 'BUY',  '5000000.1', 0.16, 0),
+        mkFill('BERA-USD', T1, 2, 'BUY',  '4999999.3', 0.16, 0),
+        mkFill('BERA-USD', T2, 3, 'SELL', '9999989.3', 0.17, 0),
+        mkFill('BERA-USD', T2, 4, 'SELL', '10.1',      0.17, 0),
+        mkFill('BERA-USD', T3, 5, 'BUY',  '100',       0.18, 0),
+        mkFill('BERA-USD', T4, 6, 'SELL', '100',       0.19, 0)
+    ];
+    const byPosition = RM.attributeFillsToPositions([p1, p2], fills);
+    const A = byPosition.get(p1);
+    const B = byPosition.get(p2);
+    assert.equal(A.complete, true, 'P1 complete');
+    assert.equal(A.closedByFlip, false);
+    assert.equal(B.complete, true, 'P2 complete');
+    assert.equal(B.openedByFlip, false);
+    assert.equal(B.peakSize, 100);
+});
+
+test('attributeFillsToPositions: same-side positions created in one millisecond take segments in close order', () => {
+    // A opens and closes at T1; B reopens at T1 and closes at T2. The
+    // indexer lists CLOSED positions newest-first, so B arrives before A.
+    const a = { market: 'ETH-USD', status: 'CLOSED', side: 'LONG', createdAt: T1, closedAt: T1 };
+    const b = { market: 'ETH-USD', status: 'CLOSED', side: 'LONG', createdAt: T1, closedAt: T2 };
+    const fills = [
+        mkFill('ETH-USD', T1, 1, 'BUY',  1, 100, 1),
+        mkFill('ETH-USD', T1, 2, 'SELL', 1, 110, 1),
+        mkFill('ETH-USD', T1, 3, 'BUY',  3, 105, 1),
+        mkFill('ETH-USD', T2, 4, 'SELL', 3, 90,  1)
+    ];
+    for (const order of [[b, a], [a, b]]) {
+        const byPosition = RM.attributeFillsToPositions(order, fills);
+        const A = byPosition.get(a);
+        const B = byPosition.get(b);
+        assert.ok(close(A.profit, 8), `A profit ${A.profit}`);
+        assert.equal(A.peakSize, 1);
+        assert.equal(A.complete, true);
+        assert.ok(close(B.profit, -47), `B profit ${B.profit}`);
+        assert.equal(B.peakSize, 3);
+        assert.equal(B.complete, true);
+    }
+});
+
+test('attributeFillsToPositions: same-side positions sharing createdAt AND closedAt cannot be told apart and are incomplete', () => {
+    const a = { market: 'ETH-USD', status: 'CLOSED', side: 'LONG', createdAt: T1, closedAt: T1 };
+    const b = { market: 'ETH-USD', status: 'CLOSED', side: 'LONG', createdAt: T1, closedAt: T1 };
+    const fills = [
+        mkFill('ETH-USD', T1, 1, 'BUY',  1, 100, 0),
+        mkFill('ETH-USD', T1, 2, 'SELL', 1, 110, 0),
+        mkFill('ETH-USD', T1, 3, 'BUY',  3, 105, 0),
+        mkFill('ETH-USD', T1, 4, 'SELL', 3, 90,  0)
+    ];
+    const byPosition = RM.attributeFillsToPositions([a, b], fills);
+    assert.equal(byPosition.get(a).complete, false);
+    assert.equal(byPosition.get(b).complete, false);
+});
+
+test('attributeFillsToPositions: opposite-side positions opened and closed in one millisecond each take the segment on their side', () => {
+    // LONG opens and is reversed into a SHORT that closes, all at T1, so
+    // both positions share createdAt AND closedAt; only side tells them apart.
+    const long  = { market: 'ETH-USD', status: 'CLOSED', side: 'LONG',  createdAt: T1, closedAt: T1 };
+    const short = { market: 'ETH-USD', status: 'CLOSED', side: 'SHORT', createdAt: T1, closedAt: T1 };
+    const fills = [
+        mkFill('ETH-USD', T1, 1, 'BUY',  1, 100, 0),
+        mkFill('ETH-USD', T1, 2, 'SELL', 2, 110, 0),   // closes 1 LONG, opens 1 SHORT
+        mkFill('ETH-USD', T1, 3, 'BUY',  1, 105, 0)
+    ];
+    for (const order of [[short, long], [long, short]]) {
+        const byPosition = RM.attributeFillsToPositions(order, fills);
+        const L = byPosition.get(long);
+        const S = byPosition.get(short);
+        assert.equal(L.complete, true, 'LONG complete');
+        assert.ok(close(L.realized, 10), `LONG realized ${L.realized}`);
+        assert.equal(S.complete, true, 'SHORT complete');
+        assert.ok(close(S.realized, 5), `SHORT realized ${S.realized}`);
+    }
+});
+
+test('attributeFillsToPositions: an unusable fill exactly at closedAt marks the position incomplete', () => {
+    const p = { market: 'BTC-USD', status: 'CLOSED', side: 'LONG', createdAt: T1, closedAt: T2 };
+    const fills = [
+        mkFill('BTC-USD', T1, 1, 'BUY',  1, 100, 0),
+        mkFill('BTC-USD', T2, 2, 'SELL', 1, 110, 0),
+        { ...mkFill('BTC-USD', T2, 3, 'SELL', 1, 110, 0), price: 'NaN' }
+    ];
+    assert.equal(RM.attributeFillsToPositions([p], fills).get(p).complete, false);
+});
+
+test('attributeFillsToPositions: a flip segment with no opposite-side position at its start marks the position incomplete', () => {
+    // The opening BUY of the earlier LONG is missing, so its closing SELL
+    // opens a phantom SHORT that the later LONG's BUY 3 @100 reverses. The
+    // walk then sees a LONG of 2 opened by a flip, reversed by SELL 4 @120,
+    // but no SHORT closed at T3: the LONG's size and profit are wrong.
+    const earlier  = { market: 'BTC-USD', status: 'CLOSED', side: 'LONG',  createdAt: T1, closedAt: T2 };
+    const later    = { market: 'BTC-USD', status: 'CLOSED', side: 'LONG',  createdAt: T3, closedAt: T4 };
+    const reversal = { market: 'BTC-USD', status: 'OPEN',   side: 'SHORT', createdAt: T4, closedAt: null };
+    const fills = [
+        mkFill('BTC-USD', T2, 2, 'SELL', 1, 110, 0),
+        mkFill('BTC-USD', T3, 3, 'BUY',  3, 100, 0),
+        mkFill('BTC-USD', T4, 4, 'SELL', 4, 120, 0)
+    ];
+    const byPosition = RM.attributeFillsToPositions([earlier, later, reversal], fills);
+    assert.equal(byPosition.get(earlier).complete, false);
+    assert.equal(byPosition.get(later).complete, false);
+});
+
+test('attributeFillsToPositions: an OPEN position is complete only when its signed indexer size equals the net size the fills end on', () => {
+    // The earlier LONG's opening BUY is missing, so the walk reads a phantom
+    // SHORT of 1, reversed by BUY 3 into a LONG of 2 and by SELL 4 into a
+    // SHORT of 2. The reversal has its flip partner, but the indexer holds
+    // a SHORT of 1: the walk's size, and with it every value, is off.
+    const earlier  = { market: 'BTC-USD', status: 'CLOSED', side: 'LONG', createdAt: T1, closedAt: T2 };
+    const later    = { market: 'BTC-USD', status: 'CLOSED', side: 'LONG', createdAt: T3, closedAt: T4 };
+    const reversal = { market: 'BTC-USD', status: 'OPEN', side: 'SHORT', size: '-1', createdAt: T4, closedAt: null };
+    const fills = [
+        mkFill('BTC-USD', T2, 2, 'SELL', 1, 110, 0),
+        mkFill('BTC-USD', T3, 3, 'BUY',  3, 100, 0),
+        mkFill('BTC-USD', T4, 4, 'SELL', 4, 120, 0)
+    ];
+    const attributed = size => {
+        const open = { ...reversal, size };
+        return RM.attributeFillsToPositions([earlier, later, open], fills).get(open);
+    };
+    assert.equal(attributed('-1').complete, false, 'walk SHORT 2 against indexer SHORT 1');
+    assert.equal(attributed('2').complete, false, 'the sizes are compared signed');
+    assert.equal(attributed(undefined).complete, false, 'an OPEN row without a size cannot be checked');
+    assert.equal(attributed('-2').complete, true, 'walk and indexer agree on SHORT 2');
+});
+
+test('attributeFillsToPositions: the open-size comparison allows the float residue of summed fill sizes', () => {
+    // 0.1 + 0.2 sums to 0.30000000000000004 in binary floating point.
+    const open = { market: 'BTC-USD', status: 'OPEN', side: 'LONG', size: '0.3', createdAt: T1, closedAt: null };
+    const fills = [
+        mkFill('BTC-USD', T1, 1, 'BUY', 0.1, 100, 0),
+        mkFill('BTC-USD', T2, 2, 'BUY', 0.2, 100, 0)
+    ];
+    const a = RM.attributeFillsToPositions([open], fills).get(open);
+    assert.equal(a.complete, true);
+    assert.equal(a.openSizeDisagrees, false);
+});
+
+test('attributeFillsToPositions: openSizeDisagrees marks only an OPEN position whose indexer size differs from the walk', () => {
+    const open = { market: 'BTC-USD', status: 'OPEN', side: 'LONG', size: '3', createdAt: T1, closedAt: null };
+    const fills = [mkFill('BTC-USD', T1, 1, 'BUY', 2, 100, 0)];
+    const a = RM.attributeFillsToPositions([open], fills).get(open);
+    assert.equal(a.complete, false);
+    assert.equal(a.openSizeDisagrees, true, 'walk LONG 2 against indexer LONG 3');
+
+    // Incomplete for another reason: an unusable fill inside its window,
+    // while the sizes agree.
+    const sized = { ...open, size: '2' };
+    const withUnusable = [...fills, { ...mkFill('BTC-USD', T2, 2, 'BUY', 1, 100, 0), price: 'n/a' }];
+    const b = RM.attributeFillsToPositions([sized], withUnusable).get(sized);
+    assert.equal(b.complete, false);
+    assert.equal(b.openSizeDisagrees, false);
+});
+
+test('attributeFillsToPositions: a flip segment with no opposite-side position opened at its reversal marks the position incomplete', () => {
+    // The SELL reverses the LONG, yet the position the list holds from T2
+    // is another LONG, not a SHORT: a fill around the reversal is missing.
+    const long = { market: 'BTC-USD', status: 'CLOSED', side: 'LONG', createdAt: T1, closedAt: T2 };
+    const nextLong = { market: 'BTC-USD', status: 'CLOSED', side: 'LONG', createdAt: T2, closedAt: T3 };
+    const fills = [
+        mkFill('BTC-USD', T1, 1, 'BUY',  1, 100, 0),
+        mkFill('BTC-USD', T2, 2, 'SELL', 2, 110, 0),
+        mkFill('BTC-USD', T3, 3, 'BUY',  1, 105, 0)
+    ];
+    const withoutPartner = RM.attributeFillsToPositions([long, nextLong], fills);
+    assert.equal(withoutPartner.get(long).complete, false);
+    assert.equal(withoutPartner.get(nextLong).complete, false);
+
+    const short = { market: 'BTC-USD', status: 'CLOSED', side: 'SHORT', createdAt: T2, closedAt: T3 };
+    const withPartner = RM.attributeFillsToPositions([long, short], fills);
+    assert.equal(withPartner.get(long).complete, true, 'the listed SHORT is the reversal partner');
+    assert.equal(withPartner.get(short).complete, true);
+});
+
+// ---------------------------------------------------------------------------
+// isOpenInFills — whether the fill walk still holds a position open.
+// ---------------------------------------------------------------------------
+
+test('isOpenInFills: a position reopened on the same side in its close block is still open', () => {
+    const reopened = { market: 'ETH-USD', status: 'OPEN', side: 'LONG', createdAt: T1 };
+    const fills = [
+        mkFill('ETH-USD', T1, 1, 'BUY',  1, 100, 0),
+        mkFill('ETH-USD', T1, 2, 'SELL', 1, 110, 0),
+        mkFill('ETH-USD', T1, 3, 'BUY',  2, 105, 0)
+    ];
+    assert.equal(RM.isOpenInFills(reopened, fills), true);
+});
+
+test('isOpenInFills: a stale OPEN copy of a position the fills closed is not open', () => {
+    const stale = { market: 'ETH-USD', status: 'OPEN', side: 'LONG', createdAt: T1 };
+    const closedOut = [
+        mkFill('ETH-USD', T1, 1, 'BUY',  1, 100, 0),
+        mkFill('ETH-USD', T2, 2, 'SELL', 1, 110, 0)
+    ];
+    assert.equal(RM.isOpenInFills(stale, closedOut), false);
+
+    // A later same-side position is open, but it is not this one.
+    const reopenedLater = [...closedOut, mkFill('ETH-USD', T3, 3, 'BUY', 2, 105, 0)];
+    assert.equal(RM.isOpenInFills(stale, reopenedLater), false);
+    const later = { market: 'ETH-USD', status: 'OPEN', side: 'LONG', createdAt: T3 };
+    assert.equal(RM.isOpenInFills(later, reopenedLater), true);
+
+    // Reversed in its opening block: the walk holds the SHORT, not the LONG.
+    const reversed = [
+        mkFill('ETH-USD', T1, 1, 'BUY',  1, 100, 0),
+        mkFill('ETH-USD', T1, 2, 'SELL', 3, 110, 0)
+    ];
+    assert.equal(RM.isOpenInFills(stale, reversed), false);
+    assert.equal(RM.isOpenInFills(null, closedOut), false);
+});
+
+test('hasCompleteAttribution: only an explicit complete === true counts', () => {
+    assert.equal(RM.hasCompleteAttribution({ complete: true }), true);
+    assert.equal(RM.hasCompleteAttribution({ complete: false }), false);
+    assert.equal(RM.hasCompleteAttribution({ profit: 100 }), false, 'no attribution at all is not complete');
+    assert.equal(RM.hasCompleteAttribution(null), false);
+    const c = RM.classifyClosed([{ status: 'CLOSED', profit: 100 }]);
+    assert.equal(c.incompleteCount, 1, 'the classifier applies the same predicate');
+    assert.equal(RM.tradeReturn({ profit: 10, peakSize: 1, entryVwap: 100 }), null);
+});
+
+// ---------------------------------------------------------------------------
+// computeUnrealizedFromFills — FIFO lots left open, marked at the oracle.
+// ---------------------------------------------------------------------------
+
+test('computeUnrealizedFromFills marks the FIFO lots left open at the oracle, not the average entry', () => {
+    // BUY 2@100, BUY 2@200, SELL 2@300: FIFO consumes the 100 lots, so the
+    // 2 left open cost 200. At oracle 250 that is +100 (an average-cost
+    // basis of 150 would say +200 and double-count realized profit).
+    const fills = [
+        mkFill('BTC-USD', T1, 1, 'BUY',  2, 100, 0),
+        mkFill('BTC-USD', T2, 2, 'BUY',  2, 200, 0),
+        mkFill('BTC-USD', T3, 3, 'SELL', 2, 300, 0),
+        mkFill('ETH-USD', T1, 4, 'SELL', 1, 50,  0)
+    ];
+    const markets = { 'BTC-USD': { oraclePrice: '250' }, 'ETH-USD': { oraclePrice: '40' } };
+    const u = RM.computeUnrealizedFromFills(fills, markets);
+    assert.ok(close(u.byMarket['BTC-USD'], 100), `BTC ${u.byMarket['BTC-USD']}`);
+    assert.ok(close(u.byMarket['ETH-USD'], 10), `short marks (entry − oracle) × size: ${u.byMarket['ETH-USD']}`);
+    assert.ok(close(u.total, 110));
+    assert.deepEqual(u.unpricedMarkets, []);
+    assert.deepEqual([...u.openMarkets].sort(), ['BTC-USD', 'ETH-USD']);
+
+    // Realized + unrealized equals cash flow plus the marked inventory.
+    const realized = RM.computeRealizedFromFills(fills).byMarket['BTC-USD'];
+    const cashFlow = -2 * 100 - 2 * 200 + 2 * 300;
+    assert.ok(close(realized + u.byMarket['BTC-USD'], cashFlow + 2 * 250));
+});
+
+test('computeUnrealizedFromFills: a flat market contributes 0 without needing a price', () => {
+    const fills = [
+        mkFill('BTC-USD', T1, 1, 'BUY',  1, 100, 0),
+        mkFill('BTC-USD', T2, 2, 'SELL', 1, 110, 0)
+    ];
+    const u = RM.computeUnrealizedFromFills(fills, {});
+    assert.equal(u.total, 0);
+    assert.deepEqual(u.unpricedMarkets, []);
+    assert.deepEqual(u.openMarkets, []);
+});
+
+test('computeUnrealizedFromFills: open inventory without an oracle price leaves the total unknown', () => {
+    const fills = [
+        mkFill('BTC-USD', T1, 1, 'BUY', 1, 100, 0),
+        mkFill('ETH-USD', T1, 2, 'BUY', 1, 10,  0)
+    ];
+    const u = RM.computeUnrealizedFromFills(fills, { 'BTC-USD': { oraclePrice: '120' } });
+    assert.equal(u.total, null);
+    assert.equal(u.byMarket['ETH-USD'], null);
+    assert.ok(close(u.byMarket['BTC-USD'], 20));
+    assert.deepEqual(u.unpricedMarkets, ['ETH-USD']);
+});
+
+test('computeUnrealizedFromFills: a lot sold down to float residue leaves no phantom lot', () => {
+    // SELL 0.1 then SELL 0.3 consume the 0.4 lot exactly in decimal, but
+    // (0.4 − 0.1) − 0.3 is 5.6e-17 in binary floating point. Only the
+    // 1 @200 lot is left open, so at 250 the mark is exactly +50.
+    const fills = [
+        mkFill('BTC-USD', T1, 1, 'BUY',  '0.4', 100, 0),
+        mkFill('BTC-USD', T2, 2, 'BUY',  '1',   200, 0),
+        mkFill('BTC-USD', T3, 3, 'SELL', '0.1', 150, 0),
+        mkFill('BTC-USD', T4, 4, 'SELL', '0.3', 150, 0)
+    ];
+    const u = RM.computeUnrealizedFromFills(fills, { 'BTC-USD': { oraclePrice: '250' } });
+    assert.equal(u.byMarket['BTC-USD'], 50);
+});
+
+test('equityAdjustedTotalPnl moves the latest /historical-pnl totalPnl by the equity change since that row', () => {
+    const hist = [
+        { createdAt: '2025-01-02T00:00:00Z', totalPnl: '-100', equity: '900' },
+        { createdAt: '2025-01-01T00:00:00Z', totalPnl: '0',    equity: '1000' }
+    ];
+    assert.equal(RM.equityAdjustedTotalPnl(hist, '950'), -50);
+    assert.equal(RM.equityAdjustedTotalPnl([], '950'), null);
+    assert.equal(RM.equityAdjustedTotalPnl(hist, undefined), null);
 });
 
 // ---------------------------------------------------------------------------
@@ -231,10 +785,10 @@ test('normalizeRealizedPnl SHORT: side multiplier flips sign', () => {
 
 test('classifyClosed partitions wins/losses/scratches; decisive = wins+losses', () => {
     const positions = [
-        { status: 'CLOSED', realizedPnl: '100' },
-        { status: 'CLOSED', realizedPnl: '-50' },
-        { status: 'CLOSED', realizedPnl: '0'   },
-        { status: 'OPEN',   realizedPnl: '200' }, // ignored
+        { status: 'CLOSED', profit: 100, complete: true },
+        { status: 'CLOSED', profit: -50, complete: true },
+        { status: 'CLOSED', profit: 0, complete: true },
+        { status: 'OPEN',   profit: 200, complete: true }, // ignored
     ];
     const c = RM.classifyClosed(positions);
     assert.equal(c.winCount, 1);
@@ -244,14 +798,87 @@ test('classifyClosed partitions wins/losses/scratches; decisive = wins+losses', 
     assert.equal(c.closedCount, 3);
     assert.equal(c.grossWin, 100);
     assert.equal(c.grossLoss, 50);
-    assert.equal(c.totalRealized, 50);
+    assert.equal(c.totalProfit, 50);
 });
 
 test('classifyClosed empty input', () => {
     const c = RM.classifyClosed([]);
     assert.equal(c.decisiveCount, 0);
     assert.equal(c.closedCount, 0);
-    assert.equal(c.totalRealized, 0);
+    assert.equal(c.totalProfit, 0);
+});
+
+test('classifyClosed buckets by fill-attributed profit, not the indexer realizedPnl', () => {
+    const c = RM.classifyClosed([
+        { status: 'CLOSED', realizedPnl: '50', profit: -200, complete: true }
+    ]);
+    assert.equal(c.winCount, 0);
+    assert.equal(c.lossCount, 1);
+    assert.equal(c.grossLoss, 200);
+});
+
+test('classifyClosed is all-or-nothing: one incomplete closed position nulls every derived ratio', () => {
+    const c = RM.classifyClosed([
+        { status: 'CLOSED', profit: 100, complete: true  },
+        { status: 'CLOSED', profit: -50, complete: true  },
+        { status: 'CLOSED', profit: 30,  complete: false }
+    ]);
+    assert.equal(c.incompleteCount, 1);
+    assert.equal(c.incompleteReason, '1 position missing fill data');
+    assert.equal(c.closedCount, 3);
+    assert.equal(c.winRate, null);
+    assert.equal(c.profitFactor, null);
+    assert.equal(c.avgWin, null);
+    assert.equal(c.avgLoss, null);
+    assert.equal(c.expectancy, null);
+
+    const complete = RM.classifyClosed([
+        { status: 'CLOSED', profit: 100, complete: true },
+        { status: 'CLOSED', profit: -50, complete: true }
+    ]);
+    assert.equal(complete.incompleteCount, 0);
+    assert.equal(complete.incompleteReason, '');
+    assert.equal(complete.winRate, 50);
+});
+
+test('classifyClosed derives the payoff ratio and the win rate it needs to break even', () => {
+    const c = RM.classifyClosed([
+        { status: 'CLOSED', profit: 300, complete: true },
+        { status: 'CLOSED', profit: -100, complete: true },
+        { status: 'CLOSED', profit: -100, complete: true }
+    ]);
+    // payoff = avgWin / avgLoss = 300 / 100; breakeven WR = 1 / (1 + 3)
+    assert.equal(c.payoff, 3);
+    assert.equal(c.breakevenWinRate, 25);
+
+    const noLosses = RM.classifyClosed([{ status: 'CLOSED', profit: 300, complete: true }]);
+    assert.equal(noLosses.payoff, null);
+    assert.equal(noLosses.breakevenWinRate, null);
+
+    const incomplete = RM.classifyClosed([
+        { status: 'CLOSED', profit: 300, complete: true },
+        { status: 'CLOSED', profit: -100, complete: true },
+        { status: 'CLOSED', profit: 5, complete: false }
+    ]);
+    assert.equal(incomplete.payoff, null);
+    assert.equal(incomplete.breakevenWinRate, null);
+});
+
+test('classifyClosed with an unavailable closed-position list nulls every ratio and says why', () => {
+    const reason = 'Closed positions failed to load';
+    const c = RM.classifyClosed([
+        { status: 'CLOSED', profit: 100, complete: true },
+        { status: 'CLOSED', profit: -50, complete: true }
+    ], reason);
+    assert.equal(c.incompleteReason, reason);
+    assert.equal(c.winRate, null);
+    assert.equal(c.profitFactor, null);
+    assert.equal(c.avgWin, null);
+    assert.equal(c.avgLoss, null);
+    assert.equal(c.expectancy, null);
+    assert.equal(c.payoff, null);
+    assert.equal(RM.classifyClosed([], reason).incompleteReason, reason,
+        'an empty list is unknown, not an account without trades');
 });
 
 // ---------------------------------------------------------------------------
@@ -515,11 +1142,37 @@ test('computeRealizedFromFills open inventory at end is excluded from realized',
     assert.ok(close(r.total, 50)); // closed portion only
 });
 
-test('computeRealizedFromFills tie-breaks same-createdAt by createdAtHeight then id', () => {
-    // Two fills at same createdAt but different heights — height 100 first.
+test('computeRealizedFromFills keeps the input order inside a block, whatever the fill ids say', () => {
+    // /fills in page mode lists a block's fills in chain order. A fill id
+    // is a hash of its event id, so id order says nothing about chain order.
+    const inBlock = (id, side, price) => ({
+        id, market: 'BTC-USD', createdAt: T1, createdAtHeight: '100', side, size: '1', price: String(price)
+    });
+    // BUY@100 then SELL@120 realizes +20; the BUY@110 stays open.
+    const fills = [inBlock('f3', 'BUY', 100), inBlock('f2', 'SELL', 120), inBlock('f1', 'BUY', 110)];
+    const r = RM.computeRealizedFromFills(fills);
+    assert.ok(close(r.total, 20), `realized ${r.total}`);
+});
+
+test('computeRealizedFromFills orders same-createdAt fills by createdAtHeight', () => {
+    // Listed out of height order: walking them as listed would close the
+    // @100 lot (+20); height order closes the @90 lot first (+30).
     const fills = [
-        { market: 'BTC-USD', createdAt: '2025-01-01T00:00:00Z', createdAtHeight: '100', id: 'a', side: 'BUY',  size: '1', price: '100' },
-        { market: 'BTC-USD', createdAt: '2025-01-01T00:00:00Z', createdAtHeight: '101', id: 'b', side: 'SELL', size: '1', price: '120' }
+        { market: 'BTC-USD', createdAt: '2025-01-01T00:00:00Z', createdAtHeight: '101', id: 'a', side: 'BUY',  size: '1', price: '100' },
+        { market: 'BTC-USD', createdAt: '2025-01-01T00:00:00Z', createdAtHeight: '102', id: 'b', side: 'SELL', size: '1', price: '120' },
+        { market: 'BTC-USD', createdAt: '2025-01-01T00:00:00Z', createdAtHeight: '100', id: 'c', side: 'BUY',  size: '1', price: '90' }
+    ];
+    const r = RM.computeRealizedFromFills(fills);
+    assert.ok(close(r.total, 30));
+});
+
+test('computeRealizedFromFills orders a fill without createdAtHeight by createdAt', () => {
+    // The height-less BUY @50 is the newest fill; sorting it as height 0
+    // would put it first and close it (+70) instead of the @100 lot (+20).
+    const fills = [
+        { market: 'BTC-USD', createdAt: '2025-01-01T00:00:02Z', createdAtHeight: '200', id: 'a', side: 'SELL', size: '1', price: '120' },
+        { market: 'BTC-USD', createdAt: '2025-01-01T00:00:03Z',                          id: 'b', side: 'BUY',  size: '1', price: '50' },
+        { market: 'BTC-USD', createdAt: '2025-01-01T00:00:01Z', createdAtHeight: '100', id: 'c', side: 'BUY',  size: '1', price: '100' }
     ];
     const r = RM.computeRealizedFromFills(fills);
     assert.ok(close(r.total, 20));
@@ -547,6 +1200,17 @@ test('marketPnL respects realizedByMarket override (FIFO source)', () => {
 // histPnlMonthly — pins that monthly Δ totalPnl deltas chain across months
 // and that empty months emit hasData=false (callers must render "—").
 // ---------------------------------------------------------------------------
+
+test('marketPnL respects unrealizedByMarket override (FIFO lots at the oracle)', () => {
+    const positions = [
+        { market: 'BTC-USD', status: 'OPEN', unrealizedPnl: '999' }
+    ];
+    const agg = RM.marketPnL(positions, null, { 'BTC-USD': 10 }, { 'BTC-USD': 40, 'ETH-USD': 5 });
+    assert.equal(agg['BTC-USD'].unrealizedOpen, 40);
+    assert.equal(agg['BTC-USD'].total, 50);
+    assert.equal(agg['BTC-USD'].openCount, 1);
+    assert.equal(agg['ETH-USD'].unrealizedOpen, 5);
+});
 
 test('histPnlMonthly: monthly deltas chain across months, sum to latest totalPnl', () => {
     const hist = [
@@ -628,10 +1292,10 @@ test('validDrawdownFromEquity normal case', () => {
 
 test('tradeSystemDrawdown matches manual cumulative', () => {
     const positions = [
-        { status: 'CLOSED', closedAt: '2025-01-01T00:00:00Z', realizedPnl: '100'  },
-        { status: 'CLOSED', closedAt: '2025-01-02T00:00:00Z', realizedPnl: '200'  },
-        { status: 'CLOSED', closedAt: '2025-01-03T00:00:00Z', realizedPnl: '-150' },
-        { status: 'CLOSED', closedAt: '2025-01-04T00:00:00Z', realizedPnl: '-100' }
+        { status: 'CLOSED', closedAt: '2025-01-01T00:00:00Z', profit: 100, complete: true },
+        { status: 'CLOSED', closedAt: '2025-01-02T00:00:00Z', profit: 200, complete: true },
+        { status: 'CLOSED', closedAt: '2025-01-03T00:00:00Z', profit: -150, complete: true },
+        { status: 'CLOSED', closedAt: '2025-01-04T00:00:00Z', profit: -100, complete: true }
     ];
     // Cumulative: 100, 300, 150, 50. Peak 300 → trough 50 → DD = 250.
     const dd = RM.tradeSystemDrawdown(positions);
@@ -743,18 +1407,32 @@ test('histPnlCurrentDrawdown peak ≤ 0 → pct = 0 (no peak profit to denominat
     assert.equal(cd.pctOfPeakProfit, 0);
 });
 
-test('tradeSystemCurrentDrawdown on cumulative realizedPnl', () => {
+test('tradeSystemCurrentDrawdown on cumulative profit', () => {
     const positions = [
-        { status: 'CLOSED', closedAt: '2025-01-01T00:00:00Z', realizedPnl: '100'  },
-        { status: 'CLOSED', closedAt: '2025-01-02T00:00:00Z', realizedPnl: '200'  },
-        { status: 'CLOSED', closedAt: '2025-01-03T00:00:00Z', realizedPnl: '-150' },
-        { status: 'CLOSED', closedAt: '2025-01-04T00:00:00Z', realizedPnl: '-100' }
+        { status: 'CLOSED', closedAt: '2025-01-01T00:00:00Z', profit: 100, complete: true },
+        { status: 'CLOSED', closedAt: '2025-01-02T00:00:00Z', profit: 200, complete: true },
+        { status: 'CLOSED', closedAt: '2025-01-03T00:00:00Z', profit: -150, complete: true },
+        { status: 'CLOSED', closedAt: '2025-01-04T00:00:00Z', profit: -100, complete: true }
     ];
     // Cumulative: 100, 300, 150, 50. Peak 300, current 50, current DD = 250.
     const cd = RM.tradeSystemCurrentDrawdown(positions);
     assert.equal(cd.dollarDrawdown, 250);
     assert.equal(cd.peakValue, 300);
     assert.equal(cd.currentValue, 50);
+});
+
+test('trade-system drawdown family is all-or-nothing: an incomplete closed position leaves no series', () => {
+    const positions = [
+        { status: 'CLOSED', closedAt: '2025-01-01T00:00:00Z', profit: 100, complete: true },
+        { status: 'CLOSED', closedAt: '2025-01-02T00:00:00Z', profit: -50, complete: false }
+    ];
+    assert.equal(RM.tradeSystemDrawdown(positions).dollarDrawdown, 0);
+    assert.equal(RM.tradeSystemDrawdownEvents(positions).length, 0);
+    assert.equal(RM.tradeSystemCurrentDrawdown(positions).hasData, false);
+
+    const complete = positions.map(p => ({ ...p, complete: true }));
+    assert.equal(RM.tradeSystemDrawdown(complete).dollarDrawdown, 50);
+    assert.equal(RM.tradeSystemCurrentDrawdown(complete).currentValue, 50);
 });
 
 test('tradeSystemCurrentDrawdown empty input → hasData=false', () => {
@@ -883,31 +1561,37 @@ test('computeAnnualizedFromHistoricalPnl integrates the full pipeline', () => {
 });
 
 // ---------------------------------------------------------------------------
-// tradeReturn — maxSize → sumOpen → size fallback chain.
+// tradeReturn — profit ÷ peak notional (peakSize × entryVwap).
 // ---------------------------------------------------------------------------
 
-test('tradeReturn prefers maxSize when present', () => {
-    const p = { maxSize: '2', sumOpen: '10', size: '5', entryPrice: '100', realizedPnl: '20' };
-    // r = 20 / (2 * 100) = 0.10
+test('tradeReturn = profit ÷ (peakSize × entryVwap), ignoring indexer size/price/P&L fields', () => {
+    const p = {
+        profit: 20, peakSize: 2, entryVwap: 100, complete: true,
+        maxSize: '-0.5', sumOpen: '10', size: '5', entryPrice: '50', realizedPnl: '999'
+    };
+    // r = 20 / (2 · 100) = 0.10
     assert.ok(close(RM.tradeReturn(p), 0.1));
 });
 
-test('tradeReturn falls back to sumOpen when maxSize missing', () => {
-    const p = { sumOpen: '4', size: '5', entryPrice: '100', realizedPnl: '20' };
-    // r = 20 / (4 * 100) = 0.05
-    assert.ok(close(RM.tradeReturn(p), 0.05));
+test('peakNotional = peakSize × entryVwap, the denominator tradeReturn divides by', () => {
+    assert.equal(RM.peakNotional({ peakSize: 2, entryVwap: 100, complete: true }), 200);
+    assert.equal(RM.peakNotional({ peakSize: 2, entryVwap: 100, complete: false }), null);
+    assert.equal(RM.peakNotional({ peakSize: 0, entryVwap: 100, complete: true }), null);
+    assert.equal(RM.peakNotional({ peakSize: 2, entryVwap: null, complete: true }), null);
 });
 
-test('tradeReturn falls back to size when both maxSize and sumOpen missing', () => {
-    const p = { size: '5', entryPrice: '100', realizedPnl: '20' };
-    // r = 20 / (5 * 100) = 0.04
-    assert.ok(close(RM.tradeReturn(p), 0.04));
+test('tradeReturn returns null when the fill attribution is incomplete', () => {
+    assert.equal(RM.tradeReturn({ profit: 20, peakSize: 2, entryVwap: 100, complete: false }), null);
 });
 
-test('tradeReturn returns null when notional cannot be computed', () => {
-    assert.equal(RM.tradeReturn({ entryPrice: '100', realizedPnl: '20' }), null);
-    assert.equal(RM.tradeReturn({ size: '5', realizedPnl: '20' }), null);
-    assert.equal(RM.tradeReturn({ size: '0', entryPrice: '100', realizedPnl: '20' }), null);
+test('tradeReturn returns null when peak notional cannot be computed', () => {
+    assert.equal(RM.tradeReturn({ profit: 20, peakSize: null, entryVwap: 100, complete: true }), null);
+    assert.equal(RM.tradeReturn({ profit: 20, peakSize: 2, entryVwap: null, complete: true }), null);
+    assert.equal(RM.tradeReturn({ profit: 20, peakSize: 0, entryVwap: 100, complete: true }), null);
+    assert.equal(RM.tradeReturn({ profit: 20, peakSize: -2, entryVwap: 100, complete: true }), null,
+        'a signed (SHORT) size is not a peak notional');
+    assert.equal(RM.tradeReturn({ profit: 20, peakSize: 2, entryVwap: -100, complete: true }), null);
+    assert.equal(RM.tradeReturn({ peakSize: 2, entryVwap: 100, complete: true }), null, 'missing profit');
 });
 
 // ---------------------------------------------------------------------------
@@ -964,12 +1648,12 @@ test('histPnlDrawdownEvents recovery requires returning to or above prior peak',
     assert.equal(events[0].recoveryAt, null);
 });
 
-test('tradeSystemDrawdownEvents enumerates events on cumulative realizedPnl', () => {
+test('tradeSystemDrawdownEvents enumerates events on cumulative profit', () => {
     const positions = [
-        { status: 'CLOSED', closedAt: '2025-01-01T00:00:00Z', realizedPnl: '100' },
-        { status: 'CLOSED', closedAt: '2025-01-02T00:00:00Z', realizedPnl: '-60' },
-        { status: 'CLOSED', closedAt: '2025-01-03T00:00:00Z', realizedPnl: '80' },  // cum 120 → new peak
-        { status: 'CLOSED', closedAt: '2025-01-04T00:00:00Z', realizedPnl: '-40' }, // trough 80
+        { status: 'CLOSED', closedAt: '2025-01-01T00:00:00Z', profit: 100, complete: true },
+        { status: 'CLOSED', closedAt: '2025-01-02T00:00:00Z', profit: -60, complete: true },
+        { status: 'CLOSED', closedAt: '2025-01-03T00:00:00Z', profit: 80, complete: true },  // cum 120 → new peak
+        { status: 'CLOSED', closedAt: '2025-01-04T00:00:00Z', profit: -40, complete: true }, // trough 80
     ];
     const events = RM.tradeSystemDrawdownEvents(positions);
     assert.ok(events.length >= 1, `expected at least 1 event, got ${events.length}`);
@@ -1031,10 +1715,10 @@ test('liquidationRow tolerates empty marketsMap (uses position entryPrice fallba
 
 test('classifyClosed derived fields: winRate, profitFactor, avgWin, avgLoss, expectancy', () => {
     const positions = [
-        { status: 'CLOSED', realizedPnl: '100' },
-        { status: 'CLOSED', realizedPnl: '200' },
-        { status: 'CLOSED', realizedPnl: '-50' },
-        { status: 'CLOSED', realizedPnl: '0'   }   // scratch
+        { status: 'CLOSED', profit: 100, complete: true },
+        { status: 'CLOSED', profit: 200, complete: true },
+        { status: 'CLOSED', profit: -50, complete: true },
+        { status: 'CLOSED', profit: 0, complete: true }   // scratch
     ];
     const c = RM.classifyClosed(positions);
     assert.equal(c.winCount, 2);
@@ -1054,7 +1738,7 @@ test('classifyClosed derived fields: winRate, profitFactor, avgWin, avgLoss, exp
 });
 
 test('classifyClosed derived fields are null when denominator is zero', () => {
-    const allScratches = [{ status: 'CLOSED', realizedPnl: '0' }];
+    const allScratches = [{ status: 'CLOSED', profit: 0, complete: true }];
     const c1 = RM.classifyClosed(allScratches);
     assert.equal(c1.winRate, null);
     assert.equal(c1.profitFactor, null);
@@ -1063,8 +1747,8 @@ test('classifyClosed derived fields are null when denominator is zero', () => {
     assert.equal(c1.expectancy, null);
 
     const winsOnly = [
-        { status: 'CLOSED', realizedPnl: '100' },
-        { status: 'CLOSED', realizedPnl: '50'  }
+        { status: 'CLOSED', profit: 100, complete: true },
+        { status: 'CLOSED', profit: 50, complete: true }
     ];
     const c2 = RM.classifyClosed(winsOnly);
     assert.equal(c2.winRate, 100);
@@ -1076,9 +1760,9 @@ test('classifyClosed derived fields are null when denominator is zero', () => {
 
 test('classifyByMonth buckets closed positions by closedAt month', () => {
     const positions = [
-        { status: 'CLOSED', closedAt: '2025-01-15T00:00:00Z', realizedPnl: '100' },
-        { status: 'CLOSED', closedAt: '2025-01-20T00:00:00Z', realizedPnl: '-50' },
-        { status: 'CLOSED', closedAt: '2025-02-05T00:00:00Z', realizedPnl: '200' },
+        { status: 'CLOSED', closedAt: '2025-01-15T00:00:00Z', profit: 100, complete: true },
+        { status: 'CLOSED', closedAt: '2025-01-20T00:00:00Z', profit: -50, complete: true },
+        { status: 'CLOSED', closedAt: '2025-02-05T00:00:00Z', profit: 200, complete: true },
         { status: 'OPEN',   createdAt: '2025-02-10T00:00:00Z' }, // skipped
     ];
     const monthly = RM.classifyByMonth(positions);
@@ -1089,6 +1773,17 @@ test('classifyByMonth buckets closed positions by closedAt month', () => {
     assert.equal(monthly['January 2025'].expectancy, 25); // (100−50)/2
     assert.equal(monthly['February 2025'].winCount, 1);
     assert.equal(monthly['February 2025'].profitFactor, null); // no losses
+});
+
+test('classifyByMonth applies an account-wide unavailable reason to every month', () => {
+    const reason = '1 position missing fill data';
+    const monthly = RM.classifyByMonth([
+        { status: 'CLOSED', closedAt: '2025-01-15T00:00:00Z', profit: 100, complete: true },
+        { status: 'CLOSED', closedAt: '2025-01-20T00:00:00Z', profit: -50, complete: true }
+    ], reason);
+    assert.equal(monthly['January 2025'].incompleteReason, reason);
+    assert.equal(monthly['January 2025'].winRate, null);
+    assert.equal(monthly['January 2025'].winCount, 1, 'counts stay available');
 });
 
 test('classifyByMonth empty / null input → {}', () => {

@@ -3,7 +3,7 @@
 // the inline block — it has tight closure over the classifier output and
 // will move when process-data is extracted in Phase 2's final PR.
 //
-// Depends on: window.Format (formatCurrency, esc).
+// Depends on: window.Format (formatCurrency, signClass, esc).
 
 (function () {
   'use strict';
@@ -40,7 +40,16 @@
     if (!pts.length) return '';
     return 'M' + pts.map(p => p[0].toFixed(2) + ',' + p[1].toFixed(2)).join(' L');
   }
-  function seVerdict(wrPct, pf) {
+  // unavailableReason: the classifier's incompleteReason ('' when its
+  // inputs are complete), shown instead of the generic empty-data text.
+  function seVerdict(wrPct, pf, unavailableReason) {
+    if (unavailableReason) {
+      return {
+        name: 'Unavailable',
+        cls:  'is-pending',
+        desc: `${unavailableReason} — win rate and profit factor cannot be computed, so the phase diagram cannot place a verdict.`
+      };
+    }
     if (wrPct == null || pf == null) {
       return {
         name: 'Awaiting',
@@ -77,7 +86,9 @@
     };
   }
 
-  function renderStrategyEdge(winRatePct, profitFactor) {
+  // winRatePct, profitFactor and payoff are classifyClosed's winRate,
+  // profitFactor and payoff (null when undefined).
+  function renderStrategyEdge(winRatePct, profitFactor, payoff, unavailableReason = '') {
     const svg = document.getElementById('strategyEdgeSvg');
     if (!svg) return;
     const { x0, x1, y0, y1 } = SE_PLOT;
@@ -99,7 +110,7 @@
     const xTicks = [0, 20, 40, 60, 80, 100];
     const yTicks = [0.25, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0];
 
-    const verdict = seVerdict(winRatePct, profitFactor);
+    const verdict = seVerdict(winRatePct, profitFactor, unavailableReason);
 
     const hasPoint = winRatePct != null && profitFactor != null;
     const markerX = hasPoint ? seWrToX(winRatePct) : null;
@@ -222,45 +233,32 @@
     if (descEl) descEl.textContent = verdict.desc;
     const fmtPct = (v) => v == null ? '—' : `${v.toFixed(1)}%`;
     const fmtPf  = (v) => v == null ? '—' : v.toFixed(2);
-    let rr = null;
-    if (winRatePct != null && profitFactor != null && winRatePct > 0 && winRatePct < 100) {
-      const wr = winRatePct / 100;
-      rr = (profitFactor * (1 - wr)) / wr;
-    }
     const fmtRR = (v) => (v == null || !isFinite(v)) ? '—' : `${v.toFixed(2)} : 1`;
     const wrOut = document.getElementById('seWinRateOut');
     const pfOut = document.getElementById('seProfitFactorOut');
     const rrOut = document.getElementById('seImpliedRR');
     if (wrOut) wrOut.textContent = fmtPct(winRatePct);
     if (pfOut) pfOut.textContent = fmtPf(profitFactor);
-    if (rrOut) rrOut.textContent = fmtRR(rr);
+    if (rrOut) rrOut.textContent = fmtRR(payoff);
   }
 
   // --- Total Profit ledger ---
 
   // FEES uses dYdX's positive-paid convention: positive feesPaid means
   // the user paid the venue. The cell renders the signed cost so a
-  // positive feesPaid shows as a negative dollar amount in red.
+  // positive feesPaid shows as a negative dollar amount in red. A null
+  // component (its inputs failed to load) renders '—'.
   function renderTotalProfitBreakdown(trading, funding, feesPaid) {
-    const formatCurrency = window.Format.formatCurrency;
-    const fmt = (v) => formatCurrency(v);
-    const sign = (v) => v > 0 ? 'profit' : (v < 0 ? 'loss' : 'zero');
-    const t = document.getElementById('totalPnLTrading');
-    const f = document.getElementById('totalPnLFunding');
-    const feesEl = document.getElementById('totalPnLFees');
-    if (t) {
-      t.textContent = fmt(trading);
-      t.className = `mono ${sign(trading)}`;
-    }
-    if (f) {
-      f.textContent = fmt(funding);
-      f.className = `mono ${sign(funding)}`;
-    }
-    if (feesEl) {
-      const feesContribution = -feesPaid;
-      feesEl.textContent = fmt(feesContribution);
-      feesEl.className = `mono ${sign(feesContribution)}`;
-    }
+    const F = window.Format;
+    const paint = (id, v) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.textContent = v === null ? '—' : F.formatCurrency(v);
+      el.className = `mono ${v === null ? '' : F.signClass(v)}`.trim();
+    };
+    paint('totalPnLTrading', trading);
+    paint('totalPnLFunding', funding);
+    paint('totalPnLFees', feesPaid === null ? null : -feesPaid);
   }
 
   window.AppPanels = window.AppPanels || {};

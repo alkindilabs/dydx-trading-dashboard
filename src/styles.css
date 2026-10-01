@@ -121,6 +121,7 @@
 
         .profit { color: var(--gain); }
         .loss   { color: var(--loss); }
+        .zero   { color: var(--ink-3); }
         .warning{ color: var(--warn); }
 
         .container {
@@ -273,10 +274,15 @@
             background: var(--paper-2);
             color: var(--ink-2);
             /* Stable footprint for all states: FRESH / FETCHING / FRESH PARTIAL /
-               OFFLINE. Sized for the widest text ("FRESH · PARTIAL") so the
-               right rail never reflows the headline mid-fetch. Collapses to
-               container width on viewports narrower than 10rem (≈160px). */
-            min-width: min(10rem, 100%);
+               OFFLINE / CACHED PARTIAL. Sized for the widest text
+               ("CACHED · PARTIAL", ≈166px) plus slack for font fallback, so the
+               right rail never reflows the headline mid-fetch. A fixed width,
+               not min(…, 100%): the rail sizes itself from its children's
+               intrinsic widths, where a percentage floor counts as zero and
+               each state's text width would leak through. max-width collapses
+               the badge to container width on viewports narrower than 11rem. */
+            width: 11rem;
+            max-width: 100%;
             box-sizing: border-box;
         }
         .status-badge.fresh {
@@ -286,7 +292,9 @@
         }
         .status-badge.fresh::before,
         .status-badge.fetching::before,
-        .status-badge.offline::before {
+        .status-badge.offline::before,
+        .status-badge.partial::before,
+        .status-badge.cached-partial::before {
             content: '';
             width: 0.375rem; height: 0.375rem; border-radius: 50%;
             flex-shrink: 0;
@@ -324,6 +332,19 @@
             border-color: rgba(203,92,80,0.4);
         }
         .status-badge.offline::before { background: var(--loss); }
+
+        /* cached-partial state — painted from a cache snapshot that had
+           fields evicted to fit browser storage; held until fresh data.
+           partial state — the last fetch lost some endpoints. */
+        .status-badge.cached-partial,
+        .status-badge.partial {
+            color: var(--warn);
+            background: linear-gradient(180deg, rgba(202,149,85,0.09), rgba(202,149,85,0.02));
+            border-color: rgba(202,149,85,0.4);
+            cursor: help;
+        }
+        .status-badge.cached-partial::before,
+        .status-badge.partial::before { background: var(--warn); }
 
         /* Determinate fetch progress bar — replaces the indefinite sweep.
            Sits in the masthead's bottom-rule slot. Track is a low-contrast
@@ -939,8 +960,11 @@
         }
         .funding-chart__controls {
             display: inline-flex;
+            flex-wrap: wrap;
             align-items: center;
             gap: 0.625rem;
+            min-width: 0;
+            max-width: 100%;
         }
         .funding-chart__select-label {
             font-family: var(--ff-mono);
@@ -966,6 +990,10 @@
             background-size: 0.375rem 0.375rem, 0.375rem 0.375rem;
             background-repeat: no-repeat;
             transition: border-color 0.15s, color 0.15s;
+            /* The picker lists every market, and a select sizes itself to
+               its longest option; cap it so it never widens the page. */
+            min-width: 0;
+            max-width: 100%;
         }
         .funding-chart__select:hover { border-color: var(--gold); color: var(--ink); }
         .funding-chart__select:focus-visible { outline: 1px solid var(--gold); outline-offset: 2px; }
@@ -976,7 +1004,10 @@
             text-transform: uppercase;
             color: var(--ink-3);
             min-width: 6rem;
+            max-width: 100%;
             white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
         .funding-chart__status.fetching { color: var(--gold); }
         .funding-chart__status.error    { color: var(--loss); }
@@ -1685,6 +1716,12 @@
             position: relative;
         }
 
+        .flip-tag {
+            margin-left: 0.375rem;
+            color: var(--gold);
+            cursor: help;
+        }
+
         /* DISTRIBUTION BARS */
         .distribution-bars {
             display: flex;
@@ -1701,6 +1738,40 @@
             transition: opacity 0.2s;
         }
         .distribution-bar:hover { opacity: 1; }
+        .distribution-bar.is-gain { background: var(--gain); opacity: 0.55; }
+        .distribution-bar.is-loss { background: var(--loss); opacity: 0.55; }
+
+        /* Labeled histogram rows (renderHistogram): label | bar | count */
+        .distribution-bars.distribution-rows {
+            display: grid;
+            grid-template-columns: max-content minmax(0, 1fr) max-content;
+            align-items: center;
+            column-gap: 0.75rem;
+            row-gap: 0.375rem;
+            height: auto;
+        }
+        .distribution-rows .distribution-label,
+        .distribution-rows .distribution-count {
+            font-size: 0.6875rem;
+            white-space: nowrap;
+        }
+        .distribution-rows .distribution-label { color: var(--ink-2); }
+        .distribution-rows .distribution-count { color: var(--ink); text-align: right; }
+        .distribution-rows .distribution-track {
+            height: 0.625rem;
+            background: var(--paper-4);
+        }
+        .distribution-rows .distribution-bar {
+            height: 100%;
+            min-height: 0;
+            border-radius: 0 2px 2px 0;
+        }
+        .distribution-rows .distribution-empty {
+            grid-column: 1 / -1;
+            margin: 0;
+            font-size: 0.75rem;
+            color: var(--ink-3);
+        }
 
         /* BEHAVIOR CARD */
         .behavior-card {
@@ -1742,7 +1813,8 @@
             background: var(--paper-3);
             border: 1px solid var(--loss);
             padding: 0.5rem 0.75rem;
-            margin-left: 0.75rem;
+            margin: 0 0 1.75rem;
+            overflow-wrap: anywhere;
         }
 
         .empty-tab {

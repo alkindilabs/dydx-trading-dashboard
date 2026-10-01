@@ -14,22 +14,12 @@
 
   let _wired = false;
   let _renderToken = 0;
-  let _state = { positions: [], fills: [], address: '', lastReport: null };
-
-  // Size formatter that preserves decimals — Format.fmtNum rounds
-  // |value| >= 1 to an integer (`Math.round`), so 1.75 → 2, which is
-  // material precision loss in a tax report. Up to 4 decimal places,
-  // trailing zeros stripped, sign preserved.
-  function fmtSizePrecise(value) {
-    if (value === null || value === undefined || value === '') return '-';
-    const n = parseFloat(value);
-    if (!isFinite(n)) return '-';
-    const sign = n < 0 ? '-' : '';
-    const a = Math.abs(n);
-    if (a === 0) return '0';
-    const rounded = Number(a.toFixed(4));
-    return sign + String(rounded);
-  }
+  // dataGap: '' when fills and both position lists loaded, else why one
+  // did not (processData's missingDataReason). Without fills no realized
+  // P&L, fee or net figure can be computed; without a position list the
+  // fills cannot be tied to the right rows. Either way those cells and
+  // totals read '—'.
+  let _state = { positions: [], fills: [], address: '', dataGap: '', lastReport: null };
 
   // Price formatter that preserves cents and finer ticks. Format.formatPrice
   // rounds prices |value| >= 1 to whole dollars, so a perp entry/exit at
@@ -38,9 +28,9 @@
   // below for micro-priced perps (mirrors the sub-dollar branch in
   // Format.formatPrice).
   function fmtPricePrecise(value) {
-    if (value === null || value === undefined || value === '') return '-';
+    if (value === null || value === undefined || value === '') return '—';
     const n = typeof value === 'number' ? value : parseFloat(value);
-    if (!isFinite(n)) return '-';
+    if (!isFinite(n)) return '—';
     const a = Math.abs(n);
     if (a === 0) return '$0';
     const sign = n < 0 ? '-' : '';
@@ -100,10 +90,14 @@
     });
   }
 
+  const CENTS = 2;
+  const SIGN_BY_CLASS = { profit: '+', loss: '-' };
+
+  // Signed from the value as displayed (Format.signClass), so an amount
+  // that rounds to $0.00 is neither signed nor coloured.
   function fmtUsdSigned(n) {
     if (typeof n !== 'number' || !isFinite(n)) return '—';
-    const sign = n > 0 ? '+' : (n < 0 ? '-' : '');
-    return sign + '$' + Math.abs(n).toFixed(2);
+    return (SIGN_BY_CLASS[window.Format.signClass(n, CENTS)] || '') + '$' + Math.abs(n).toFixed(CENTS);
   }
 
   // Fees follow the dYdX convention: positive = paid (cost),
@@ -111,25 +105,30 @@
   // (a leading `+` reads as income), but keep the `-` sign on rebates
   // so they read distinctly and agree with the CSV/JSON exports and
   // the net P&L math (which adds rebates back).
+  // A rebate that rounds to 0.00 reads unsigned, like every other cell.
   function fmtFee(n) {
     if (typeof n !== 'number' || !isFinite(n)) return '—';
-    if (n < 0) return '-$' + Math.abs(n).toFixed(2);
-    return '$' + n.toFixed(2);
+    const rebate = window.Format.signClass(n, CENTS) === 'loss';
+    return (rebate ? '-$' : '$') + Math.abs(n).toFixed(CENTS);
   }
 
   function fmtFeeEur(n) {
     if (typeof n !== 'number' || !isFinite(n)) return '—';
-    if (n < 0) return '-€' + Math.abs(n).toFixed(2);
-    return '€' + n.toFixed(2);
+    const rebate = window.Format.signClass(n, CENTS) === 'loss';
+    return (rebate ? '-€' : '€') + Math.abs(n).toFixed(CENTS);
   }
 
   function fmtEurSigned(n) {
     if (typeof n !== 'number' || !isFinite(n)) return '—';
-    const sign = n > 0 ? '+' : (n < 0 ? '-' : '');
-    return sign + '€' + Math.abs(n).toFixed(2);
+    return (SIGN_BY_CLASS[window.Format.signClass(n, CENTS)] || '') + '€' + Math.abs(n).toFixed(CENTS);
   }
 
-  function renderRows(rows, classification) {
+  function incompleteRowsText(count) {
+    return count + (count === 1 ? ' row' : ' rows') + ' missing fill data';
+  }
+
+  function renderRows(rows, classification, dataGap = '') {
+    const F = window.Format;
     const D = window.AppDom;
     const body = document.getElementById('taxRowsBody');
     const holdHeader = document.getElementById('taxHoldingHeader');
@@ -152,71 +151,53 @@
 
     rows.forEach(row => {
       const tr = document.createElement('tr');
-      const reasons = [];
-      if (!row._realizedFromFills) {
-        switch (row._realizedFillError) {
-          case 'no-fills-in-window':
-            reasons.push('No fills found in this position\'s window — realized P&L is 0 because no fills were attributed to it.');
-            break;
-          case 'invalid-fill-in-slice':
-            reasons.push('Window has ' + row.fillCount
-              + ' fill(s) but at least one carries an invalid price / size / side — that fill was skipped by the continuous-FIFO walk, so realized totals may be understated.');
-            break;
-          case 'partial-fill-slice':
-          default:
-            reasons.push('Window has ' + row.fillCount
-              + ' fill(s) but they do not net flat in isolation. Realized P&L still uses continuous-FIFO attribution across position boundaries, so the row total is correct — but per-position attribution is approximate when inventory state crosses the boundary.');
-            break;
-        }
+      // Warnings mark the row with †: its values are missing or its EUR
+      // conversion is. Audit hints only explain a row whose values stand.
+      const warnings = [];
+      if (dataGap) {
+        warnings.push(dataGap + ' — realized P&L, fees and net cannot be computed.');
+      } else if (row._attributionIncomplete) {
+        warnings.push('The fill history does not tie to exactly this position (fills missing, unparseable, or shared with a position absent from the list), so realized P&L, fees and net cannot be computed.');
       }
-      // _hasInvalidFill is independent of _realizedFillError: a partial
-      // slice CAN also contain an invalid fill, in which case the gate
-      // cascade settles on 'partial-fill-slice' and the invalid-fill
-      // caveat would be silent without this second check.
-      if (row._hasInvalidFill && row._realizedFillError !== 'invalid-fill-in-slice') {
-        reasons.push('At least one fill in this window carries an invalid price / size / side — the continuous-FIFO walk skipped it, so the realized total above may be understated.');
+      if (!dataGap && row._hasInvalidFill) {
+        warnings.push('At least one fill in this window carries an invalid price / size / side, which the FIFO walk cannot use.');
       }
-      if (row._feeAttributionWarning) reasons.push('Another closed position in this market overlaps the window — per-position fee and realized attribution is approximate, though the year total is exact.');
-      if (row._fxMissing) reasons.push('FX rate unavailable for ' + (row.closedDateUTC || 'close date') + '.');
+      if (row._fxMissing) warnings.push('FX rate unavailable for ' + (row.closedDateUTC || 'close date') + '.');
+      const hints = [];
+      if (row._feeAttributionWarning) hints.push('Another closed position in this market overlaps this window; the two rows of a reversal always touch at the reversing fill (audit hint). The FIFO walk still assigns each fill\'s realized P&L and fee to exactly one position.');
 
-      const closedTd = D.appendCell(tr, row.closedDateUTC || '—', ['mono']);
-      if (reasons.length) {
-        const dateText = row.closedDateUTC || '—';
-        closedTd.textContent = dateText + ' †';
-        closedTd.title = reasons.join('\n');
+      const dateText = row.closedDateUTC || '—';
+      const closedTd = D.appendCell(tr, warnings.length ? dateText + ' †' : dateText, ['mono']);
+      const notes = warnings.concat(hints);
+      if (notes.length) {
+        closedTd.title = notes.join('\n');
         closedTd.style.cursor = 'help';
         // Accessibility: a `title` tooltip alone is not reliably exposed
         // to keyboard or screen-reader users. Make the cell focusable
-        // and announce the warning text via aria-label. Do NOT override
+        // and announce the text via aria-label. Do NOT override
         // role — `<td>` already has the implicit `cell` role and assistive
         // tech relies on it for table-grid navigation; an explicit role
         // here (e.g. `note`) would strip those semantics.
         closedTd.setAttribute('tabindex', '0');
         closedTd.setAttribute(
           'aria-label',
-          dateText + ' — warning: ' + reasons.join(' ')
+          dateText + (warnings.length ? ' — warning: ' : ' — note: ') + notes.join(' ')
         );
       }
       D.appendCell(tr, row.market || '—', ['mono']);
       D.appendCell(tr, row.side || '—', ['mono']);
-      D.appendCell(tr, fmtSizePrecise(row.maxSize), ['mono']);
+      D.appendCell(tr, F.fmtAssetSize(row.peakSize, row.market), ['mono']);
       D.appendCell(tr, fmtPricePrecise(row.entryPrice), ['mono']);
       D.appendCell(tr, fmtPricePrecise(row.exitPrice), ['mono']);
-      D.appendCell(tr, fmtUsdSigned(row.realizedPnlUSD), ['mono', row.realizedPnlUSD >= 0 ? 'profit' : 'loss']);
-      D.appendCell(tr, fmtUsdSigned(row.netFundingUSD), ['mono', row.netFundingUSD >= 0 ? 'profit' : 'loss']);
+      const signed = (n) => (dataGap ? null : n);
+      D.appendCell(tr, fmtUsdSigned(signed(row.realizedPnlUSD)), ['mono', F.signClass(signed(row.realizedPnlUSD), CENTS)]);
+      D.appendCell(tr, fmtUsdSigned(row.netFundingUSD), ['mono', F.signClass(row.netFundingUSD, CENTS)]);
       // Fees follow the dYdX convention: positive = paid, negative =
       // maker rebate. fmtFee preserves the sign on rebates so the row
       // value agrees with net P&L (which adds rebates back).
-      D.appendCell(tr, fmtFee(row.feesUSD), ['mono']);
-      D.appendCell(tr, fmtUsdSigned(row.netUSD), ['mono', row.netUSD >= 0 ? 'profit' : 'loss']);
-      // No profit/loss class unless we actually have a numeric EUR value.
-      // Otherwise the `—` placeholder would render in the gain color.
-      const eurCls = typeof row.netEUR === 'number' && isFinite(row.netEUR)
-        ? (row.netEUR < 0 ? 'loss' : 'profit')
-        : null;
-      D.appendCell(tr,
-        typeof row.netEUR === 'number' ? fmtEurSigned(row.netEUR) : '—',
-        ['mono', eurCls]);
+      D.appendCell(tr, fmtFee(signed(row.feesUSD)), ['mono']);
+      D.appendCell(tr, fmtUsdSigned(signed(row.netUSD)), ['mono', F.signClass(signed(row.netUSD), CENTS)]);
+      D.appendCell(tr, fmtEurSigned(signed(row.netEUR)), ['mono', F.signClass(signed(row.netEUR), CENTS)]);
       if (showHolding) D.appendCell(tr, row.holdingDays === null ? '—' : String(row.holdingDays), ['mono']);
       body.appendChild(tr);
     });
@@ -255,8 +236,40 @@
     D.updateElement('taxFundingUsd', fmtUsdSigned(totals.fundingUSD));
     D.updateElement('taxFundingEur', eurOrDash(totals.fundingEUR));
     D.updateElement('taxTradeCount', String(totals.count));
-    D.updateElement('taxTradeBreakdown',
-      totals.winCount + 'W / ' + totals.lossCount + 'L / ' + totals.scratchCount + 'S');
+    if (totals.incompleteCount > 0) {
+      const reason = incompleteRowsText(totals.incompleteCount);
+      D.updateElement('taxTradeBreakdown', '—');
+      D.updateElement('taxNetUsdDetail', reason);
+      D.updateElement('taxNetEurDetail', reason);
+    } else {
+      D.updateElement('taxTradeBreakdown',
+        totals.winCount + 'W / ' + totals.lossCount + 'L / ' + totals.scratchCount + 'S');
+    }
+  }
+
+  // Totals without the data a fills-derived total needs: only funding
+  // and the trade count are known.
+  function renderTotalsWithGap(totals, classification, dataGap) {
+    const D = window.AppDom;
+    renderTotals(totals, classification);
+    ['taxNetUsd', 'taxNetEur', 'taxGrossGainsUsd', 'taxGrossGainsEur', 'taxGrossLossesUsd',
+      'taxGrossLossesEur', 'taxFeesUsd', 'taxFeesEur', 'taxFundingEur', 'taxTradeBreakdown']
+      .forEach(id => D.updateElement(id, '—'));
+    D.updateElement('taxNetUsdDetail', dataGap);
+    D.updateElement('taxNetEurDetail', dataGap);
+  }
+
+  function renderDataGapStatus(year, rowCount, dataGap) {
+    const status = document.getElementById('taxStatus');
+    if (status) {
+      const positionsNoun = rowCount === 1 ? 'closed position' : 'closed positions';
+      status.textContent = ['Year ' + year, rowCount + ' ' + positionsNoun, dataGap].join(' · ');
+    }
+    const strip = document.getElementById('taxWarningStrip');
+    if (strip) {
+      strip.style.display = '';
+      strip.textContent = dataGap + '. Realized P&L, fees and net P&L come from the fill history matched to the position lists, so they read — and the year totals are unavailable. Only funding is shown. Reload to fetch the data again.';
+    }
   }
 
   function renderStatus(year, warnings, rowCount) {
@@ -265,26 +278,23 @@
       const positionsNoun = rowCount === 1 ? 'closed position' : 'closed positions';
       const parts = ['Year ' + year, rowCount + ' ' + positionsNoun];
       const ambig = warnings.feeAttributionAmbiguousCount;
-      if (ambig) parts.push(ambig + (ambig === 1 ? ' row' : ' rows') + ' attribution-ambiguous (fees + realized)');
+      if (ambig) parts.push(ambig + (ambig === 1 ? ' row overlaps' : ' rows overlap') + " another position's window");
       const mfx = warnings.missingFxDates.length;
       if (mfx) parts.push(mfx + (mfx === 1 ? ' missing FX date' : ' missing FX dates'));
-      const noFifo = warnings.positionsWithoutFifoCount;
-      if (noFifo) parts.push(noFifo + (noFifo === 1 ? ' row' : ' rows') + ' no/incomplete FIFO data');
+      const incomplete = warnings.incompleteAttributionCount;
+      if (incomplete) parts.push(incompleteRowsText(incomplete));
       status.textContent = parts.join(' · ');
     }
     const strip = document.getElementById('taxWarningStrip');
     if (!strip) return;
-    if (warnings.positionsWithInvalidFillCount > 0) {
+    if (warnings.incompleteAttributionCount > 0) {
       strip.style.display = '';
-      strip.textContent = 'Some rows are flagged with † because at least one fill in their window carried an invalid price / size / side. The continuous-FIFO walk skipped those fills, so realized totals may be understated relative to the true account history and may not reconcile to the equity curve. Inspect affected rows before relying on the totals; reload the page to re-fetch fills in case the indexer corrects the field.';
-    } else if (warnings.positionsWithoutFifoCount > 0) {
-      strip.style.display = '';
-      strip.textContent = 'Some rows are flagged with † because their fill slice is incomplete: either no fills landed in the indexer window, or the fills present do not net flat (boundary does not align with a true size=0 moment). The year totals still reconcile to the equity curve because realized P&L is attributed via continuous FIFO across position boundaries — only the per-position split on flagged rows is approximate. Hover the date column for the specific reason on each row.';
+      strip.textContent = incompleteRowsText(warnings.incompleteAttributionCount) + ' (flagged with †): the fill history does not tie to exactly those positions, so their realized P&L, fees and net read —, and every fills-derived year total is unavailable rather than partial. Only funding and the trade count are shown. Hover the date column for each row; reload to fetch the data again.';
     } else if (warnings.feeAttributionAmbiguousCount > 0) {
       strip.style.display = '';
       const n = warnings.feeAttributionAmbiguousCount;
       const noun = n === 1 ? 'row' : 'rows';
-      strip.textContent = 'Two or more closed positions overlap in time within the same market for ' + n + ' ' + noun + '. The year totals are exact (continuous-FIFO attribution unique-assigns each fill), but per-position split on flagged rows is approximate. Verify against raw fills if individual row attribution matters for your filing.';
+      strip.textContent = n + ' ' + noun + ' overlap another closed position\'s window in the same market (the two rows of a reversal always touch at the reversing fill). This is an audit hint: the FIFO walk still assigns each fill\'s realized P&L and fee to exactly one position. Verify against raw fills if individual row attribution matters for your filing.';
     } else {
       strip.style.display = 'none';
       strip.textContent = '';
@@ -321,6 +331,8 @@
       if (status) {
         if (!_state.address) {
           status.textContent = 'Load an address to populate.';
+        } else if (_state.dataGap) {
+          status.textContent = _state.dataGap + '.';
         } else {
           status.textContent = 'No closed positions for this address.';
         }
@@ -336,6 +348,16 @@
     // the idempotent convertRowsToEur after rates arrive. Avoids
     // running FIFO + fee attribution twice per refresh.
     const report = window.TaxReport.buildYearReport(positions, fills, year, null);
+    if (_state.dataGap) {
+      // Nothing downloadable: an export would carry wrong or empty
+      // values in every fills-derived column. EUR is skipped for the
+      // same reason.
+      renderRows(report.rows, classification, _state.dataGap);
+      renderTotalsWithGap(window.TaxReport.summarize(report.rows, classification),
+        classification, _state.dataGap);
+      renderDataGapStatus(year, report.rows.length, _state.dataGap);
+      return;
+    }
     const dates = [...new Set(report.rows.map(r => r.closedDateUTC).filter(Boolean))];
 
     // Paint the USD-only report immediately so prior renders cannot
@@ -448,9 +470,10 @@
     if (jsonBtn) jsonBtn.addEventListener('click', () => download('json'));
   }
 
-  function render(positions, fills, address) {
+  function render(positions, fills, address, dataGap = '') {
     _state.positions = Array.isArray(positions) ? positions : [];
     _state.fills = Array.isArray(fills) ? fills : [];
+    _state.dataGap = dataGap || '';
     _state.address = typeof address === 'string' ? address : (_state.address || '');
     // Stale lastReport from the prior address must not be downloadable.
     _state.lastReport = null;
