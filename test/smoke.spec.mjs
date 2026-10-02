@@ -58,6 +58,20 @@ test.describe('dashboard smoke', () => {
     expect(errors, errors.join('\n')).toHaveLength(0);
   });
 
+  test('the heading names each tab by the label its tab shows', async ({ page }) => {
+    await page.goto('/');
+    const breadcrumb = page.locator('#breadcrumb');
+    await expect(breadcrumb).toHaveText('Trade Review');
+    for (const tab of await page.locator('.nav-tab').all()) {
+      const label = (await tab.textContent()).trim();
+      await tab.click();
+      const expected = (await tab.getAttribute('data-tab')) === 'overview'
+        ? 'Trade Review'
+        : `Trade Review — ${label}`;
+      await expect(breadcrumb).toHaveText(expected);
+    }
+  });
+
   test('tab switching mounts each panel without throwing', async ({ page }) => {
     const errors = [];
     const fxCalls = [];
