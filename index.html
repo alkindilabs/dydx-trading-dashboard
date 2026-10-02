@@ -1742,8 +1742,24 @@
             // the chart's last candle all read the account's profit now,
             // not the last hourly row; a transfer since that row is never
             // read as profit.
+            //
+            // Reconciliation gate. The headline is FIFO realized over
+            // /fills + FIFO lots left open at the oracle + netFunding −
+            // fees; /historical-pnl's totalPnl (equity − net transfers) is
+            // an independent account of the same lifetime profit. They
+            // agree within float rounding when /fills is complete to
+            // inception. When they disagree (RiskMetrics.
+            // profitReconciliation) one of them is wrong and nothing here
+            // says which: /fills paginated short, or totalPnl counting a
+            // flow that is not a trade (a vault's main subaccount, with no
+            // fill at all, carries millions of it). The headline then reads
+            // '—' with the gap, and there is no live point.
+            const reconciliation = profitGap ? null : window.RiskMetrics.profitReconciliation(
+                histArr, subaccount && subaccount.equity, ledger.total);
+            const reconciliationGap = reconciliation ? reconciliation.reason : '';
+            const headlineGap = profitGap || reconciliationGap;
             const livePnl = window.RiskMetrics.livePnlPoint(
-                histArr, profitGap ? null : ledger.total, snapshotAtMs);
+                histArr, headlineGap ? null : ledger.total, snapshotAtMs);
             // The closed-trade fallback series: closes in one millisecond
             // in the fills' chain order, ending now (snapshotAtMs), so its
             // time below peak runs to now as the live point's does.
@@ -1781,28 +1797,10 @@
             const totalFees = ledger.fees;
             const totalPnL = ledger.total;
 
-            // Reconciliation guard. Two independent paths must arrive at the
-            // same lifetime profit:
-            //   • component-based: FIFO realized over /fills + FIFO lots
-            //     left open marked at the oracle + netFunding − fees.
-            //   • equity-based: latest totalPnl row from /historical-pnl
-            //     (equity − net transfers, sampled hourly) moved by the
-            //     equity change since that row, so price drift since the
-            //     hourly snapshot is not reported as a gap.
-            // Empirically these reconcile within float-rounding when /fills
-            // is complete to inception. A material gap signals one of:
-            // /fills paginated short of inception, dYdX added an equity flow
-            // we're not summing yet, or a sign got inverted somewhere. Logs
-            // a structured payload so the operator can localize the leak.
-            // Tolerance is 1% of the equity-based reference floored at $1
-            // — tiny accounts still surface absolute-dollar drift, huge
-            // accounts don't false-positive on per-row dollar rounding.
-            const latestEquityPnl = window.RiskMetrics.equityAdjustedTotalPnl(
-                histArr, subaccount && subaccount.equity);
             // Isolated-margin guard. Dashboard analyses subaccount 0; users
             // who trade in child subaccounts (≥128 per dYdX convention) keep
             // separate equity, fills, and PnL ledgers per sub. The
-            // reconciliation guard against sub-0's totalPnl would not catch
+            // reconciliation gate against sub-0's totalPnl would not catch
             // their isolated trading because sub=0 doesn't see those fills.
             // /addresses/{address} enumerates every subaccount; flagging any
             // non-zero child surfaces the blind spot before the user trusts
@@ -1826,43 +1824,40 @@
                 );
             }
 
-            if (!profitGap && latestEquityPnl !== null && isFinite(latestEquityPnl)) {
-                const gap = totalPnL - latestEquityPnl;
-                const RECONCILE_FLOOR_USD = 1;
-                const RECONCILE_TOLERANCE_FRACTION = 0.01;
-                const tolerance = Math.max(RECONCILE_FLOOR_USD, Math.abs(latestEquityPnl) * RECONCILE_TOLERANCE_FRACTION);
-                if (Math.abs(gap) > tolerance) {
-                    const childHint = activeChildren.length > 0
-                        ? ` Active child subaccounts also present (${activeChildren.map(s => s.subaccountNumber).join(', ')}); ` +
-                          `cross-subaccount transfers can shift sub-0 totalPnl independently of sub-0 fills, ` +
-                          `inflating this gap.`
-                        : '';
-                    console.error(
-                        `[dydx-dashboard] Total Profit reconciliation FAILED — ` +
-                        `headline disagrees with /historical-pnl by ${formatCurrency(gap)}. ` +
-                        `Headline (FIFO realized + FIFO unrealized + funding − fees) = ${formatCurrency(totalPnL)}; ` +
-                        `/historical-pnl latest totalPnl adjusted to current equity = ${formatCurrency(latestEquityPnl)}. ` +
-                        `Likely cause: /fills paginated short of inception, or an equity flow ` +
-                        `(insurance fund, ADL, rewards) not exposed per-event by the indexer.` + childHint,
-                        {
-                            headline: totalPnL,
-                            trading: totalTradingPnL,
-                            funding: totalNetFunding,
-                            fees: totalFees,
-                            equityBased: latestEquityPnl,
-                            gap,
-                            tolerance,
-                            activeChildSubaccounts: activeChildren.map(s => s.subaccountNumber),
-                            counts: {
-                                positions: allPositions.length,
-                                openPositions: allPositions.filter(p => p.status === 'OPEN').length,
-                                closedPositions: cls.closedCount,
-                                fills: fillsArr.length,
-                                historicalPnlRows: histArr.length
-                            }
+            // The reconciliation gate's payload for the operator: which
+            // stream to inspect when the headline reads the disagreement.
+            if (reconciliationGap) {
+                const childHint = activeChildren.length > 0
+                    ? ` Active child subaccounts also present (${activeChildren.map(s => s.subaccountNumber).join(', ')}); ` +
+                      `cross-subaccount transfers can shift sub-0 totalPnl independently of sub-0 fills, ` +
+                      `inflating this gap.`
+                    : '';
+                console.error(
+                    `[dydx-dashboard] Total Profit reconciliation FAILED — ${reconciliationGap}. ` +
+                    `Headline (FIFO realized + FIFO unrealized + funding − fees) = ${formatCurrency(totalPnL)}; ` +
+                    `/historical-pnl latest totalPnl = ${formatCurrency(reconciliation.rowTotalPnl)}, ` +
+                    `adjusted to current equity = ${formatCurrency(reconciliation.reference)}. ` +
+                    `Likely cause: /fills paginated short of inception, or an equity flow ` +
+                    `(vault accounting, insurance fund, ADL) not exposed per-event by the indexer.` + childHint,
+                    {
+                        headline: totalPnL,
+                        trading: totalTradingPnL,
+                        funding: totalNetFunding,
+                        fees: totalFees,
+                        rowTotalPnl: reconciliation.rowTotalPnl,
+                        equityBased: reconciliation.reference,
+                        gap: reconciliation.gap,
+                        tolerance: reconciliation.tolerance,
+                        activeChildSubaccounts: activeChildren.map(s => s.subaccountNumber),
+                        counts: {
+                            positions: allPositions.length,
+                            openPositions: allPositions.filter(p => p.status === 'OPEN').length,
+                            closedPositions: cls.closedCount,
+                            fills: fillsArr.length,
+                            historicalPnlRows: histArr.length
                         }
-                    );
-                }
+                    }
+                );
             }
 
             const marketDistribution = {};
@@ -1877,7 +1872,7 @@
             });
             window.AppCharts.market.render(marketDistribution, closedTradesGap);
 
-            if (profitGap) {
+            if (headlineGap) {
                 updateMetric('totalPnL', '—');
             } else {
                 updateMetric('totalPnL', formatCents(totalPnL), signClass(totalPnL, CENTS));
@@ -1886,7 +1881,7 @@
                 ledgerGaps.trading ? null : totalTradingPnL,
                 ledgerGaps.funding ? null : totalNetFunding,
                 ledgerGaps.fees ? null : totalFees);
-            document.getElementById('totalPnLChange').textContent = profitGap || 'All Time';
+            document.getElementById('totalPnLChange').textContent = headlineGap || 'All Time';
 
             if (cls.winRate !== null) {
                 document.getElementById('winRate').textContent = formatPercent(cls.winRate);
@@ -1991,7 +1986,8 @@
 
                 const tableGaps = {
                     ...ledgerGaps, openPositions: openPositionsGap, closed: closedGap, classifier: cls.incompleteReason,
-                    historicalPnl: historicalPnlGap || historicalPnlRowGap, historyCut
+                    historicalPnl: historicalPnlGap || historicalPnlRowGap, historyCut,
+                    profitReconciliation: reconciliationGap
                 };
                 if (!histArr.length) {
                     const noRowsReason = historicalPnlSeriesGap;
@@ -2018,21 +2014,29 @@
                 const timestamps = histChronological.map(p => p.createdAt);
 
                 const adq = window.RiskMetrics.assessAdequacy(rets, timestamps, histArr.length);
+                // A totalPnl that disagrees with the fills (reconciliationGap)
+                // is no measure of trading: each hourly change divided by the
+                // equity behind it would turn a flow the fills do not hold
+                // into a return, and compounding magnifies it. The rows'
+                // ratios read '—' with the disagreement, as an inadequate
+                // sample does, and the per-trade fallback still runs on the
+                // fills.
+                const timeSeriesGap = reconciliationGap || (adq.adequate ? '' : adq.reason);
 
-                if (!adq.adequate) {
+                if (timeSeriesGap) {
                     // Per-trade fallback: independent statistic from the
                     // fill-attributed profit of closed trades. Honest when the
                     // time-series sample is unusable but the trade log is rich
                     // enough to summarize.
                     const tm = window.AppPanels.performance.computeTradeBasedMetrics(cls, histArr, fillsArr);
                     if (tm.ok) {
-                        window.AppPanels.performance.renderTradeBasedRatios(tm, adq.reason);
+                        window.AppPanels.performance.renderTradeBasedRatios(tm, timeSeriesGap);
                     } else {
-                        setRatioNA(tm.reason ? `${adq.reason}; per-trade fallback: ${tm.reason}` : adq.reason);
+                        setRatioNA(tm.reason ? `${timeSeriesGap}; per-trade fallback: ${tm.reason}` : timeSeriesGap);
                     }
                     // VaR/CVaR share the time-series adequacy gate: a 4-day
                     // post-redeposit window is not a basis for portfolio VaR.
-                    setVarNA(adq.reason);
+                    setVarNA(timeSeriesGap);
                     window.AppPanels.performance.renderTables(allPositions, histArr, marketAgg, tableGaps, livePnl, fillsArr);
                     return;
                 }

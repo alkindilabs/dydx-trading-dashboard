@@ -838,12 +838,13 @@ test.describe('positions board', () => {
 
   test('a /historical-pnl curve that never draws down reads a $0 drawdown, not the closed-trade ledger\'s', async ({ page }) => {
     // The closed trades lose $500 after two ETH wins; the P&L curve only
-    // rises, to the +$781.06 headline (its live point).
+    // rises, through +$781 on its last row to the +$781.06 headline (its
+    // live point), which the rows agree with.
     const monotonicAccount = {
       ...losingAccount,
       closedPositions: { positions: [SOL_SMALL_LOSS, ETH_SHORT, ETH_LONG] },
       fills: { fills: twoLossAccount.fills.fills.filter(f => !['l1', 'l2'].includes(f.id)) },
-      historicalPnl: { historicalPnl: [histRow('2025-01-02T00:00:00.000Z', 500), histRow('2025-01-01T00:00:00.000Z', 0)] },
+      historicalPnl: { historicalPnl: [histRow('2025-01-02T00:00:00.000Z', 781), histRow('2025-01-01T00:00:00.000Z', 0)] },
     };
     await page.route(INDEXER_URL, serveAccount(null, monotonicAccount));
     await loadAccount(page);
@@ -957,7 +958,9 @@ test.describe('positions board', () => {
 
   test('Calmar annualizes over the calendar span of the rows, and the Sharpe caption shows the compounded return', async ({ page }) => {
     // 4-hourly rows: 100 on an empty account, a $10000 deposit, then 200
-    // funded rows with one −$1000 hour. Compounded −10%, max drawdown 10%.
+    // funded rows with one −$1000 hour, ending at the account's +$3280.06
+    // headline so the rows agree with its fills. Compounded −10%, max
+    // drawdown 10%.
     // CAGR over the 1196 h from the first row (hours without capital
     // count): 0.9^(8766/1196) − 1 = −0.53804, Calmar −5.38; over the
     // 200 funded periods alone it would be −6.85.
@@ -968,7 +971,7 @@ test.describe('positions board', () => {
       const funded = i >= UNFUNDED_ROWS;
       return {
         createdAt: at, blockTime: at, blockHeight: String(i + 1),
-        totalPnl: i >= LOSS_ROW ? '-1000' : '0',
+        totalPnl: i >= LOSS_ROW ? '3280.06' : '4280.06',
         equity: funded ? '10000' : '0',
         netTransfers: i === UNFUNDED_ROWS ? '10000' : '0',
       };

@@ -1511,7 +1511,8 @@
   // by the equity change since that row. Assumes no transfer since the
   // row. Null when there are no rows, a row is invalid
   // (historicalPnlRowGap) or the equity now does not parse. The
-  // reference the Total Profit reconciliation guard compares against.
+  // reference the Total Profit reconciliation gate checks against
+  // (profitReconciliation).
   function equityAdjustedTotalPnl(historicalPnl, equityNow) {
     const series = chronologicalHistoricalPnl(historicalPnl);
     if (series.length === 0) return null;
@@ -1521,6 +1522,38 @@
     const equity = parseFloat(equityNow);
     if (!isNumber(totalPnl) || !isNumber(rowEquity) || !isNumber(equity)) return null;
     return totalPnl + (equity - rowEquity);
+  }
+
+  // The Total Profit reconciliation tolerance: 1% of the larger reference,
+  // floored at $1, so a small account still surfaces dollar drift and a
+  // large one does not trip on per-row rounding.
+  const RECONCILE_FLOOR_USD = 1;
+  const RECONCILE_TOLERANCE_FRACTION = 0.01;
+
+  // Whether the fills-based Total Profit `headline` agrees with
+  // /historical-pnl. The rows cannot say what happened since the last
+  // hourly one: its totalPnl misses the price move since, and
+  // equityAdjustedTotalPnl reads a transfer since as profit. So the
+  // headline agrees when it lies within the tolerance of the span between
+  // the two. { reference (equityAdjustedTotalPnl), rowTotalPnl, gap
+  // (headline − the nearest value of that span, 0 inside it), tolerance,
+  // reason ('' when they agree, else why the headline is no profit) }, or
+  // null when there is no headline or no reference to check it against.
+  function profitReconciliation(historicalPnl, equityNow, headline) {
+    const reference = equityAdjustedTotalPnl(historicalPnl, equityNow);
+    if (!isNumber(headline) || !isNumber(reference)) return null;
+    const series = chronologicalHistoricalPnl(historicalPnl);
+    const rowTotalPnl = parseFloat(series[series.length - 1].totalPnl);
+    const low = Math.min(rowTotalPnl, reference);
+    const high = Math.max(rowTotalPnl, reference);
+    const gap = headline < low ? headline - low : headline > high ? headline - high : 0;
+    const tolerance = Math.max(RECONCILE_FLOOR_USD,
+      Math.max(Math.abs(low), Math.abs(high)) * RECONCILE_TOLERANCE_FRACTION);
+    const reason = Math.abs(gap) > tolerance
+      ? `Fills disagree with /historical-pnl by ${window.Format.formatCurrency(gap)}: `
+        + 'fills may be incomplete, or /historical-pnl may count flows that are not trades'
+      : '';
+    return { reference, rowTotalPnl, gap, tolerance, reason };
   }
 
   // A position's indexer netFunding as a number, null when the field is
@@ -2710,6 +2743,7 @@
     netSizeHistory,
     computeUnrealizedFromFills,
     equityAdjustedTotalPnl,
+    profitReconciliation,
     attributeFillsToPositions,
     INCOMPLETE_CAUSE,
     oppositeSide,

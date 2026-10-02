@@ -623,7 +623,10 @@ Small-N caveat: standard error widens; not a forward-Sharpe forecast.`;
   // reach inception: RiskMetrics.buildCumulativeTotalPnlSeries) is the
   // reason of the month the rows start in and every month before it, its
   // SHARPE included, and of an asset SHARPE with a trade opened before
-  // the first row.
+  // the first row. profitReconciliation (the fills-based headline
+  // disagrees with /historical-pnl: RiskMetrics.profitReconciliation) is
+  // the reason of every monthly SHARPE, whose returns are built from that
+  // totalPnl; PROFIT and MAX DD show the rows' dollars.
   // `live` (RiskMetrics.livePnlPoint, or
   // null) ends the current month's PROFIT and MAX DD at the live point;
   // the monthly SHARPE stays on the rows' returns. `fills` (the fetched
@@ -674,8 +677,9 @@ Small-N caveat: standard error widens; not a forward-Sharpe forecast.`;
     const monthHistGap = key => historicalPnlGap || (cutMonth !== null && key <= cutMonth ? historyCut : '');
     const tradesHistGap = trades => historicalPnlGap
       || (historyCut && trades.some(p => !(window.RiskMetrics.timestampMs(p.createdAt) >= firstRowMs)) ? historyCut : '');
+    const monthSharpeGap = key => monthHistGap(key) || gaps.profitReconciliation || '';
     const histSharpe = (monthHist, key) => (
-      monthHistGap(key) ? { sharpeTxt: '—', sharpeReason: monthHistGap(key) }
+      monthSharpeGap(key) ? { sharpeTxt: '—', sharpeReason: monthSharpeGap(key) }
         : monthSharpe(monthHist, monthlyReturns[key], key));
     Object.keys(monthlyHistDeltas).forEach(key => {
       if (!monthly[key]) monthly[key] = window.RiskMetrics.classifyClosed([], monthReason);

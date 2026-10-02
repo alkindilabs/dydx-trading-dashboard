@@ -11,18 +11,24 @@ const ROWS = 1000;
 const EQUITY = 100000;
 const START_MS = Date.parse('2025-01-01T00:00:00.000Z');
 
+// The sample fixture's Total Profit headline (its fills, funding and
+// fees). The rows end at it, so they agree with the fills: a totalPnl that
+// disagrees blanks the time-series ratios (RiskMetrics.profitReconciliation).
+const FIXTURE_HEADLINE = 4997;
+const LAST_ROW_SWING = 2 * (ROWS - 1) + 50;
+
 // Hourly rows on constant equity with a totalPnl that moves both ways, so
 // every adequacy rule passes and the ratios have a value when not cut.
 const hourlyRows = Array.from({ length: ROWS }, (_, i) => ({
   createdAt: new Date(START_MS + i * AppConstants.MS_PER_HOUR).toISOString(),
   equity: String(EQUITY),
-  totalPnl: String(i * 2 + (i % 2 ? 50 : 0)),
+  totalPnl: String(FIXTURE_HEADLINE - LAST_ROW_SWING + i * 2 + (i % 2 ? 50 : 0)),
   netTransfers: '0',
 }));
 
 // Funded, idle hourly rows: every return is 0, so they pass the adequacy
 // gate but have no spread for a Sharpe or Sortino.
-const idleRows = hourlyRows.map(row => ({ ...row, totalPnl: '0' }));
+const idleRows = hourlyRows.map(row => ({ ...row, totalPnl: String(FIXTURE_HEADLINE) }));
 
 async function paintCachedSnapshot(page, evictedSteps, rows = hourlyRows) {
   await page.route(INDEXER_URL, () => new Promise(() => {}));
