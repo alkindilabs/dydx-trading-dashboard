@@ -221,7 +221,7 @@ function longHoldsWith(profits) {
   });
 }
 const repeated = (count, profit) => new Array(count).fill(profit);
-const RECOMMENDATION_COL = 4;
+const READING_COL = 4;
 const toneOf = (td) => ['profit', 'loss'].filter(tone => td.className.split(/\s+/).includes(tone));
 
 test('SUCCESS RATE is toned against the set\'s own breakeven win rate, neutral without one', () => {
@@ -272,7 +272,7 @@ test('a pattern EXPECTANCY on an exact half-dollar tie rounds up, and the tone a
   assert.equal(row.children[COL.SUCCESS_RATE].textContent, '60.0%');
   assert.equal(row.children[COL.EXPECTANCY].textContent, '+$1');
   assert.deepEqual(toneOf(row.children[COL.SUCCESS_RATE]), ['profit']);
-  assert.equal(row.children[RECOMMENDATION_COL].textContent, 'CONTINUE');
+  assert.equal(row.children[READING_COL].textContent, 'Positive edge');
 });
 
 test('Long Hold and Quick Flip bucket the hold as DURATION displays it', () => {
@@ -293,29 +293,29 @@ test('Long Hold and Quick Flip bucket the hold as DURATION displays it', () => {
 });
 
 test('the pattern verdict is decided on the win rate and expectancy as displayed', () => {
-  // 1099 of 2000: 54.95% displays 55.0%, the CONTINUE threshold, beside a positive expectancy.
+  // 1099 of 2000: 54.95% displays 55.0%, the Positive edge threshold, beside a positive expectancy.
   renderPatterns(longHoldsWith([...repeated(1099, 20), ...repeated(901, -10)]));
   let row = patternRow('Long Hold');
   assert.equal(row.children[COL.SUCCESS_RATE].textContent, '55.0%');
   assert.equal(row.children[COL.EXPECTANCY].textContent, '+$6');
-  assert.equal(row.children[RECOMMENDATION_COL].textContent, 'CONTINUE');
+  assert.equal(row.children[READING_COL].textContent, 'Positive edge');
 
-  // 2499 of 5000: 49.98% displays 50.0%, not below the AVOID threshold.
+  // 2499 of 5000: 49.98% displays 50.0%, not below the Negative edge threshold.
   renderPatterns(longHoldsWith([...repeated(2499, 1), ...repeated(2501, -2)]));
   row = patternRow('Long Hold');
   assert.equal(row.children[COL.SUCCESS_RATE].textContent, '50.0%');
-  assert.equal(row.children[RECOMMENDATION_COL].textContent, 'REVIEW');
+  assert.equal(row.children[READING_COL].textContent, 'Mixed');
 
-  // An expectancy of -$0.02 displays $0: not a negative edge to AVOID.
+  // An expectancy of -$0.02 displays $0: not a Negative edge.
   renderPatterns(longHoldsWith([...repeated(9, 10), ...repeated(10, -8), -10.4]));
   row = patternRow('Long Hold');
   assert.equal(row.children[COL.SUCCESS_RATE].textContent, '45.0%');
   assert.equal(row.children[COL.EXPECTANCY].textContent, '$0');
-  assert.equal(row.children[RECOMMENDATION_COL].textContent, 'REVIEW');
+  assert.equal(row.children[READING_COL].textContent, 'Mixed');
 
   // The same shape with a bigger last loss displays -$1: a negative edge.
   renderPatterns(longHoldsWith([...repeated(9, 10), ...repeated(10, -8), -20]));
-  assert.equal(patternRow('Long Hold').children[RECOMMENDATION_COL].textContent, 'AVOID');
+  assert.equal(patternRow('Long Hold').children[READING_COL].textContent, 'Negative edge');
 });
 
 test('the low-n minimum counts the set\'s decisive closed trades, not its scratches', () => {
@@ -324,11 +324,11 @@ test('the low-n minimum counts the set\'s decisive closed trades, not its scratc
   const row = patternRow('Long Hold');
   assert.equal(row.children[COL.FREQUENCY].textContent, '10');
   assert.equal(row.children[COL.SUCCESS_RATE].textContent, '100.0%');
-  assert.equal(row.children[RECOMMENDATION_COL].textContent, 'REVIEW (low n)');
+  assert.equal(row.children[READING_COL].textContent, 'Low sample');
   assert.match(el('patternVerdictLabel').title, new RegExp(`fewer than ${TUNABLES.PATTERN_MIN_N} decisive closed trades`));
 });
 
-test('a pattern set without a closed win or loss reads REVIEW (low n) at any size: it has no decisive trade', () => {
+test('a pattern set without a closed win or loss reads Low sample at any size: it has no decisive trade', () => {
   const entryMs = Date.parse('2025-07-01T00:00:00.000Z');
   const FLIP_MS = (TUNABLES.FLIP_HOLD_HOURS * MS_PER_HOUR) / 3;
   const scratchFlips = (count) => Array.from({ length: count }, (_, i) => {
@@ -336,19 +336,19 @@ test('a pattern set without a closed win or loss reads REVIEW (low n) at any siz
     return { ...closedEntry(new Date(openMs).toISOString(), 0), closedAt: new Date(openMs + FLIP_MS).toISOString() };
   });
   renderPatterns(scratchFlips(2));
-  let recommendation = patternRow('Quick Flip').children[RECOMMENDATION_COL];
-  assert.equal(recommendation.textContent, 'REVIEW (low n)');
+  let reading = patternRow('Quick Flip').children[READING_COL];
+  assert.equal(reading.textContent, 'Low sample');
 
   renderPatterns(scratchFlips(TUNABLES.PATTERN_MIN_N));
-  recommendation = patternRow('Quick Flip').children[RECOMMENDATION_COL];
-  assert.equal(recommendation.textContent, 'REVIEW (low n)');
+  reading = patternRow('Quick Flip').children[READING_COL];
+  assert.equal(reading.textContent, 'Low sample');
 
   // A ratio gap keeps — with its reason, whatever the count.
   const reason = '1 position missing fill data';
   renderPatterns(scratchFlips(2), reason);
-  recommendation = patternRow('Quick Flip').children[RECOMMENDATION_COL];
-  assert.equal(recommendation.textContent, '—');
-  assert.equal(recommendation.title, reason);
+  reading = patternRow('Quick Flip').children[READING_COL];
+  assert.equal(reading.textContent, '—');
+  assert.equal(reading.title, reason);
 });
 
 // ---------------------------------------------------------------------------
@@ -659,20 +659,23 @@ test('the patterns table calls its average EXPECTANCY and the heatmap names what
   const header = html.match(/<th([^>]*)>EXPECTANCY<\/th>/);
   assert.ok(header, 'the patterns table has an EXPECTANCY column');
   assert.match(header[1], /title="[^"]*per decisive trade, net of fees, excluding funding/);
-  assert.ok(!/>AVG PROFIT<\/th>\s*<th>RECOMMENDATION/.test(html), 'no AVG PROFIT column beside RECOMMENDATION');
+  assert.ok(!/>AVG PROFIT<\/th>\s*<th[^>]*>READING/.test(html), 'no AVG PROFIT column beside READING');
   assert.match(html, /<div class="table-title">Position entries by hour and weekday \(UTC\)<\/div>/);
 });
 
-test('the SUCCESS RATE header names its breakeven tone; the RECOMMENDATION header states the verdict rule', () => {
+test('the SUCCESS RATE header names its breakeven tone; the READING header states the rule', () => {
   const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
   const successRate = html.match(/<th([^>]*)>SUCCESS RATE<\/th>/);
   assert.ok(successRate, 'the patterns table has a SUCCESS RATE column');
   assert.match(successRate[1], /title="[^"]*breakeven win rate/);
+  assert.match(html, /<th id="patternVerdictLabel">READING<\/th>/);
+  assert.ok(!/RECOMMENDATION/.test(html), 'no RECOMMENDATION column');
 
   renderPatterns(longHoldsWith(repeated(3, 10)));
   const { title } = el('patternVerdictLabel');
-  assert.match(title, /CONTINUE: positive expectancy and a win rate of at least \d+%/);
-  assert.match(title, /AVOID: negative expectancy and a win rate below \d+%/);
+  assert.match(title, /Positive edge: positive expectancy and a win rate of at least \d+%/);
+  assert.match(title, /Negative edge: negative expectancy and a win rate below \d+%/);
+  assert.match(title, /Mixed otherwise/);
   assert.match(title, /as displayed/);
-  assert.ok(title.includes(`REVIEW (low n) with fewer than ${TUNABLES.PATTERN_MIN_N} decisive closed trades`), title);
+  assert.ok(title.includes(`Low sample with fewer than ${TUNABLES.PATTERN_MIN_N} decisive closed trades`), title);
 });
