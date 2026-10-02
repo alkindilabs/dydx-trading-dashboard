@@ -129,7 +129,7 @@
             <div class="metrics-grid">
                 <div class="metric-card metric-card--hero">
                     <div class="metric-label">Total Profit</div>
-                    <div class="metric-value mono" id="totalPnL">-</div>
+                    <div class="metric-value mono" id="totalPnL">—</div>
                     <dl class="hero-ledger" aria-label="Total profit composition">
                         <div class="hero-ledger__row">
                             <dt>Trading</dt>
@@ -155,17 +155,17 @@
                      that math before the eye reaches the risk row below. -->
                 <div class="metric-card" title="Wins ÷ decisive closed trades (wins + losses; scratches excluded). Above 50% is common but not enough — at low payoff you need a higher WR to be profitable. See Payoff Ratio for the breakeven threshold at your current payoff.">
                     <div class="metric-label">Win Rate</div>
-                    <div class="metric-value mono" id="winRate">-</div>
-                    <div class="metric-change mono" id="winRateDetail">-</div>
+                    <div class="metric-value mono" id="winRate">—</div>
+                    <div class="metric-change mono" id="winRateDetail">—</div>
                 </div>
                 <div class="metric-card" title="Profit Factor (PF) = gross profit ÷ gross loss across all closed trades. Above 1 = aggregate winner. Rules of thumb: 1.5–2.0 solid edge; ≥ 2.0 robust; below 1 losing system; above 3 often suspicious (small sample, lucky streak, or overfit).">
                     <div class="metric-label" id="profitFactorLabel">Profit Factor</div>
-                    <div class="metric-value mono" id="profitFactor">-</div>
-                    <div class="metric-change mono" id="profitFactorDetail">-</div>
+                    <div class="metric-value mono" id="profitFactor">—</div>
+                    <div class="metric-change mono" id="profitFactorDetail">—</div>
                 </div>
                 <div class="metric-card" title="Payoff Ratio = avg winning trade ÷ avg losing trade. Equals (profit factor × (1 − win rate) / win rate) — the same number the phase diagram surfaces as Implied Payoff. > 1 means winners are larger than losers; below 1, losers dominate.">
                     <div class="metric-label">Payoff Ratio</div>
-                    <div class="metric-value mono" id="riskRewardHero">-</div>
+                    <div class="metric-value mono" id="riskRewardHero">—</div>
                     <div class="metric-change mono" id="riskRewardHeroDetail">avg win / avg loss</div>
                 </div>
                 <!-- Row 2: risk-adjusted return + absolute drawdown. Sharpe
@@ -174,23 +174,23 @@
                      equity-loss event. -->
                 <div class="metric-card" id="sharpeCard" title="Sharpe Ratio = arithmetic mean of the time-weighted hourly returns ÷ their standard deviation, annualized, with the risk-free rate taken as 0. Above 1 good; above 2 excellent. Below 0 means the mean hourly return is negative; above 0 does not mean the account made money: with volatile returns the compounded return (in the caption) can be a loss while the mean is positive. Computed on /historical-pnl; gated by sample-adequacy thresholds.">
                     <div class="metric-label">Sharpe Ratio</div>
-                    <div class="metric-value mono" id="sharpeRatio">-</div>
+                    <div class="metric-value mono" id="sharpeRatio">—</div>
                     <div class="metric-change mono" id="sharpeMeta" title="">All time ⓘ</div>
                 </div>
                 <div class="metric-card" id="sortinoCard" title="Sortino Ratio = mean return ÷ downside deviation, annualized, with the risk-free rate taken as 0. Like Sharpe but penalizes only DOWNSIDE volatility: the downside deviation is the root-mean-square of the returns below 0, averaged over all periods (target semi-deviation). At least Sharpe when the mean return is positive; with a negative mean either can be the lower. Above 2 = strong downside-adjusted return. Below 0 means the mean hourly return is negative; like Sharpe it uses the arithmetic mean, so read it beside the compounded return in the caption.">
                     <div class="metric-label">Sortino Ratio</div>
-                    <div class="metric-value mono" id="sortinoRatio">-</div>
+                    <div class="metric-value mono" id="sortinoRatio">—</div>
                     <div class="metric-change mono" id="sortinoMeta" title="">All time ⓘ</div>
                 </div>
                 <div class="metric-card" id="maxDrawdownCard" title="Worst peak-to-trough $ excursion of the cumulative totalPnl curve, measured from 0 at the account's inception and ending at the live point (the Total Profit headline now, from fills, funding and fees, so a deposit or withdrawal is never profit; without the headline the curve ends at the last hourly row). A drawdown that rounds to $0 is no drawdown. Captures unrealized peaks the closed-trade ledger cannot see (e.g. a large open profit that was later given back). Pair with Current Drawdown to see now-vs-worst, and Recovery Factor for the ratio of lifetime profit to this number.">
                     <div class="metric-label">Max Drawdown</div>
-                    <div class="metric-value mono" id="maxDrawdown">-</div>
-                    <div class="metric-change mono" id="maxDrawdownDetail">-</div>
+                    <div class="metric-value mono" id="maxDrawdown">—</div>
+                    <div class="metric-change mono" id="maxDrawdownDetail">—</div>
                 </div>
                 <div class="metric-card" id="currentDrawdownCard" title="Current Drawdown = how far below the peak of cumulative trading P&L (totalPnl, excluding deposits and withdrawals) the account sits right now (the live point: the Total Profit headline, from fills, funding and fees; when the headline is unavailable the caption names the hourly row it is measured at); not the equity peak. $0 means at-or-above the prior peak. The time below peak is the same span as the ongoing Drawdown Periods row. Computed on the same totalPnl series as Max Drawdown so the two cards always agree about which P&L stream is being measured.">
                     <div class="metric-label">Current Drawdown</div>
-                    <div class="metric-value mono" id="currentDrawdown">-</div>
-                    <div class="metric-change mono" id="currentDrawdownDetail">-</div>
+                    <div class="metric-value mono" id="currentDrawdown">—</div>
+                    <div class="metric-change mono" id="currentDrawdownDetail">—</div>
                 </div>
             </div>
 
@@ -277,11 +277,11 @@
                         <h3 class="broadsheet-title">Trading Statistics</h3>
                     </header>
                     <table class="broadsheet-table">
-                        <tr><td title="Average $ profit on winning closed trades: fill-attributed profit (net of fees, excluding funding) summed over winners ÷ winning trade count.">Average Win</td><td class="mono profit" id="avgWin">-</td></tr>
-                        <tr><td title="Average $ loss on losing closed trades: fill-attributed profit (net of fees, excluding funding) summed over losers ÷ losing trade count. Rendered as a negative dollar figure.">Average Loss</td><td class="mono loss" id="avgLoss">-</td></tr>
-                        <tr><td title="Payoff Ratio = avg win ÷ avg loss. Above 1 means winners are larger than losers. Pair with Win Rate: at this payoff you need WR ≥ 1 ÷ (1 + payoff) to break even.">Payoff Ratio</td><td class="mono" id="riskReward">-</td></tr>
-                        <tr><td title="Trade Expectancy = average $ fill-attributed profit (net of fees, excluding funding) per decisive (non-scratch) closed trade. Above 0 = the system has positive edge; below 0 = each trade on average loses money.">Trade Expectancy</td><td class="mono" id="expectancy">-</td></tr>
-                        <tr><td id="recoveryFactorLabel" title="Recovery Factor = lifetime profit now (the live point of the totalPnl curve: the Total Profit headline) ÷ max drawdown; N/A while the max drawdown rounds to $0. Above 5 = strong recovery; above 1 = made back the worst DD; below 1 = haven't recovered the worst DD; ≤ 0 = lifetime loss. Numerator and denominator come from the SAME P&L series.">Recovery Factor</td><td class="mono" id="recoveryFactor">-</td></tr>
+                        <tr><td title="Average $ profit on winning closed trades: fill-attributed profit (net of fees, excluding funding) summed over winners ÷ winning trade count.">Average Win</td><td class="mono profit" id="avgWin">—</td></tr>
+                        <tr><td title="Average $ loss on losing closed trades: fill-attributed profit (net of fees, excluding funding) summed over losers ÷ losing trade count. Rendered as a negative dollar figure.">Average Loss</td><td class="mono loss" id="avgLoss">—</td></tr>
+                        <tr><td title="Payoff Ratio = avg win ÷ avg loss. Above 1 means winners are larger than losers. Pair with Win Rate: at this payoff you need WR ≥ 1 ÷ (1 + payoff) to break even.">Payoff Ratio</td><td class="mono" id="riskReward">—</td></tr>
+                        <tr><td title="Trade Expectancy = average $ fill-attributed profit (net of fees, excluding funding) per decisive (non-scratch) closed trade. Above 0 = the system has positive edge; below 0 = each trade on average loses money.">Trade Expectancy</td><td class="mono" id="expectancy">—</td></tr>
+                        <tr><td id="recoveryFactorLabel" title="Recovery Factor = lifetime profit now (the live point of the totalPnl curve: the Total Profit headline) ÷ max drawdown; N/A while the max drawdown rounds to $0. Above 5 = strong recovery; above 1 = made back the worst DD; below 1 = haven't recovered the worst DD; ≤ 0 = lifetime loss. Numerator and denominator come from the SAME P&L series.">Recovery Factor</td><td class="mono" id="recoveryFactor">—</td></tr>
                     </table>
                 </article>
                 <article class="broadsheet-col">
@@ -305,32 +305,32 @@
             <div class="metrics-grid">
                 <div class="metric-card" title="Calmar Ratio = annualized return ÷ max drawdown. The annualized return is the CAGR of the compounded time-weighted returns over the calendar time from the first to the last /historical-pnl row (hours without capital count as time); the drawdown is that compounded curve's worst, in % (named in the caption), not the Max Drawdown card's dollars. Per-trade fallback: the CAGR over the calendar time from the first open to the last close. — once the compounded wealth reaches zero. Penalizes systems that earned through deep drawdowns. Above 1 = annualized return exceeds the worst DD; above 3 = strong reward-per-pain ratio.">
                     <div class="metric-label">Calmar Ratio</div>
-                    <div class="metric-value mono" id="calmarRatio">-</div>
+                    <div class="metric-value mono" id="calmarRatio">—</div>
                     <div class="metric-change mono" id="calmarDetail">CAGR ÷ max DD of the compounded returns</div>
                 </div>
                 <div class="metric-card" title="Kelly Criterion = WR − (1 − WR) ÷ payoff. Optimal fraction of capital to risk per trade for max long-term growth. Negative = edge too thin to bet positively (don't size up). Most practitioners use fractional Kelly (½K or ¼K) to cut drawdown variance.">
                     <div class="metric-label">Kelly Criterion</div>
-                    <div class="metric-value mono" id="kellyCriterion">-</div>
+                    <div class="metric-value mono" id="kellyCriterion">—</div>
                     <div class="metric-change mono" id="kellyCriterionDetail">Optimal size</div>
                 </div>
                 <div class="metric-card" title="Longest unbroken winning streak in chronological closed-trade order. Detail shows the cumulative $ earned across that streak (the largest one when several are equally long). Scratches (zero profit) are skipped: they neither extend nor break a streak.">
                     <div class="metric-label">Max Consec. Wins</div>
-                    <div class="metric-value mono" id="maxConsecWins">-</div>
+                    <div class="metric-value mono" id="maxConsecWins">—</div>
                     <div class="metric-change mono" id="maxConsecWinsDetail"></div>
                 </div>
                 <div class="metric-card" title="Longest unbroken losing streak in chronological closed-trade order. Detail shows the cumulative $ lost across that streak (the largest loss when several are equally long). Scratches (zero profit) are skipped: they neither extend nor break a streak.">
                     <div class="metric-label">Max Consec. Losses</div>
-                    <div class="metric-value mono" id="maxConsecLosses">-</div>
+                    <div class="metric-value mono" id="maxConsecLosses">—</div>
                     <div class="metric-change mono" id="maxConsecLossesDetail"></div>
                 </div>
                 <div class="metric-card" title="Payoff Ratio = avg winning trade ÷ avg losing trade. > 1 means winners are larger than losers; below 1, losers dominate. Same number as the Overview headline.">
                     <div class="metric-label">Payoff Ratio</div>
-                    <div class="metric-value mono" id="avgRRR">-</div>
+                    <div class="metric-value mono" id="avgRRR">—</div>
                     <div class="metric-change mono" id="avgRRRDetail">vs 2 : 1 target</div>
                 </div>
                 <div class="metric-card" title="Win Rate over the most recent N closed decisive trades vs all-time, where N is at most half the decisive trades, so the recent window is never the whole history. Detects regime shifts in your edge before the all-time average catches up. Detail shows the sample size of the recent window.">
                     <div class="metric-label">Win Rate Trend</div>
-                    <div class="metric-value mono" id="winRateTrend">-</div>
+                    <div class="metric-value mono" id="winRateTrend">—</div>
                     <div class="metric-change mono" id="winRateTrendDetail">Last N trades</div>
                 </div>
             </div>
@@ -458,13 +458,13 @@
             <div class="metrics-grid">
                 <div class="metric-card" title="Count of currently OPEN positions across all markets. dYdX is cross-margin so every open position contributes to total leverage and shared liquidation risk — one bad position can trigger liquidation that closes others. Detail: open notional, Σ |size| × oracle price (the Risk tab's leverage definition).">
                     <div class="metric-label">Active Positions</div>
-                    <div class="metric-value mono" id="positionsActiveCount">-</div>
-                    <div class="metric-change mono" id="positionsActiveNotional">-</div>
+                    <div class="metric-value mono" id="positionsActiveCount">—</div>
+                    <div class="metric-change mono" id="positionsActiveNotional">—</div>
                 </div>
                 <div class="metric-card" title="Share of fills executed as taker (crossing the spread). Taker fills pay higher fees; maker fills earn the lower maker rate or rebates.">
                     <div class="metric-label">Taker Share</div>
-                    <div class="metric-value mono" id="positionsTakerShare">-</div>
-                    <div class="metric-change mono" id="positionsTakerShareDetail">-</div>
+                    <div class="metric-value mono" id="positionsTakerShare">—</div>
+                    <div class="metric-change mono" id="positionsTakerShareDetail">—</div>
                 </div>
             </div>
 
@@ -569,18 +569,18 @@
             <div class="metrics-grid">
                 <div class="metric-card" title="Total funding payments RECEIVED over the selected window. dYdX funding is paid by the side that's leaning into the imbalance: positive funding pays shorts (longs heavy), negative funding pays longs (shorts heavy).">
                     <div class="metric-label">Funding Captured</div>
-                    <div class="metric-value mono" id="fundingCaptured">-</div>
+                    <div class="metric-value mono" id="fundingCaptured">—</div>
                     <div class="metric-change mono" id="fundingCapturedWindow">Last 30 days</div>
                 </div>
                 <div class="metric-card" title="Total funding payments PAID over the selected window. The cost-side of the funding stream — what you paid to hold positions through funding events. Held against you when you were on the heavy side of the order book.">
                     <div class="metric-label">Funding Paid</div>
-                    <div class="metric-value mono" id="fundingPaid">-</div>
+                    <div class="metric-value mono" id="fundingPaid">—</div>
                     <div class="metric-change mono" id="fundingPaidWindow">Last 30 days</div>
                 </div>
                 <div class="metric-card" title="Funding Captured − Funding Paid over the selected window. Above 0 = funding contributed to profit (you were on the receiving side on net); below 0 = funding was a net cost.">
                     <div class="metric-label">Net Funding</div>
-                    <div class="metric-value mono" id="fundingNet">-</div>
-                    <div class="metric-change mono" id="fundingNetPct">-</div>
+                    <div class="metric-value mono" id="fundingNet">—</div>
+                    <div class="metric-change mono" id="fundingNetPct">—</div>
                 </div>
             </div>
 
@@ -1208,6 +1208,10 @@
         // When allData was fetched (renderFromAllData's snapshotAt), for a
         // re-render outside processData (the funding window pills).
         let allDataSnapshotAt = null;
+        // Whether this page has rendered a portfolio for its address (from
+        // the cache or a fetch). An address change reloads the page, so it
+        // never carries over to another address.
+        let portfolioRendered = false;
 
         // Chart.js editorial-dark defaults
         if (window.Chart) {
@@ -1276,6 +1280,7 @@
                 allDataSnapshotAt = opts && opts.snapshotAt;
                 try {
                     processData(allDataSnapshotAt);
+                    portfolioRendered = true;
                 } catch (e) {
                     console.error('Render error:', e);
                     if (!silent) showLoadError(`Render error: ${e && e.message || e}`);
@@ -1353,11 +1358,12 @@
 
             // The indexer holds no account at this address: there is no
             // portfolio, not a set of failed endpoints. Nothing is rendered,
-            // cached or remembered. A cached snapshot proves the account
-            // existed, so with one on screen the answer is an indexer fault
-            // and is reported as endpoint failures below.
+            // cached or remembered. A portfolio already rendered on this page
+            // (a cached snapshot, or an earlier load before an auto-refresh)
+            // proves the account existed, so then the answer is an indexer
+            // fault and is reported as endpoint failures below.
             const addressSubaccountsResult = settled[dataKeys.indexOf('addressSubaccounts')];
-            if (!hadCache && addressSubaccountsResult.status === 'rejected'
+            if (!portfolioRendered && addressSubaccountsResult.status === 'rejected'
                 && isNoAccountError(addressSubaccountsResult.reason)) {
                 clearLoadError();
                 showAddressNotice(NO_ACCOUNT_NOTICE);

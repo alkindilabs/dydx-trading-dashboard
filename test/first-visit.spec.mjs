@@ -56,6 +56,7 @@ test.describe('first visit and no account', () => {
     await expect(page.locator('#addressNotice')).toBeVisible();
     await expect(page.locator('#statusBadge')).toBeHidden();
     await expect(page.locator('#totalPnLChange')).not.toContainText('Loading');
+    await expect(page.locator('#totalPnL')).toHaveText('—');
     await expect(page.locator('#addressDisplay')).toBeHidden();
     await expect(page.locator('#loadErrorBanner')).toBeHidden();
     expect(indexerRequests).toEqual([]);
@@ -90,6 +91,24 @@ test.describe('first visit and no account', () => {
     expect(storage).toEqual({ lastAddress: null, snapshot: null });
   });
 
+  test('a refresh answered "No subaccounts found" after a portfolio loaded reports endpoint failures over it', async ({ page }) => {
+    let noAccount = false;
+    await page.route(INDEXER_URL, (route) => (noAccount ? serveNoAccount(route) : serveFixture(route)));
+    await page.goto(`/?address=${ADDRESS}`);
+    await expect(page.locator('#statusBadge')).toHaveText('FRESH');
+    const headline = await page.locator('#totalPnL').textContent();
+
+    noAccount = true;
+    await page.evaluate(() => refreshDashboard({ skipCache: true }));
+
+    await expect(page.locator('#loadErrorBanner')).toBeVisible();
+    await expect(page.locator('#loadErrorBanner')).toContainText('endpoints failed: subaccount, addressSubaccounts, historicalPnl');
+    await expect(page.locator('#addressNotice')).toBeHidden();
+    await expect(page.locator('#statusBadge')).toBeVisible();
+    await expect(page.locator('#statusBadge')).toHaveText('FRESH · PARTIAL');
+    expect(headline).not.toBe('—');
+  });
+
   test('an empty track in a metrics grid is painted like a card, never in the hairline colour', async ({ page }) => {
     await page.route(INDEXER_URL, serveFixture);
     const widthsWithEmptyTrack = [];
@@ -99,7 +118,7 @@ test.describe('first visit and no account', () => {
       await expect(page.locator('#dataAge')).toBeVisible();
       await page.evaluate(() => Promise.all(document.getAnimations()
         .filter(a => a.effect && a.effect.getTiming().iterations !== Infinity)
-        .map(a => a.finished)));
+        .map(a => a.finished.catch(() => {}))));
       await page.mouse.move(0, 0);
 
       const probe = await page.locator('#overview .metrics-grid').evaluate((grid) => {
