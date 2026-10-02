@@ -302,3 +302,166 @@ test('the chart caption states how many days the All window reaches', async ({ p
   await openMarketTab(page);
   await expect(page.locator('#fundingChartMaxDays')).toHaveText(String(AppConstants.FUNDING_CHART_MAX_DAYS));
 });
+
+test('a tooltip prints the smallest hourly funding steps instead of a false zero', async ({ page }) => {
+  // 2.5e-7 an hour: two of dYdX's 1.25e-7 rate steps.
+  await serveFunding(page, hourlyCandles, { rates: ['0.00000025'] });
+  await openMarketTab(page);
+  await expectBarsWithPriceLine(page);
+  const lines = await hoverChartTooltipLines(page);
+  expect(lines).toContain('Funding (1h):  +0.000025%');
+});
+
+test.describe('the price line is plotted at the instant each candle closes', () => {
+  const SETTLEMENT_LAG_MS = 250;
+  const ALIGNED_CLOSE_BASE = 84000;
+  const ALIGNED_CLOSE_STEP = 10;
+
+  // Funding settles just after each hour; candle i spans the hour that
+  // starts i hours before the newest one, and closes at a price unique to it.
+  async function serveAlignedSeries(page) {
+    const newestHour = Math.floor(Date.now() / MS_PER_HOUR) * MS_PER_HOUR;
+    const closeByStart = new Map();
+    const candles = Array.from({ length: FUNDING_HOURS + 1 }, (_, i) => {
+      const startedAt = newestHour - i * MS_PER_HOUR;
+      const close = ALIGNED_CLOSE_BASE + i * ALIGNED_CLOSE_STEP;
+      closeByStart.set(startedAt, close);
+      return { startedAt: new Date(startedAt).toISOString(), close: String(close) };
+    });
+    await page.route(INDEXER_URL, (route) => {
+      const url = route.request().url();
+      const funding = url.match(/\/v4\/historicalFunding\/([^?]+)/);
+      if (funding) {
+        const historicalFunding = Array.from({ length: FUNDING_HOURS }, (_, i) => ({
+          ticker: decodeURIComponent(funding[1]),
+          rate: ALTERNATING_RATES[i % ALTERNATING_RATES.length],
+          price: '84000',
+          effectiveAt: new Date(newestHour - i * MS_PER_HOUR + SETTLEMENT_LAG_MS).toISOString(),
+          effectiveAtHeight: String(FUNDING_HOURS - i),
+        }));
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ historicalFunding }) });
+      }
+      if (/\/v4\/candles\/perpetualMarkets\//.test(url)) {
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ candles }) });
+      }
+      return serveFixture(route);
+    });
+    // The price at a settlement is the close of the candle that ended at it.
+    return (settlementMs) => closeByStart.get(Math.floor(settlementMs / MS_PER_HOUR) * MS_PER_HOUR - MS_PER_HOUR);
+  }
+
+  test('every funding bar is paired with the close of the candle ending at its settlement', async ({ page }) => {
+    const priceAt = await serveAlignedSeries(page);
+    await openMarketTab(page);
+    await expect.poll(() => fundingChartDatasets(page)).not.toBeNull();
+    const [bars, line] = await page.evaluate(() =>
+      Chart.getChart(document.getElementById('fundingRateChart')).data.datasets.map(d => d.data));
+    expect(line.map(p => p.x)).toEqual(bars.map(b => b.x));
+    expect(line.map(p => p.y)).toEqual(bars.map(b => priceAt(b.x)));
+
+    const tooltip = await hoverChartTooltipLines(page);
+    const title = await page.evaluate(() =>
+      Chart.getChart(document.getElementById('fundingRateChart')).tooltip.title[0]);
+    const settlementMs = Date.parse(title.replace(' UTC', 'Z').replace(' ', 'T'));
+    const priceLine = tooltip.find(line => line.startsWith('Price:'));
+    expect(Number(priceLine.replace(/^Price:\s+\$/, '').replace(/,/g, ''))).toBe(priceAt(settlementMs));
+  });
+});
+
+test.describe('funding rate analysis by asset', () => {
+  const NEXT_FUNDING_RATE = '0.0000025';
+
+  async function serveMarketsWithNextRate(page) {
+    const markets = fixture.markets.markets;
+    await page.route(INDEXER_URL, (route) => (MARKETS_URL.test(route.request().url())
+      ? route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ markets: Object.fromEntries(Object.entries(markets)
+          .map(([t, m]) => [t, { ...m, nextFundingRate: NEXT_FUNDING_RATE, defaultFundingRate1H: '0.0000125' }])) }),
+      })
+      : route.fallback()));
+  }
+
+  function assetRow(page, ticker) {
+    return page.locator('#fundingAnalysisBody tr', { has: page.locator('td:first-child', { hasText: ticker }) });
+  }
+
+  test('CURRENT is the last settled rate and PREDICTED the indexer\'s next rate', async ({ page }) => {
+    await serveFunding(page, hourlyCandles);
+    await serveMarketsWithNextRate(page);
+    await openMarketTab(page);
+    const [ticker] = Object.keys(fixture.markets.markets);
+    const row = assetRow(page, ticker);
+    // The newest settlement served is ALTERNATING_RATES[0], -0.001 %/h.
+    await expect(row.locator('td').nth(1)).toHaveText('-8.76%');
+    await expect(row.locator('td').nth(2)).toHaveText('2.19%');
+
+    const headers = page.locator('#market thead th');
+    await expect(headers.nth(1)).toHaveAttribute('title', /last settled/i);
+    await expect(headers.nth(2)).toHaveAttribute('title', /nextFundingRate/);
+  });
+
+  test('a failed /fundingPayments reads — with the reason on the cards and money columns', async ({ page }) => {
+    await serveFunding(page, candleOutage);
+    await page.route(INDEXER_URL, (route) => (/\/v4\/fundingPayments\?/.test(route.request().url())
+      ? candleOutage(route) : route.fallback()));
+    await openMarketTab(page);
+    const REASON = 'Funding payments failed to load';
+    for (const id of ['fundingCaptured', 'fundingPaid', 'fundingNet']) {
+      await expect(page.locator(`#${id}`)).toHaveText('—');
+    }
+    await expect(page.locator('#fundingNetPct')).toHaveText(REASON);
+    const [ticker] = Object.keys(fixture.markets.markets);
+    const netCell = assetRow(page, ticker).locator('td').nth(5);
+    await expect(netCell).toHaveText('—');
+    await expect(netCell).toHaveAttribute('title', REASON);
+  });
+});
+
+test.describe('a cached snapshot painted later', () => {
+  const SNAPSHOT_AGE_DAYS = 2;
+  const PAYMENT_AGES = [{ days: 6, amount: '-3' }, { days: 0.5, amount: '-2' }];
+
+  // Paints a cached snapshot fetched SNAPSHOT_AGE_DAYS before the clock,
+  // its funding payments PAYMENT_AGES before the snapshot, on the Market
+  // tab at 7D; the indexer is held, so the cached paint is what shows.
+  async function paintOldSnapshot(page) {
+    await page.route(INDEXER_URL, () => new Promise(() => {}));
+    await page.goto('/');
+    await page.evaluate(({ address, fixture, snapshotAgeDays, paymentAges, msPerDay, windowKey }) => {
+      const fetchedAt = Date.now() - snapshotAgeDays * msPerDay;
+      const [ticker] = Object.keys(fixture.markets.markets);
+      const fundingPayments = paymentAges.map(({ days, amount }) => ({
+        ticker, createdAt: new Date(fetchedAt - days * msPerDay).toISOString(),
+        payment: amount, size: '1', oraclePrice: '100000',
+      }));
+      const data = {
+        subaccount: fixture.subaccount,
+        addressSubaccounts: fixture.addressSubaccounts,
+        openPositions: fixture.openPositions,
+        markets: fixture.markets,
+        closedPositions: fixture.closedPositions,
+        fills: fixture.fills,
+        fundingPayments: { fundingPayments },
+        historicalPnl: fixture.historicalPnl,
+      };
+      const packed = { v: window.PortfolioCache.SCHEMA_VERSION, address, fetchedAt, data };
+      localStorage.setItem(window.PortfolioCache.KEY, LZString.compressToUTF16(JSON.stringify(packed)));
+      localStorage.setItem(windowKey, '7');
+      localStorage.setItem('activeTab', 'market');
+    }, { address: ADDRESS, fixture, snapshotAgeDays: SNAPSHOT_AGE_DAYS, paymentAges: PAYMENT_AGES,
+         msPerDay: MS_PER_DAY, windowKey: FUNDING_WINDOW_KEY });
+    await page.goto(`/?address=${ADDRESS}`);
+  }
+
+  test('every funding window ends at the snapshot time, also after a window pill', async ({ page }) => {
+    await paintOldSnapshot(page);
+    // Both payments fall in the 7 days before the snapshot; by the clock
+    // the older one would be 8 days old.
+    await expect(page.locator('#fundingNet')).toHaveText('-$5.00');
+    await page.locator('.funding-hero__pill[data-window="30"]').click();
+    await page.locator('.funding-hero__pill[data-window="7"]').click();
+    await expect(page.locator('#fundingNet')).toHaveText('-$5.00');
+  });
+});
