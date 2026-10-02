@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { ADDRESS, INDEXER_URL, fixture, fixtureKeyFor, indexerBody, serveFixture } from './indexer-fixture.mjs';
+import { ADDRESS, AppConstants, INDEXER_URL, fixture, fixtureKeyFor, indexerBody, serveFixture } from './indexer-fixture.mjs';
 
 // End-to-end checks of the Positions board against a synthetic account
 // whose indexer rows carry the known defects: realizedPnl of 0, a SHORT
@@ -139,6 +139,18 @@ const unusableFillAccount = {
   ] },
 };
 
+// The OPEN BTC position's opening fill carries no fee: the fees are
+// unknown, never $0, while its size, prices and FIFO totals stay right.
+const feelessFillAccount = {
+  ...noCollisionAccount,
+  fills: { fills: account.fills.fills.map(f => (f.id === 'b3' ? { ...f, fee: undefined } : f)) },
+};
+// The same fee left out of the CLOSED BTC scratch's opening fill instead.
+const feelessClosedFillAccount = {
+  ...noCollisionAccount,
+  fills: { fills: account.fills.fills.map(f => (f.id === 'b1' ? { ...f, fee: undefined } : f)) },
+};
+
 // The BTC fills reverse a LONG into the OPEN SHORT, but the CLOSED list
 // holds no LONG closing at the reversal: the fills that opened it are
 // missing, so every BTC FIFO total is off though the SHORT's size agrees.
@@ -157,6 +169,11 @@ const unpartneredReversalAccount = {
     ...account.fills.fills.filter(f => f.id !== 'b3'),
   ] },
 };
+
+// A /historical-pnl row: cumulative trading P&L `totalPnl` at `createdAt`.
+const histRow = (createdAt, totalPnl) => ({
+  createdAt, blockTime: createdAt, blockHeight: '1', totalPnl: String(totalPnl), equity: '10000', netTransfers: '0',
+});
 
 // The account's subaccount with its equity replaced.
 const withEquity = (data, equity) => ({
@@ -239,6 +256,21 @@ const twoLossAccount = {
   ] },
 };
 
+// The CLOSED BTC scratch's fills are missing while the OPEN BTC position's
+// are intact: its attribution is incomplete ('No matching fills'), every
+// open-position check passes, and no closed round trip goes unlisted.
+const closedMissingFillsAccount = {
+  ...noCollisionAccount,
+  fills: { fills: account.fills.fills.filter(f => !['b1', 'b2'].includes(f.id)) },
+};
+// The same CLOSED BTC scratch without fills and no other BTC position:
+// no BTC fill shows an hour held, so only its window ties BTC to the hero.
+const closedOnlyMissingFillsAccount = {
+  ...closedMissingFillsAccount,
+  openPositions: { positions: [] },
+  fills: { fills: account.fills.fills.filter(f => f.market !== 'BTC-USD') },
+};
+
 function serveAccount(failingKey, data = account) {
   return (route) => {
     const key = fixtureKeyFor(route.request().url());
@@ -301,13 +333,13 @@ test.describe('positions board', () => {
 
     // CLOSED (UTC), ASSET, SIDE, SIZE, ENTRY, EXIT, PROFIT, PROFIT %, DURATION, FUNDING
     await expect(rowCells(page, 0)).toHaveText([
-      '2025-04-01 00:12', 'BTC-USD', 'LONG', '1 BTC', '$100000', '$100000', '$0', '0.00%', '12m', '$0',
+      '2025-04-01 00:12', 'BTC-USD', 'LONG', '1 BTC', '$100,000', '$100,000', '$0', '0.00%', '12m', '$0',
     ]);
     await expect(rowCells(page, 1)).toHaveText([
-      '2025-03-05 08:30', 'ETH-USD', 'SHORT⇄', '6 ETH', '$2100', '$2050', '+$298', '+2.36%', '2d 20h', '$0',
+      '2025-03-05 08:30', 'ETH-USD', 'SHORT⇄', '6 ETH', '$2,100', '$2,050', '+$298', '+2.36%', '2d 21h', '$0',
     ]);
     await expect(rowCells(page, 2)).toHaveText([
-      '2025-03-02 12:00', 'ETH-USD', 'LONG⇄', '10 ETH', '$2000', '$2100', '+$996', '+4.98%', '1d 2h', '-$13',
+      '2025-03-02 12:00', 'ETH-USD', 'LONG⇄', '10 ETH', '$2,000', '$2,100', '+$996', '+4.98%', '1d 2h', '-$13',
     ]);
 
     await expect(rowCells(page, 0).nth(6)).toHaveClass(/\bzero\b/);
@@ -372,7 +404,7 @@ test.describe('positions board', () => {
     await openPositionsTab(page);
 
     await expect(rowCells(page, 1)).toHaveText([
-      '2025-03-05 08:30', 'ETH-USD', 'SHORT', '—', '—', '—', '—', '—', '2d 20h', '$0',
+      '2025-03-05 08:30', 'ETH-USD', 'SHORT', '—', '—', '—', '—', '—', '2d 21h', '$0',
     ]);
     await expect(page.locator('#positionsTakerShare')).toHaveText('—');
     await expect(page.locator('#winRate')).toHaveText('—');
@@ -400,8 +432,10 @@ test.describe('positions board', () => {
     await expect(page.locator('#seVerdictDesc')).toContainText(reason);
     await expect(page.locator('#kellyCriterionDetail')).toHaveText(reason);
 
+    // The OPEN positions' 2025 fills still put the year on the Tax tab;
+    // its rows read — with the reason.
     await openTab(page, 'tax');
-    await expect(page.locator('#taxStatus')).toHaveText(`${reason}.`);
+    await expect(page.locator('#taxStatus')).toHaveText(`Year 2025 · 2 rows · ${reason}`);
   });
 
   test('an open position reversed out of a closed one in the same block is kept', async ({ page }) => {
@@ -485,21 +519,22 @@ test.describe('positions board', () => {
 
     await expect(page.locator('#statusBadge')).toHaveText('FRESH');
     await expect(page.locator('#winRate')).toHaveText('100.0%');
-    // The account has no losing trade, so there is still no payoff ratio.
-    await expect(page.locator('#riskRewardHero')).toHaveText('—');
-    await expect(page.locator('#riskRewardHeroDetail')).toHaveText('avg win / avg loss');
+    // The account has no losing trade, so the payoff ratio is undefined
+    // (an empty bucket reads N/A, not the — of missing inputs).
+    await expect(page.locator('#riskRewardHero')).toHaveText('N/A');
+    await expect(page.locator('#riskRewardHeroDetail')).toHaveText('No losses recorded');
   });
 
   test('the Tax tab shows a complete reversal pair\'s overlap as an audit hint, without a †', async ({ page }) => {
     await page.route(INDEXER_URL, serveAccount(null));
-    // Every close date gets an ECB rate, so the status line reports no
+    // Every fill date gets an ECB rate, so the status line reports no
     // FX gap and the FX lookup never leaves the machine.
-    const EUR_PER_USD = 0.92;
-    const closeDates = ['2025-03-02', '2025-03-05', '2025-04-01'];
+    const USD_PER_EUR = 1.0876;
+    const fillDates = ['2025-03-01', '2025-03-02', '2025-03-05', '2025-04-01', '2025-05-01'];
     await page.route(/api\.frankfurter\.dev/, route => route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ rates: Object.fromEntries(closeDates.map(d => [d, { EUR: EUR_PER_USD }])) }),
+      body: JSON.stringify({ rates: Object.fromEntries(fillDates.map(d => [d, { USD: USD_PER_EUR }])) }),
     }));
     await loadAccount(page);
     await openTab(page, 'tax');
@@ -507,8 +542,9 @@ test.describe('positions board', () => {
     // The ETH LONG and the SHORT its reversing fill opened share that
     // fill, so the two windows touch; both rows are still fully
     // attributed, so neither carries a †, and the overlap stays a hint.
+    // The open BTC LONG's opening fill puts it in 2025 too.
     await expect(page.locator('#taxStatus')).toHaveText(
-      "Year 2025 · 3 closed positions · 2 rows overlap another position's window");
+      "Year 2025 · 3 closed positions · 1 open position · 2 rows overlap another position's window");
     await expect(page.locator('#taxRowsBody td', { hasText: '†' })).toHaveCount(0);
     const ethDates = page.locator('#taxRowsBody tr', { hasText: 'ETH-USD' }).locator('td:first-child');
     await expect(ethDates).toHaveCount(2);
@@ -540,7 +576,7 @@ test.describe('positions board', () => {
     await expect(page.locator('#expectancy')).toHaveClass(/\bloss\b/);
     await expect(page.locator('#expectancy')).not.toHaveClass(/\bprofit\b/);
     await expect(page.locator('#riskRewardHeroDetail'))
-      .toHaveText('+$647 / -$2000 · WR 66.7% vs 75.6% breakeven');
+      .toHaveText('+$647 / -$2,000 · WR 66.7% vs 75.6% breakeven');
   });
 
   test('without fills the profit headline and its fills-built ledger cells read — with the reason', async ({ page }) => {
@@ -552,7 +588,7 @@ test.describe('positions board', () => {
     await expect(page.locator('#totalPnLTrading')).toHaveText('—');
     await expect(page.locator('#totalPnLFees')).toHaveText('—');
     // Funding comes from the position lists, which did load.
-    await expect(page.locator('#totalPnLFunding')).toHaveText('-$13');
+    await expect(page.locator('#totalPnLFunding')).toHaveText('-$12.54');
 
     await openTab(page, 'performance');
     const ethRow = page.locator('#assetPerformanceBody tr', { hasText: 'ETH-USD' }).locator('td');
@@ -560,7 +596,7 @@ test.describe('positions board', () => {
     // decisive / scratch split is not. The classifier is all-or-nothing
     // account-wide, so the reason counts every incomplete position.
     await expect(ethRow.nth(1)).toHaveText('—');
-    await expect(ethRow.nth(2)).toHaveText('-$13');
+    await expect(ethRow.nth(2)).toHaveText('-$12.54');
     await expect(ethRow.nth(3)).toHaveText('—');
     await expect(ethRow.nth(4)).toHaveText('2');
     await expect(ethRow.nth(4)).toHaveAttribute('title', '3 positions missing fill data');
@@ -580,7 +616,7 @@ test.describe('positions board', () => {
     await expect(page.locator('#totalPnLChange')).toHaveText(reason);
     await expect(page.locator('#totalPnLTrading')).toHaveText('—');
     await expect.poll(async () => (await marketChartEntry(page, 'ETH-USD')).tooltip)
-      .toContain('Profit (incl. funding − fees): +$1281');
+      .toContain('Profit (incl. funding − fees): +$1,281');
 
     await openTab(page, 'performance');
     await expect(assetCells(page, 'BTC-USD').nth(1)).toHaveText('—');
@@ -592,14 +628,14 @@ test.describe('positions board', () => {
 
     // TRADING: ETH realizes 1000 + 300, BTC holds 2 bought at 99000 marked
     // at 100000. FUNDING -12.54, FEES 7.4 paid.
-    await expect(page.locator('#totalPnL')).toHaveText('+$3280');
+    await expect(page.locator('#totalPnL')).toHaveText('+$3,280.06');
     await expect(page.locator('#totalPnLChange')).toHaveText('All Time');
-    await expect(page.locator('#totalPnLTrading')).toHaveText('+$3300');
+    await expect(page.locator('#totalPnLTrading')).toHaveText('+$3,300.00');
     await expect.poll(async () => (await marketChartEntry(page, 'BTC-USD')).tooltip)
-      .toContain('Profit (incl. funding − fees): +$1999');
+      .toContain('Profit (incl. funding − fees): +$1,999');
 
     await openTab(page, 'performance');
-    await expect(assetCells(page, 'BTC-USD').nth(1)).toHaveText('+$1999');
+    await expect(assetCells(page, 'BTC-USD').nth(1)).toHaveText('+$1,999.00');
   });
 
   test('fills that end at a different size than an OPEN row blank the headline, TRADING and that market\'s profit', async ({ page }) => {
@@ -611,17 +647,17 @@ test.describe('positions board', () => {
     await expect(page.locator('#totalPnLChange')).toHaveText(reason);
     await expect(page.locator('#totalPnLTrading')).toHaveText('—');
     // Funding and fees do not depend on how the fills add up.
-    await expect(page.locator('#totalPnLFunding')).toHaveText('-$13');
-    await expect(page.locator('#totalPnLFees')).toHaveText('-$7');
+    await expect(page.locator('#totalPnLFunding')).toHaveText('-$12.54');
+    await expect(page.locator('#totalPnLFees')).toHaveText('-$7.40');
     await expect.poll(async () => (await marketChartEntry(page, 'BTC-USD')).tooltip)
       .toContain(`Profit (incl. funding − fees): — (${reason})`);
     expect((await marketChartEntry(page, 'ETH-USD')).tooltip)
-      .toContain('Profit (incl. funding − fees): +$1281');
+      .toContain('Profit (incl. funding − fees): +$1,281');
 
     await openTab(page, 'performance');
     await expect(assetCells(page, 'BTC-USD').nth(1)).toHaveText('—');
     await expect(assetCells(page, 'BTC-USD').nth(1)).toHaveAttribute('title', reason);
-    await expect(assetCells(page, 'ETH-USD').nth(1)).toHaveText('+$1281');
+    await expect(assetCells(page, 'ETH-USD').nth(1)).toHaveText('+$1,281.06');
   });
 
   test('an unusable fill inside an OPEN position blanks the headline, TRADING and that market\'s profit, naming the cause', async ({ page }) => {
@@ -635,12 +671,47 @@ test.describe('positions board', () => {
     await expect.poll(async () => (await marketChartEntry(page, 'BTC-USD')).tooltip)
       .toContain(`Profit (incl. funding − fees): — (${reason})`);
     expect((await marketChartEntry(page, 'ETH-USD')).tooltip)
-      .toContain('Profit (incl. funding − fees): +$1281');
+      .toContain('Profit (incl. funding − fees): +$1,281');
 
     await openTab(page, 'performance');
     await expect(assetCells(page, 'BTC-USD').nth(1)).toHaveText('—');
     await expect(assetCells(page, 'BTC-USD').nth(1)).toHaveAttribute('title', reason);
-    await expect(assetCells(page, 'ETH-USD').nth(1)).toHaveText('+$1281');
+    await expect(assetCells(page, 'ETH-USD').nth(1)).toHaveText('+$1,281.06');
+  });
+
+  test('a fill without a fee blanks the headline, FEES and that market\'s profit and fees, but not TRADING', async ({ page }) => {
+    await page.route(INDEXER_URL, serveAccount(null, feelessFillAccount));
+    await loadAccount(page);
+
+    const reason = '1 fill without a fee';
+    await expect(page.locator('#totalPnL')).toHaveText('—');
+    await expect(page.locator('#totalPnLChange')).toHaveText(reason);
+    await expect(page.locator('#totalPnLFees')).toHaveText('—');
+    await expect(page.locator('#totalPnLTrading')).toHaveText('+$3,300.00');
+    await expect.poll(async () => (await marketChartEntry(page, 'BTC-USD')).tooltip)
+      .toContain(`Profit (incl. funding − fees): — (${reason})`);
+    expect((await marketChartEntry(page, 'ETH-USD')).tooltip)
+      .toContain('Profit (incl. funding − fees): +$1,281');
+
+    await openTab(page, 'performance');
+    // ASSET, PROFIT, FUNDING, FEES.
+    await expect(assetCells(page, 'BTC-USD').nth(1)).toHaveText('—');
+    await expect(assetCells(page, 'BTC-USD').nth(1)).toHaveAttribute('title', reason);
+    await expect(assetCells(page, 'BTC-USD').nth(3)).toHaveText('—');
+    await expect(assetCells(page, 'BTC-USD').nth(3)).toHaveAttribute('title', reason);
+    await expect(assetCells(page, 'ETH-USD').nth(1)).toHaveText('+$1,281.06');
+    await expect(assetCells(page, 'ETH-USD').nth(3)).toHaveText('-$6.40');
+  });
+
+  test('a CLOSED position\'s fill without a fee leaves the funding hero as it is: the fills still show every hour held', async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem('fundingWindow', 'all'));
+    await page.route(INDEXER_URL, serveAccount(null, feelessClosedFillAccount));
+    await loadAccount(page);
+    await expect(page.locator('#totalPnLFees')).toHaveText('—');
+
+    await openTab(page, 'market');
+    await expect(page.locator('#fundingCaption')).not.toContainText('Unknown fill fee');
+    await expect(page.locator('#fundingHoursDeployed')).not.toHaveText('—');
   });
 
   test('an OPEN position opened by a reversal with no partner listed blanks the headline, TRADING and that market\'s profit, naming the cause', async ({ page }) => {
@@ -651,12 +722,38 @@ test.describe('positions board', () => {
     await expect(page.locator('#totalPnL')).toHaveText('—');
     await expect(page.locator('#totalPnLChange')).toHaveText(reason);
     await expect(page.locator('#totalPnLTrading')).toHaveText('—');
-    await expect.poll(async () => (await marketChartEntry(page, 'BTC-USD')).tooltip)
-      .toContain(`Profit (incl. funding − fees): — (${reason})`);
+    // The reversed LONG has no CLOSED row, so BTC's closed count is a
+    // lower bound: the chart draws no slice and its legend gives the reason.
+    const unlistedReason = 'Fills hold a closed trade no listed position owns in BTC-USD';
+    await expect(page.locator('#marketDistributionLegend .market-legend-item')).toHaveText([`— ${unlistedReason}`]);
+    expect(await page.evaluate(() => Chart.getChart(document.getElementById('marketDistributionChart'))),
+      'no slice on an unknown closed count').toBeUndefined();
 
     await openTab(page, 'performance');
     await expect(assetCells(page, 'BTC-USD').nth(1)).toHaveAttribute('title', reason);
-    await expect(assetCells(page, 'ETH-USD').nth(1)).toHaveText('+$1281');
+    await expect(assetCells(page, 'ETH-USD').nth(1)).toHaveText('+$1,281.06');
+  });
+
+  test('a CLOSED position missing its fills in a market the funding hero covers leaves the hero — with its cause, not the headline', async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem('fundingWindow', 'all'));
+    await page.route(INDEXER_URL, serveAccount(null, closedMissingFillsAccount));
+    await loadAccount(page);
+    await expect(page.locator('#totalPnLTrading')).not.toHaveText('—');
+
+    await openTab(page, 'market');
+    await expect(page.locator('#fundingCaption')).toHaveText('No matching fills in BTC-USD');
+    for (const id of ['fundingHoursDeployed', 'fundingTimeInMarket', 'fundingPeriod', 'fundingApr']) {
+      await expect(page.locator(`#${id}`)).toHaveText('—');
+    }
+  });
+
+  test('a CLOSED position missing its fills whose window overlaps the funding hero\'s leaves the hero — though no fill shows its market held', async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem('fundingWindow', 'all'));
+    await page.route(INDEXER_URL, serveAccount(null, closedOnlyMissingFillsAccount));
+    await loadAccount(page);
+    await openTab(page, 'market');
+    await expect(page.locator('#fundingCaption')).toHaveText('No matching fills in BTC-USD');
+    await expect(page.locator('#fundingHoursDeployed')).toHaveText('—');
   });
 
   test('a market with open lots and no oracle price blanks the headline and TRADING but only its own profit', async ({ page }) => {
@@ -668,18 +765,24 @@ test.describe('positions board', () => {
     await expect(page.locator('#totalPnL')).toHaveText('—');
     await expect(page.locator('#totalPnLChange')).toHaveText(reason);
     await expect(page.locator('#totalPnLTrading')).toHaveText('—');
-    await expect.poll(async () => (await marketChartEntry(page, 'SOL-USD')).tooltip)
-      .toContain(`Profit (incl. funding − fees): — (${reason})`);
+    // SOL holds only an open position, so it takes no slice: the legend
+    // lists it with its gated profit and the reason on hover.
+    const solLegend = page.locator('#marketDistributionLegend .market-legend-item', { hasText: 'SOL-USD' });
+    await expect(solLegend).toHaveText(/SOL-USD 1 open, no closed · profit —/);
+    await expect(solLegend).toHaveAttribute('title', new RegExp(`Profit \\(incl\\. funding − fees\\): ${reason}\\.`));
+    const sliceLabels = await page.evaluate(() =>
+      Chart.getChart(document.getElementById('marketDistributionChart')).data.labels);
+    expect(sliceLabels.some(l => l.startsWith('SOL-USD ')), 'no slice for an open-only market').toBe(false);
     expect((await marketChartEntry(page, 'ETH-USD')).tooltip)
-      .toContain('Profit (incl. funding − fees): +$1281');
+      .toContain('Profit (incl. funding − fees): +$1,281');
     expect((await marketChartEntry(page, 'BTC-USD')).tooltip)
-      .toContain('Profit (incl. funding − fees): +$1999');
+      .toContain('Profit (incl. funding − fees): +$1,999');
 
     await openTab(page, 'performance');
     await expect(assetCells(page, 'SOL-USD').nth(1)).toHaveText('—');
     await expect(assetCells(page, 'SOL-USD').nth(1)).toHaveAttribute('title', reason);
-    await expect(assetCells(page, 'ETH-USD').nth(1)).toHaveText('+$1281');
-    await expect(assetCells(page, 'BTC-USD').nth(1)).toHaveText('+$1999');
+    await expect(assetCells(page, 'ETH-USD').nth(1)).toHaveText('+$1,281.06');
+    await expect(assetCells(page, 'BTC-USD').nth(1)).toHaveText('+$1,999.00');
   });
 
   test('with no open position and known equity the Leverage card reads 0.00x', async ({ page }) => {
@@ -715,7 +818,167 @@ test.describe('positions board', () => {
     await openTab(page, 'risk');
 
     await expect(page.locator('#leverageUtil')).toHaveText('—');
-    await expect(page.locator('#leverageUtilDetail')).toHaveText('Open position notional unavailable');
+    await expect(page.locator('#leverageUtilDetail')).toHaveText('No oracle price for SOL-USD');
+  });
+
+  test('an open position with an entry price but no oracle price is not valued at entry', async ({ page }) => {
+    // The markets map has no SOL-USD entry; the SOL row carries entryPrice 100.
+    await page.route(INDEXER_URL, serveAccount(null, solOpenAccount));
+    await loadAccount(page);
+
+    const reason = 'No oracle price for SOL-USD';
+    await openTab(page, 'positions');
+    await expect(page.locator('#positionsActiveCount')).toHaveText('2');
+    await expect(page.locator('#positionsActiveNotional')).toHaveText(reason);
+
+    await openTab(page, 'risk');
+    await expect(page.locator('#leverageUtil')).toHaveText('—');
+    await expect(page.locator('#leverageUtilDetail')).toHaveText(reason);
+  });
+
+  test('a /historical-pnl curve that never draws down reads a $0 drawdown, not the closed-trade ledger\'s', async ({ page }) => {
+    // The closed trades lose $500 after two ETH wins; the P&L curve only
+    // rises, to the +$781.06 headline (its live point).
+    const monotonicAccount = {
+      ...losingAccount,
+      closedPositions: { positions: [SOL_SMALL_LOSS, ETH_SHORT, ETH_LONG] },
+      fills: { fills: twoLossAccount.fills.fills.filter(f => !['l1', 'l2'].includes(f.id)) },
+      historicalPnl: { historicalPnl: [histRow('2025-01-02T00:00:00.000Z', 500), histRow('2025-01-01T00:00:00.000Z', 0)] },
+    };
+    await page.route(INDEXER_URL, serveAccount(null, monotonicAccount));
+    await loadAccount(page);
+
+    await expect(page.locator('#totalPnL')).toHaveText('+$781.06');
+    await expect(page.locator('#maxDrawdown')).toHaveText('$0');
+    await expect(page.locator('#maxDrawdownDetail')).toHaveText('No drawdown recorded · series since 2025-01-01');
+    await expect(page.locator('#currentDrawdown')).toHaveText('$0');
+    await openTab(page, 'risk');
+    await expect(page.locator('#drawdownPeriodsBody tr')).toHaveCount(0);
+  });
+
+  // The +$781.06 headline account of the test above, on other rows.
+  const monotonicWithRows = (rows) => ({
+    ...losingAccount,
+    closedPositions: { positions: [SOL_SMALL_LOSS, ETH_SHORT, ETH_LONG] },
+    fills: { fills: twoLossAccount.fills.fills.filter(f => !['l1', 'l2'].includes(f.id)) },
+    historicalPnl: { historicalPnl: rows },
+  });
+
+  test('the series start is the first row in time, whatever offset its timestamp is written in', async ({ page }) => {
+    // 01:00 at +02:00 is 23:00 UTC the day before the 00:30 UTC row.
+    const rows = [histRow('2025-01-01T00:30:00.000Z', 500), histRow('2025-01-01T01:00:00+02:00', 0)];
+    await page.route(INDEXER_URL, serveAccount(null, monotonicWithRows(rows)));
+    await loadAccount(page);
+
+    await expect(page.locator('#maxDrawdownDetail')).toHaveText('No drawdown recorded · series since 2024-12-31');
+  });
+
+  test('a drop whose peak and trough display alike is no drawdown on the card or the Recovery Factor', async ({ page }) => {
+    // +$781.40 → +$780.60 (a raw $0.80) → the +$781.06 live headline.
+    const rows = [
+      histRow('2025-01-03T00:00:00.000Z', 780.6),
+      histRow('2025-01-02T00:00:00.000Z', 781.4),
+      histRow('2025-01-01T00:00:00.000Z', 0),
+    ];
+    await page.route(INDEXER_URL, serveAccount(null, monotonicWithRows(rows)));
+    await loadAccount(page);
+
+    await expect(page.locator('#totalPnL')).toHaveText('+$781.06');
+    await expect(page.locator('#maxDrawdown')).toHaveText('$0');
+    await expect(page.locator('#recoveryFactor')).toHaveText('N/A');
+  });
+
+  test('Recovery Factor divides by the Max Drawdown the card shows, the displayed peak less the displayed trough', async ({ page }) => {
+    // +$781.60 → +$780.40 (a raw $1.20, shown +$782 → +$780) → the +$781.06 live headline.
+    const rows = [
+      histRow('2025-01-03T00:00:00.000Z', 780.4),
+      histRow('2025-01-02T00:00:00.000Z', 781.6),
+      histRow('2025-01-01T00:00:00.000Z', 0),
+    ];
+    await page.route(INDEXER_URL, serveAccount(null, monotonicWithRows(rows)));
+    await loadAccount(page);
+
+    await expect(page.locator('#totalPnL')).toHaveText('+$781.06');
+    await expect(page.locator('#maxDrawdown')).toHaveText('-$2');
+    await expect(page.locator('#currentDrawdown')).toHaveText('-$1');
+    // 781.06 ÷ 2, not ÷ the raw 1.20 (650.88).
+    await expect(page.locator('#recoveryFactor')).toHaveText('390.53');
+  });
+
+  test('the Max Drawdown caption dates the trough, with the series start as its own phrase', async ({ page }) => {
+    const drawdownAccount = {
+      ...account,
+      historicalPnl: { historicalPnl: [
+        histRow('2025-01-04T00:00:00.000Z', 300),
+        histRow('2025-01-03T00:00:00.000Z', 100),
+        histRow('2025-01-02T00:00:00.000Z', 500),
+        histRow('2025-01-01T00:00:00.000Z', 0),
+      ] },
+    };
+    await page.route(INDEXER_URL, serveAccount(null, drawdownAccount));
+    await loadAccount(page);
+
+    await expect(page.locator('#maxDrawdown')).toHaveText('-$400');
+    await expect(page.locator('#maxDrawdown')).toHaveClass(/\bloss\b/);
+    await expect(page.locator('#maxDrawdownDetail'))
+      .toHaveText('Peak +$500 (2025-01-02) → trough +$100 (2025-01-03) · series since 2025-01-01');
+  });
+
+  test('Current Drawdown and Recovery Factor read the live point, the Total Profit headline; without it the caption names the last row', async ({ page }) => {
+    // Rows peak at +$4000, fall to +$100 and end at +$3000. The headline
+    // (fills, funding and fees) is +$3280.06, so the account is $719.94
+    // below its peak now. The subaccount's equity is far from the rows'
+    // $10000, as after a deposit since the last row: it is not profit.
+    const rows = [
+      histRow('2025-01-04T00:00:00.000Z', 3000),
+      histRow('2025-01-03T00:00:00.000Z', 100),
+      histRow('2025-01-02T00:00:00.000Z', 4000),
+      histRow('2025-01-01T00:00:00.000Z', 0),
+    ];
+    const liveAccount = withEquity({ ...account, historicalPnl: { historicalPnl: rows } }, '50000');
+    await page.route(INDEXER_URL, serveAccount(null, liveAccount));
+    await loadAccount(page);
+
+    await expect(page.locator('#totalPnL')).toHaveText('+$3,280.06');
+    await expect(page.locator('#currentDrawdown')).toHaveText('-$720');
+    await expect(page.locator('#currentDrawdownDetail')).not.toContainText('as of');
+    await expect(page.locator('#recoveryFactor')).toHaveText('0.84');
+
+    await page.unrouteAll({ behavior: 'ignoreErrors' });
+    await page.route(INDEXER_URL, serveAccount('fills', liveAccount));
+    await loadAccount(page);
+
+    await expect(page.locator('#totalPnL')).toHaveText('—');
+    await expect(page.locator('#currentDrawdown')).toHaveText('-$1,000');
+    await expect(page.locator('#currentDrawdownDetail'))
+      .toContainText('as of 2025-01-04 00:00 UTC, last hourly row (Total Profit unavailable)');
+    await expect(page.locator('#recoveryFactor')).toHaveText('0.77');
+  });
+
+  test('Calmar annualizes over the calendar span of the rows, and the Sharpe caption shows the compounded return', async ({ page }) => {
+    // 4-hourly rows: 100 on an empty account, a $10000 deposit, then 200
+    // funded rows with one −$1000 hour. Compounded −10%, max drawdown 10%.
+    // CAGR over the 1196 h from the first row (hours without capital
+    // count): 0.9^(8766/1196) − 1 = −0.53804, Calmar −5.38; over the
+    // 200 funded periods alone it would be −6.85.
+    const SAMPLE_HOURS = 4, UNFUNDED_ROWS = 100, ROWS = 300, LOSS_ROW = 200;
+    const startMs = Date.parse('2025-01-01T00:00:00.000Z');
+    const rows = Array.from({ length: ROWS }, (_, i) => {
+      const at = new Date(startMs + i * SAMPLE_HOURS * AppConstants.MS_PER_HOUR).toISOString();
+      const funded = i >= UNFUNDED_ROWS;
+      return {
+        createdAt: at, blockTime: at, blockHeight: String(i + 1),
+        totalPnl: i >= LOSS_ROW ? '-1000' : '0',
+        equity: funded ? '10000' : '0',
+        netTransfers: i === UNFUNDED_ROWS ? '10000' : '0',
+      };
+    });
+    await page.route(INDEXER_URL, serveAccount(null, { ...account, historicalPnl: { historicalPnl: rows } }));
+    await loadAccount(page);
+
+    await expect(page.locator('#sharpeMeta')).toContainText('compounded -10.0%');
+    await openTab(page, 'performance');
+    await expect(page.locator('#calmarRatio')).toHaveText('-5.38');
   });
 
   test('a failed OPEN list keeps precedence over missing equity on the Leverage card', async ({ page }) => {
@@ -763,12 +1026,12 @@ test.describe('positions board', () => {
     ]);
     const assetRow = (ticker) => page.locator('#assetPerformanceBody tr', { hasText: ticker }).locator('td');
     // ETH wins +$996 and +$298 (average +$647) and never loses.
-    await expect(assetRow('ETH-USD').nth(7)).toHaveText('+$996');
+    await expect(assetRow('ETH-USD').nth(7)).toHaveText('+$996.00');
     await expect(assetRow('ETH-USD').nth(7)).toHaveClass(/\bprofit\b/);
     await expect(assetRow('ETH-USD').nth(8)).toHaveText('—');
     // SOL loses $2000 and $500 (average -$1250) and never wins.
     await expect(assetRow('SOL-USD').nth(7)).toHaveText('—');
-    await expect(assetRow('SOL-USD').nth(8)).toHaveText('-$2000');
+    await expect(assetRow('SOL-USD').nth(8)).toHaveText('-$2,000.00');
     await expect(assetRow('SOL-USD').nth(8)).toHaveClass(/\bloss\b/);
   });
 
