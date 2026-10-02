@@ -3,18 +3,18 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>dydx.review — Independent Trading Performance Analytics for dYdX v4</title>
+    <title>dydx.review — Independent Trade Review, PnL and Tax Reports for dYdX v4 Addresses</title>
     <meta name="description" content="dydx.review provides independent, third-party, read-only trading performance analytics for dYdX v4 traders. Not affiliated with dYdX Trading Inc., dYdX Operations Services Ltd., dYdX Foundation, or dydx.trade. No custody, no orders.">
     <meta name="robots" content="index, follow">
     <meta name="theme-color" content="#0E0C09">
     <meta name="author" content="dydx.review (independent)">
     <meta property="og:type" content="website">
     <meta property="og:site_name" content="dydx.review (independent)">
-    <meta property="og:title" content="dydx.review — Independent Trading Performance Analytics for dYdX v4">
+    <meta property="og:title" content="dydx.review — Independent Trade Review, PnL and Tax Reports for dYdX v4 Addresses">
     <meta property="og:description" content="Independent, third-party, read-only trading performance analytics for dYdX v4 traders. Not affiliated with dydx.trade, dYdX Trading Inc., or dYdX Operations Services Ltd.">
     <meta property="og:url" content="https://dydx.review/">
     <meta name="twitter:card" content="summary">
-    <meta name="twitter:title" content="dydx.review — Independent Trading Performance Analytics for dYdX v4">
+    <meta name="twitter:title" content="dydx.review — Independent Trade Review, PnL and Tax Reports for dYdX v4 Addresses">
     <meta name="twitter:description" content="Independent, read-only trading performance analytics for dYdX v4. Not affiliated with dydx.trade.">
     <link rel="canonical" href="https://dydx.review/">
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='10' fill='%230E0C09'/><text x='50%25' y='68%25' text-anchor='middle' font-family='Georgia,Times New Roman,serif' font-style='italic' font-size='46' fill='%23D7AC60'>§</text></svg>">
@@ -43,7 +43,7 @@
                 <span class="np-domain">dydx</span><span class="np-dot">.</span><span class="np-tld">review</span>
             </a>
             <div class="nameplate-kicker">
-                <span class="kicker-mono"><span class="gold">Independent</span> · Performance analytics · Not <span class="kicker-strike">dydx.trade</span></span>
+                <span class="kicker-mono"><span class="gold">Independent</span> · Trade review · Not <span class="kicker-strike">dydx.trade</span></span>
                 <span class="kicker-italic">Third-party trading performance analytics for dYdX v4 traders. Read-only public chain data.</span>
             </div>
             <p class="nameplate-slogan" role="doc-subtitle">
@@ -61,7 +61,7 @@
                     <span class="sep">·</span>
                     <span>dYdX&nbsp;v4&nbsp;Indexer</span>
                 </div>
-                <div class="breadcrumb" id="breadcrumb">Trading Analytics</div>
+                <div class="breadcrumb" id="breadcrumb">Trade Review</div>
             </div>
             <div class="header-right">
                 <span id="statusBadge" class="status-badge fresh" title="Snapshot-freshness indicator. FRESH = last fetch returned every endpoint. Not a streaming/websocket signal.">FRESH</span>
@@ -102,7 +102,7 @@
         <aside class="disclosure-strip" role="note" aria-label="Independence notice">
             <span class="disclosure-strip-eyebrow">Notice</span>
             <p class="disclosure-strip-body">
-                <strong>dydx.review</strong> is independent, third-party trading performance analytics for dYdX&nbsp;v4 traders. <em>Not affiliated</em> with, endorsed by, sponsored by, or operated by <strong>dYdX&nbsp;Trading&nbsp;Inc.</strong>, <strong>dYdX&nbsp;Operations&nbsp;Services&nbsp;Ltd.</strong>, the <strong>dYdX&nbsp;Foundation</strong>, or <strong>dydx.trade</strong>.
+                <strong>dydx.review</strong> is independent, third-party trading performance analytics for dYdX&nbsp;v4 traders. <em>Not affiliated</em> with, endorsed by, sponsored by, or operated by <strong>dYdX&nbsp;Trading&nbsp;Inc.</strong>, <strong>dYdX&nbsp;Operations&nbsp;Services&nbsp;Ltd.</strong>, the <strong>dYdX&nbsp;Foundation</strong>, or <strong>dydx.trade</strong>. The official dYdX sites are <a href="https://dydx.xyz" target="_blank" rel="noopener noreferrer external">dydx.xyz</a> and <a href="https://dydx.trade" target="_blank" rel="noopener noreferrer external">dydx.trade</a>.
             </p>
             <span class="disclosure-strip-tags">
                 <span>Read-only</span><span>No custody</span><span>No orders</span>
@@ -789,6 +789,7 @@
         })();
 
         // Tab Navigation with persisted active tab
+        const SITE_HEADING = document.getElementById('breadcrumb').textContent;
         function activateTab(tabId) {
             document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
             document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
@@ -800,8 +801,7 @@
                 try { localStorage.setItem('activeTab', tabId); } catch(e) {}
                 const bc = document.getElementById('breadcrumb');
                 if (bc) {
-                    const tabName = tabId.charAt(0).toUpperCase() + tabId.slice(1);
-                    bc.textContent = tabId === 'overview' ? 'Trading Analytics' : `Trading Analytics — ${tabName}`;
+                    bc.textContent = tabId === 'overview' ? SITE_HEADING : `${SITE_HEADING} — ${tabEl.textContent.trim()}`;
                 }
                 if (tabId === 'tax' && window.AppPanels && window.AppPanels.tax) {
                     window.AppPanels.tax.refresh();

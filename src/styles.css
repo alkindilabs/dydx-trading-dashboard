@@ -1949,6 +1949,20 @@
             font-style: italic;
             color: var(--gold);
         }
+        .disclosure-strip-body a {
+            font-family: var(--ff-sans);
+            font-style: normal;
+            font-weight: 500;
+            color: var(--ink);
+            text-decoration: none;
+            border-bottom: 1px dotted var(--rule-strong);
+            transition: color 0.15s, border-color 0.15s;
+        }
+        .disclosure-strip-body a:hover,
+        .disclosure-strip-body a:focus-visible {
+            color: var(--gold);
+            border-bottom-color: var(--gold);
+        }
         .disclosure-strip-tags {
             display: flex;
             gap: 0;
