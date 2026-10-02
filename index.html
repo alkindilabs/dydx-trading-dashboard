@@ -64,7 +64,7 @@
                 <div class="breadcrumb" id="breadcrumb">Trading Performance Review</div>
             </div>
             <div class="header-right">
-                <span id="statusBadge" class="status-badge fresh" title="Snapshot-freshness indicator. FRESH = last fetch returned every endpoint. Not a streaming/websocket signal.">FRESH</span>
+                <span id="statusBadge" class="status-badge idle" title="Snapshot-freshness indicator. FRESH = last fetch returned every endpoint. Not a streaming/websocket signal.">IDLE</span>
                 <div class="address-controls">
                     <input id="addressInput"
                            class="address-input mono"
@@ -76,7 +76,7 @@
                            placeholder="Enter dYdX address (e.g., dydx1...)" />
                     <button id="addressLoadBtn" class="address-btn">Load</button>
                 </div>
-                <div class="address mono" id="addressDisplay">-</div>
+                <div class="address mono" id="addressDisplay" hidden></div>
                 <button id="addressForgetBtn" class="address-btn" style="display:none;" title="Clear stored address">Forget</button>
                 <div id="fetchCaption" class="fetch-caption" role="status" aria-live="polite">
                     <span class="gold" id="fetchCaptionVerb">Fetching</span>
@@ -97,6 +97,9 @@
         <!-- Endpoint / validation errors. A row of its own below the
              masthead so showing it never resizes the masthead. -->
         <div id="loadErrorBanner" class="error-banner" role="alert" hidden></div>
+        <!-- What to do while there is no portfolio to show: no address
+             yet, or no account at the address. -->
+        <p id="addressNotice" class="address-notice" role="status" hidden></p>
 
         <!-- Disclosure / Notice strip -->
         <aside class="disclosure-strip" role="note" aria-label="Independence notice">
@@ -141,7 +144,7 @@
                             <dd class="mono" id="totalPnLFees">—</dd>
                         </div>
                     </dl>
-                    <div class="metric-change mono" id="totalPnLChange">Loading...</div>
+                    <div class="metric-change mono" id="totalPnLChange">—</div>
                     <svg class="metric-sparkline" viewBox="0 0 50 20">
                         <polyline points="0,15 10,12 20,10 30,8 40,5 50,3" fill="none" stroke="var(--gain)" stroke-width="1"/>
                     </svg>
@@ -858,7 +861,7 @@
             let done = 0;
             let active = false;
             let settleTimer = null;
-            let badgeState = 'ok';
+            let badgeState = 'idle';
             let failedEndpoints = [];
             let cachedEviction = null;
 
@@ -878,10 +881,10 @@
                     'Metrics that need them show —. Not a streaming/websocket signal.';
             }
 
-            function paintBadge(state /* 'fetching' | 'ok' | 'partial' | 'offline' */) {
+            function paintBadge(state /* 'idle' | 'fetching' | 'ok' | 'partial' | 'offline' */) {
                 badgeState = state;
                 if (!badge) return;
-                badge.classList.remove('fresh', 'fetching', 'offline', 'partial', 'cached-partial');
+                badge.classList.remove('idle', 'fresh', 'fetching', 'offline', 'partial', 'cached-partial');
                 if (cachedEviction) {
                     badge.classList.add('cached-partial');
                     badge.textContent = 'CACHED · PARTIAL';
@@ -892,7 +895,10 @@
                     return;
                 }
                 badge.title = DEFAULT_BADGE_TITLE;
-                if (state === 'fetching') {
+                if (state === 'idle') {
+                    badge.classList.add('idle');
+                    badge.textContent = 'IDLE';
+                } else if (state === 'fetching') {
                     badge.classList.add('fetching');
                     badge.textContent = 'FETCHING';
                 } else if (state === 'offline') {
@@ -988,14 +994,16 @@
             }
             // failed: the endpoint keys that failed, named in the partial
             // state's tooltip.
-            function end(state /* 'ok' | 'partial' | 'offline' */, failed = []) {
+            // 'idle': the fetch found no portfolio to show (no account at
+            // the address), so the badge goes back to describing nothing.
+            function end(state /* 'ok' | 'idle' | 'partial' | 'offline' */, failed = []) {
                 active = false;
                 failedEndpoints = failed.slice();
                 if (caption) caption.classList.remove('active');
                 paintBadge(state);
                 if (!bar) return;
                 if (settleTimer) { clearTimeout(settleTimer); settleTimer = null; }
-                if (state === 'ok') {
+                if (state === 'ok' || state === 'idle') {
                     // Snap every bucket to 1 so the bar reaches full on
                     // success even if some pages never reported (e.g. a
                     // paginated endpoint that returned 0 pages was settled
@@ -1086,6 +1094,17 @@
             el.title = '';
         }
 
+        // The page's one message while it has no portfolio to show; null
+        // hides it.
+        const NO_ADDRESS_NOTICE = 'Enter a dYdX v4 address above to review its trading performance.';
+        const NO_ACCOUNT_NOTICE = 'No dYdX v4 account found for this address.';
+        function showAddressNotice(msg) {
+            const el = document.getElementById('addressNotice');
+            if (!el) return;
+            el.textContent = msg || '';
+            el.hidden = !msg;
+        }
+
         // Address UI: load button (validates), Enter-to-submit, Forget button.
         // Persistence: the address is written to localStorage after the FIRST
         // successful load (in loadDashboard); the click-time write is skipped
@@ -1164,7 +1183,7 @@
         // dYdX API Configuration
         const {
             BASE: DYDX_API,
-            fetchJsonWithRetry,
+            fetchJsonWithRetry, isNoAccountError,
             fetchAllHistoricalPnl, fetchAllClosedPositions, fetchAllFills, fetchAllFundingPayments
         } = window.DydxApi;
         const {
@@ -1218,7 +1237,11 @@
             // junk without manually editing the URL bar.
             const urlHasAddress = !!urlParams.get('address');
             if (forgetBtn) forgetBtn.style.display = (storedAddress || urlHasAddress) ? '' : 'none';
-            if (!address) return;
+            if (!address) {
+                showAddressNotice(NO_ADDRESS_NOTICE);
+                return;
+            }
+            showAddressNotice(null);
 
             // Validate the address before any network call so we don't ship
             // attacker-controlled junk to the indexer or land on a 4xx that
@@ -1236,6 +1259,7 @@
                 const short = address.length > 12 ? `${address.slice(0, 8)}...${address.slice(-4)}` : address;
                 addressEl.textContent = short;
                 addressEl.title = address;
+                addressEl.hidden = false;
             }
 
             // Render the global `allData` through processData() and the
@@ -1326,6 +1350,21 @@
             ]);
 
             const dataKeys = SINGLE_PAGE.map(([k]) => k).concat(PAGINATED.map(([k]) => k));
+
+            // The indexer holds no account at this address: there is no
+            // portfolio, not a set of failed endpoints. Nothing is rendered,
+            // cached or remembered. A cached snapshot proves the account
+            // existed, so with one on screen the answer is an indexer fault
+            // and is reported as endpoint failures below.
+            const addressSubaccountsResult = settled[dataKeys.indexOf('addressSubaccounts')];
+            if (!hadCache && addressSubaccountsResult.status === 'rejected'
+                && isNoAccountError(addressSubaccountsResult.reason)) {
+                clearLoadError();
+                showAddressNotice(NO_ACCOUNT_NOTICE);
+                FetchProgress.end('idle');
+                return;
+            }
+
             const failed = [];
             const fresh = {};
             settled.forEach((r, i) => {

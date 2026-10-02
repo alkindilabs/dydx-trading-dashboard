@@ -34,6 +34,30 @@
     return false;
   }
 
+  // The `msg` of each entry of an indexer error body
+  // ({"errors":[{"msg":"…"}]}); [] for any other body.
+  async function indexerErrorMessages(res) {
+    try {
+      const body = await res.json();
+      const errors = body && Array.isArray(body.errors) ? body.errors : [];
+      return errors.map(e => e && e.msg).filter(m => typeof m === 'string');
+    } catch (_) {
+      return [];
+    }
+  }
+
+  // The indexer answers /addresses/{address} with this 404 when the
+  // address has never held a dYdX v4 account. The wording for a missing
+  // subaccount 0 ("No subaccount found with address …") is different: that
+  // address may still hold child subaccounts.
+  const HTTP_NOT_FOUND = 404;
+  const NO_SUBACCOUNTS_MSG_PREFIX = 'No subaccounts found for address ';
+
+  function isNoAccountError(e) {
+    return !!e && e.status === HTTP_NOT_FOUND && Array.isArray(e.indexerMessages)
+      && e.indexerMessages.some(m => m.startsWith(NO_SUBACCOUNTS_MSG_PREFIX));
+  }
+
   async function fetchJson(url, timeoutMs) {
     const C = window.AppConstants;
     const t = timeoutMs != null ? timeoutMs : C.FETCH_TIMEOUT_MS;
@@ -45,6 +69,7 @@
         const err = new Error(`HTTP ${res.status} ${res.statusText} for ${url}`);
         err.status = res.status;
         err.retryAfter = parseRetryAfter(res.headers.get('Retry-After'));
+        err.indexerMessages = await indexerErrorMessages(res);
         throw err;
       }
       return await res.json();
@@ -354,6 +379,7 @@
   window.DydxApi = {
     BASE: DYDX_API,
     fetchJsonWithRetry,
+    isNoAccountError,
     fetchAllHistoricalPnl,
     fetchAllClosedPositions,
     fetchAllFills,
