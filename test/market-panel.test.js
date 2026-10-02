@@ -1244,6 +1244,16 @@ test('a market\'s NET is its exact net at cents, half away from zero, with PAID 
     ['+$1.01', '-$2.01', '-$1.00']);
 });
 
+test('a market whose funding nets to $0.00 reads STATUS EVEN, never a placeholder', () => {
+  useWindow('30');
+  render([payment('BTC-USD', 2, 1.5, 1, 100000), payment('BTC-USD', 1, -1.5, 1, 100000),
+    payment('ETH-USD', 1, -2, 1, 4000)], DEFAULT_MARKETS, NO_GAPS);
+  const btc = tableRows().find(r => r.ticker === 'BTC-USD');
+  assert.equal(btc.cells[COL.NET].textContent, '$0.00');
+  assert.equal(btc.cells[COL.STATUS].textContent, 'EVEN');
+  assert.equal(tableRows().find(r => r.ticker === 'ETH-USD').cells[COL.STATUS].textContent, 'LOSS');
+});
+
 test('a market\'s funding NET reads the cent the profit ledger shows for the same funding', () => {
   useWindow('all');
   const RM = window.RiskMetrics;

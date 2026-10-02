@@ -25,6 +25,7 @@
   const UNKNOWN_TICKER = 'Unknown';
   const COLUMN_CURRENT = 1;
   const COLUMNS_FROM_PAYMENTS = ['RECEIVED', 'PAID', 'NET', 'STATUS'];
+  const NET_EVEN_STATUS = 'EVEN';
   const COMBINED_ROW_RATE_NOTE = 'Several markets combined: rates are per market';
   const PREDICTED_RATE_NOT_A_NUMBER = 'Predicted rate is not a number';
   // /historicalFunding answers newest first; one row is the last settlement.
@@ -656,7 +657,7 @@
       D.appendCell(tr, cell.text, ['mono', cell.tone]);
     });
     const netClass = centsCell(e.netCents).tone;
-    D.appendCell(tr, netClass && netClass !== 'zero' ? netClass.toUpperCase() : '-', ['mono']);
+    D.appendCell(tr, netClass && netClass !== 'zero' ? netClass.toUpperCase() : NET_EVEN_STATUS, ['mono']);
   }
 
   // Tickers whose CURRENT cell the table last rendered.
