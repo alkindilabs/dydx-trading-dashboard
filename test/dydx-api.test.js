@@ -275,3 +275,30 @@ test('fetchCandles stops at CANDLES_MAX_PAGES when the caller sets no page cap',
         }
     );
 });
+
+// The indexer's 404 answers, as it words them, for an address with no
+// account at all and for an address with no subaccount 0.
+const HTTP_NOT_FOUND = 404;
+const NO_SUBACCOUNTS_MSG = `No subaccounts found for address ${ADDRESS}`;
+const NO_SUBACCOUNT_ZERO_MSG = `No subaccount found with address ${ADDRESS} and subaccountNumber 0`;
+
+function notFound(msg) {
+    return new Response(JSON.stringify({ errors: [{ msg }] }), {
+        status: HTTP_NOT_FOUND,
+        headers: { 'Content-Type': 'application/json' }
+    });
+}
+
+async function rejectionOf(response) {
+    return withFetch(() => response, () =>
+        Api.fetchJsonWithRetry(`${Api.BASE}/addresses/${ADDRESS}`, { label: 'addressSubaccounts', tries: 0 })
+            .then(() => assert.fail('the request must reject'), e => e));
+}
+
+test('isNoAccountError recognises the indexer saying the address has no subaccounts, and nothing else', async () => {
+    assert.equal(Api.isNoAccountError(await rejectionOf(notFound(NO_SUBACCOUNTS_MSG))), true);
+    assert.equal(Api.isNoAccountError(await rejectionOf(notFound(NO_SUBACCOUNT_ZERO_MSG))), false,
+        'an address with child subaccounts but no subaccount 0 still has an account');
+    assert.equal(Api.isNoAccountError(await rejectionOf(new Response('not json', { status: HTTP_NOT_FOUND }))), false);
+    assert.equal(Api.isNoAccountError(await rejectionOf(serverError())), false);
+});

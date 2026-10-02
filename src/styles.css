@@ -271,6 +271,10 @@
             max-width: 100%;
             box-sizing: border-box;
         }
+        /* idle: nothing has been fetched, so the badge has nothing to
+           describe; hidden, but it keeps its footprint so the masthead does
+           not reflow when a load begins. */
+        .status-badge.idle { visibility: hidden; }
         .status-badge.fresh {
             color: var(--gain);
             background: linear-gradient(180deg, rgba(143,170,114,0.07), rgba(143,170,114,0.02));
@@ -512,16 +516,23 @@
             to   { opacity: 1; transform: translateY(0); }
         }
 
-        /* METRICS GRID */
+        /* METRICS GRID
+           The hairlines between cards are each card's outline drawn into
+           the 1px gap, not the grid's background showing through it, so a
+           last row the cards do not fill reads as blank card paper at any
+           width. overflow: hidden keeps the edge cards' outlines off the
+           grid's own border. */
         .metrics-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(var(--lane-card), 1fr));
             gap: 1px;
-            background: var(--rule);
+            background: var(--paper-2);
             border: 1px solid var(--rule-strong);
+            overflow: hidden;
             margin-bottom: 2.25rem;
         }
         .metric-card {
+            outline: 1px solid var(--rule);
             background: var(--paper-2);
             padding: 1.375rem 1.375rem 1.25rem;
             position: relative;
@@ -1762,6 +1773,24 @@
             margin: 0 0 1.75rem;
             overflow-wrap: anywhere;
         }
+
+        /* Address notice: the page's one message while it has no portfolio
+           to show (no address yet, or no account at the address). */
+        .address-notice {
+            font-family: var(--ff-display);
+            font-style: italic;
+            font-weight: 350;
+            font-size: clamp(1.125rem, 1.6vw + 0.5rem, 1.5rem);
+            line-height: 1.35;
+            color: var(--ink);
+            background: var(--paper-2);
+            border: 1px solid var(--rule-strong);
+            border-left: 2px solid var(--gold);
+            padding: var(--space-md) var(--space-lg);
+            margin: 0 0 1.75rem;
+            overflow-wrap: anywhere;
+        }
+        .address-notice[hidden] { display: none; }
 
         /* selection */
         ::selection { background: var(--gold); color: var(--paper); }

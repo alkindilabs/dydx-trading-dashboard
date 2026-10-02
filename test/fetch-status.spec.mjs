@@ -54,8 +54,8 @@ test.describe('fetch status', () => {
 
     await page.goto(`/?address=${ADDRESS}`);
 
-    // The markup ships reading FRESH; the data-age caption appears only
-    // once a load has rendered.
+    // The markup ships the badge IDLE, so FRESH means a load ended; the
+    // data-age caption appears only once a load has rendered.
     await expect(page.locator('#dataAge')).toBeVisible();
     await expect(page.locator('#statusBadge')).toHaveText('FRESH');
     await expect(page.locator('#loadErrorBanner')).toBeHidden();
