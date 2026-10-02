@@ -132,20 +132,20 @@ test.describe('classifier cards and the Positions tab', () => {
     await loadAccount(page);
 
     await expect(page.locator('#kellyCriterion')).toHaveText('-75.0%');
-    await expect(page.locator('#kellyCriterionDetail')).toHaveText('Negative edge: optimal size 0');
+    await expect(page.locator('#kellyCriterionDetail')).toHaveText('Negative edge: Kelly fraction 0');
   });
 
-  test('a Kelly fraction that displays as a size, or as zero, keeps the Optimal size caption', async ({ page }) => {
+  test('a Kelly fraction that displays as a size, or as zero, keeps the theoretical Kelly fraction caption', async ({ page }) => {
     await page.route(INDEXER_URL, serveAccount(null));
     await loadAccount(page);
     await expect(page.locator('#kellyCriterion')).toHaveText('30.0%');
-    await expect(page.locator('#kellyCriterionDetail')).toHaveText('Optimal size');
+    await expect(page.locator('#kellyCriterionDetail')).toHaveText('Kelly fraction (theoretical)');
 
     await page.unrouteAll();
     await page.route(INDEXER_URL, serveAccount(null, nearBreakevenAccount));
     await loadAccount(page);
     await expect(page.locator('#kellyCriterion')).toHaveText('0.0%');
-    await expect(page.locator('#kellyCriterionDetail')).toHaveText('Optimal size');
+    await expect(page.locator('#kellyCriterionDetail')).toHaveText('Kelly fraction (theoretical)');
   });
 
   test('the Payoff caption takes the expectancy\'s tone when the win rate and its breakeven display alike', async ({ page }) => {

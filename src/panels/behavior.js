@@ -28,12 +28,12 @@
 (function () {
   'use strict';
 
-  // Pattern verdicts, on the win rate and expectancy as displayed:
-  // CONTINUE needs a positive expectancy and a win rate of at least
-  // CONTINUE_MIN_WIN_RATE; AVOID a negative expectancy and a win rate
-  // below AVOID_BELOW_WIN_RATE.
-  const CONTINUE_MIN_WIN_RATE = 55;
-  const AVOID_BELOW_WIN_RATE = 50;
+  // Pattern readings, on the win rate and expectancy as displayed:
+  // Positive edge needs a positive expectancy and a win rate of at least
+  // POSITIVE_EDGE_MIN_WIN_RATE; Negative edge a negative expectancy and a
+  // win rate below NEGATIVE_EDGE_BELOW_WIN_RATE.
+  const POSITIVE_EDGE_MIN_WIN_RATE = 55;
+  const NEGATIVE_EDGE_BELOW_WIN_RATE = 50;
 
   // Why a pattern set's ratios are N/A: no closed win or loss to judge.
   const EMPTY_BUCKET_REASON = 'No closed winning or losing trade';
@@ -290,11 +290,11 @@
     body.innerHTML = '';
     const profitReason = accountCls.incompleteReason;
     setLabelRule('patternVerdictLabel',
-      `CONTINUE: positive expectancy and a win rate of at least ${CONTINUE_MIN_WIN_RATE}%. `
-      + `AVOID: negative expectancy and a win rate below ${AVOID_BELOW_WIN_RATE}%. `
-      + `REVIEW otherwise, or REVIEW (low n) with fewer than ${C.TUNABLES.PATTERN_MIN_N} decisive closed trades `
+      `Positive edge: positive expectancy and a win rate of at least ${POSITIVE_EDGE_MIN_WIN_RATE}%. `
+      + `Negative edge: negative expectancy and a win rate below ${NEGATIVE_EDGE_BELOW_WIN_RATE}%. `
+      + `Mixed otherwise, or Low sample with fewer than ${C.TUNABLES.PATTERN_MIN_N} decisive closed trades `
       + `(the wins and losses the win rate and expectancy are measured on). `
-      + `Win rate and expectancy are compared as displayed.`);
+      + `Win rate and expectancy are compared as displayed. A description of the record, not trading advice.`);
 
     // A hold-time count over a short list, or one leaving out a closed
     // position without a hold window, is a lower bound: unknown instead.
@@ -322,23 +322,23 @@
       // breakeven rate (no win or no loss to give a payoff).
       const wrTone = wr === null || setCls.breakevenWinRate === null ? ''
         : F.breakevenVerdict(wr, setCls.breakevenWinRate, avg).toneClass;
-      const rec = recommend(wr, avg, setCls ? setCls.decisiveCount : null, ratioGap);
-      return { label, labelRule, n, wr, wrTone, avg, rec: rec.label, recCls: rec.cls, recReason: rec.reason, countGap, ratioGap };
+      const reading = readingOf(wr, avg, setCls ? setCls.decisiveCount : null, ratioGap);
+      return { label, labelRule, n, wr, wrTone, avg, reading: reading.label, readingCls: reading.cls, readingReason: reading.reason, countGap, ratioGap };
     };
     // '—' with the reason while the ratios are unknown (a gap); a set
     // with fewer than PATTERN_MIN_N decisive closed trades (those the win
     // rate and expectancy are measured on; a set without one included)
-    // reads REVIEW (low n). Otherwise the win rate as SUCCESS RATE
+    // reads Low sample. Otherwise the win rate as SUCCESS RATE
     // displays it and the expectancy's sign as EXPECTANCY displays it
     // (whole dollars, Format.signClass).
-    const recommend = (wr, avg, decisiveCount, ratioGap) => {
+    const readingOf = (wr, avg, decisiveCount, ratioGap) => {
       if (ratioGap) return { label: '—', cls: '', reason: ratioGap };
-      if (decisiveCount < C.TUNABLES.PATTERN_MIN_N) return { label: 'REVIEW (low n)', cls: 'warning', reason: '' };
+      if (decisiveCount < C.TUNABLES.PATTERN_MIN_N) return { label: 'Low sample', cls: 'warning', reason: '' };
       const shownWr = F.asDisplayed(wr, F.PERCENT_DECIMALS);
       const shownEdge = F.signClass(avg);
-      if (shownEdge === 'profit' && shownWr >= CONTINUE_MIN_WIN_RATE) return { label: 'CONTINUE', cls: 'profit', reason: '' };
-      if (shownEdge === 'loss' && shownWr < AVOID_BELOW_WIN_RATE)     return { label: 'AVOID',    cls: 'loss', reason: '' };
-      return { label: 'REVIEW', cls: 'warning', reason: '' };
+      if (shownEdge === 'profit' && shownWr >= POSITIVE_EDGE_MIN_WIN_RATE)  return { label: 'Positive edge', cls: 'profit', reason: '' };
+      if (shownEdge === 'loss' && shownWr < NEGATIVE_EDGE_BELOW_WIN_RATE) return { label: 'Negative edge', cls: 'loss', reason: '' };
+      return { label: 'Mixed', cls: 'warning', reason: '' };
     };
     const gapH = C.TUNABLES.DOUBLE_DOWN_GAP_HOURS;
     const sizeMult = C.TUNABLES.DOUBLE_DOWN_SIZE_MULT;
@@ -367,11 +367,11 @@
       appendRowCell(tr, r.n, () => String(r.n), ['mono'], r.countGap);
       appendRowCell(tr, r.wr, () => F.formatPercent(r.wr), ['mono', r.wrTone], r.ratioGap);
       appendRowCell(tr, r.avg, () => F.formatCurrency(r.avg), ['mono', F.signClass(r.avg)], r.ratioGap);
-      const recTd = D.appendCell(tr, r.rec);
-      if (r.recReason) recTd.title = r.recReason;
-      recTd.style.color = r.recCls === 'warning' ? 'var(--warn)'
-        : r.recCls === 'profit' ? 'var(--gain)'
-        : r.recCls === 'loss' ? 'var(--loss)'
+      const readingTd = D.appendCell(tr, r.reading);
+      if (r.readingReason) readingTd.title = r.readingReason;
+      readingTd.style.color = r.readingCls === 'warning' ? 'var(--warn)'
+        : r.readingCls === 'profit' ? 'var(--gain)'
+        : r.readingCls === 'loss' ? 'var(--loss)'
         : 'var(--ink-3)';
       body.appendChild(tr);
     });

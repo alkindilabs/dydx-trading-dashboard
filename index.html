@@ -3,19 +3,19 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>dydx.review — Independent Trading Performance Review, PnL and Tax Reports for dYdX v4 Addresses</title>
+    <title>dydx.review — Independent Trading Performance Review, P&amp;L and Tax Reports for dYdX v4 Addresses</title>
     <meta name="description" content="dydx.review provides independent, third-party, read-only trading performance analytics for dYdX v4 traders. Not affiliated with dYdX Trading Inc., dYdX Operations Services Ltd., dYdX Foundation, or dydx.trade. No custody, no orders.">
     <meta name="robots" content="index, follow">
     <meta name="theme-color" content="#0E0C09">
     <meta name="author" content="dydx.review (independent)">
     <meta property="og:type" content="website">
     <meta property="og:site_name" content="dydx.review (independent)">
-    <meta property="og:title" content="dydx.review — Independent Trading Performance Review, PnL and Tax Reports for dYdX v4 Addresses">
-    <meta property="og:description" content="Independent, third-party, read-only trading performance analytics for dYdX v4 traders. Not affiliated with dydx.trade, dYdX Trading Inc., or dYdX Operations Services Ltd.">
+    <meta property="og:title" content="dydx.review — Independent Trading Performance Review, P&amp;L and Tax Reports for dYdX v4 Addresses">
+    <meta property="og:description" content="Independent, third-party, read-only trading performance analytics for dYdX v4 traders. Not affiliated with dYdX Trading Inc., dYdX Operations Services Ltd., dYdX Foundation, or dydx.trade.">
     <meta property="og:url" content="https://dydx.review/">
     <meta name="twitter:card" content="summary">
-    <meta name="twitter:title" content="dydx.review — Independent Trading Performance Review, PnL and Tax Reports for dYdX v4 Addresses">
-    <meta name="twitter:description" content="Independent, read-only trading performance analytics for dYdX v4. Not affiliated with dydx.trade.">
+    <meta name="twitter:title" content="dydx.review — Independent Trading Performance Review, P&amp;L and Tax Reports for dYdX v4 Addresses">
+    <meta name="twitter:description" content="Independent, read-only trading performance analytics for dYdX v4. Not affiliated with dYdX Trading Inc., dYdX Operations Services Ltd., dYdX Foundation, or dydx.trade.">
     <link rel="canonical" href="https://dydx.review/">
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='10' fill='%230E0C09'/><text x='50%25' y='68%25' text-anchor='middle' font-family='Georgia,Times New Roman,serif' font-style='italic' font-size='46' fill='%23D7AC60'>§</text></svg>">
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -43,7 +43,7 @@
                 <span class="np-domain">dydx</span><span class="np-dot">.</span><span class="np-tld">review</span>
             </a>
             <div class="nameplate-kicker">
-                <span class="kicker-mono"><span class="gold">Independent</span> · Trading performance review · Not <span class="kicker-strike">dydx.trade</span></span>
+                <span class="kicker-mono"><span class="gold">Independent</span> · Trading performance review · Not affiliated with dydx.trade</span>
                 <span class="kicker-italic">Third-party trading performance analytics for dYdX v4 traders. Read-only public chain data.</span>
             </div>
             <p class="nameplate-slogan" role="doc-subtitle">
@@ -76,7 +76,7 @@
                            placeholder="Enter dYdX address (e.g., dydx1...)" />
                     <button id="addressLoadBtn" class="address-btn">Load</button>
                 </div>
-                <div class="address mono" id="addressDisplay">-</div>
+                <div class="address mono" id="addressDisplay">—</div>
                 <button id="addressForgetBtn" class="address-btn" style="display:none;" title="Clear stored address">Forget</button>
                 <div id="fetchCaption" class="fetch-caption" role="status" aria-live="polite">
                     <span class="gold" id="fetchCaptionVerb">Fetching</span>
@@ -126,7 +126,7 @@
             <div class="metrics-grid">
                 <div class="metric-card metric-card--hero">
                     <div class="metric-label">Total Profit</div>
-                    <div class="metric-value mono" id="totalPnL">-</div>
+                    <div class="metric-value mono" id="totalPnL">—</div>
                     <dl class="hero-ledger" aria-label="Total profit composition">
                         <div class="hero-ledger__row">
                             <dt>Trading</dt>
@@ -152,17 +152,17 @@
                      that math before the eye reaches the risk row below. -->
                 <div class="metric-card" title="Wins ÷ decisive closed trades (wins + losses; scratches excluded). Above 50% is common but not enough — at low payoff you need a higher WR to be profitable. See Payoff Ratio for the breakeven threshold at your current payoff.">
                     <div class="metric-label">Win Rate</div>
-                    <div class="metric-value mono" id="winRate">-</div>
-                    <div class="metric-change mono" id="winRateDetail">-</div>
+                    <div class="metric-value mono" id="winRate">—</div>
+                    <div class="metric-change mono" id="winRateDetail">—</div>
                 </div>
                 <div class="metric-card" title="Profit Factor (PF) = gross profit ÷ gross loss across all closed trades. Above 1 = aggregate winner. Rules of thumb: 1.5–2.0 solid edge; ≥ 2.0 robust; below 1 losing system; above 3 often suspicious (small sample, lucky streak, or overfit).">
                     <div class="metric-label" id="profitFactorLabel">Profit Factor</div>
-                    <div class="metric-value mono" id="profitFactor">-</div>
-                    <div class="metric-change mono" id="profitFactorDetail">-</div>
+                    <div class="metric-value mono" id="profitFactor">—</div>
+                    <div class="metric-change mono" id="profitFactorDetail">—</div>
                 </div>
                 <div class="metric-card" title="Payoff Ratio = avg winning trade ÷ avg losing trade. Equals (profit factor × (1 − win rate) / win rate) — the same number the phase diagram surfaces as Implied Payoff. > 1 means winners are larger than losers; below 1, losers dominate.">
                     <div class="metric-label">Payoff Ratio</div>
-                    <div class="metric-value mono" id="riskRewardHero">-</div>
+                    <div class="metric-value mono" id="riskRewardHero">—</div>
                     <div class="metric-change mono" id="riskRewardHeroDetail">avg win / avg loss</div>
                 </div>
                 <!-- Row 2: risk-adjusted return + absolute drawdown. Sharpe
@@ -171,23 +171,23 @@
                      equity-loss event. -->
                 <div class="metric-card" id="sharpeCard" title="Sharpe Ratio = arithmetic mean of the time-weighted hourly returns ÷ their standard deviation, annualized, with the risk-free rate taken as 0. Above 1 good; above 2 excellent. Below 0 means the mean hourly return is negative; above 0 does not mean the account made money: with volatile returns the compounded return (in the caption) can be a loss while the mean is positive. Computed on /historical-pnl; gated by sample-adequacy thresholds.">
                     <div class="metric-label">Sharpe Ratio</div>
-                    <div class="metric-value mono" id="sharpeRatio">-</div>
+                    <div class="metric-value mono" id="sharpeRatio">—</div>
                     <div class="metric-change mono" id="sharpeMeta" title="">All time ⓘ</div>
                 </div>
                 <div class="metric-card" id="sortinoCard" title="Sortino Ratio = mean return ÷ downside deviation, annualized, with the risk-free rate taken as 0. Like Sharpe but penalizes only DOWNSIDE volatility: the downside deviation is the root-mean-square of the returns below 0, averaged over all periods (target semi-deviation). At least Sharpe when the mean return is positive; with a negative mean either can be the lower. Above 2 = strong downside-adjusted return. Below 0 means the mean hourly return is negative; like Sharpe it uses the arithmetic mean, so read it beside the compounded return in the caption.">
                     <div class="metric-label">Sortino Ratio</div>
-                    <div class="metric-value mono" id="sortinoRatio">-</div>
+                    <div class="metric-value mono" id="sortinoRatio">—</div>
                     <div class="metric-change mono" id="sortinoMeta" title="">All time ⓘ</div>
                 </div>
                 <div class="metric-card" id="maxDrawdownCard" title="Worst peak-to-trough $ excursion of the cumulative totalPnl curve, measured from 0 at the account's inception and ending at the live point (the Total Profit headline now, from fills, funding and fees, so a deposit or withdrawal is never profit; without the headline the curve ends at the last hourly row). A drawdown that rounds to $0 is no drawdown. Captures unrealized peaks the closed-trade ledger cannot see (e.g. a large open profit that was later given back). Pair with Current Drawdown to see now-vs-worst, and Recovery Factor for the ratio of lifetime profit to this number.">
                     <div class="metric-label">Max Drawdown</div>
-                    <div class="metric-value mono" id="maxDrawdown">-</div>
-                    <div class="metric-change mono" id="maxDrawdownDetail">-</div>
+                    <div class="metric-value mono" id="maxDrawdown">—</div>
+                    <div class="metric-change mono" id="maxDrawdownDetail">—</div>
                 </div>
                 <div class="metric-card" id="currentDrawdownCard" title="Current Drawdown = how far below the peak of cumulative trading P&L (totalPnl, excluding deposits and withdrawals) the account sits right now (the live point: the Total Profit headline, from fills, funding and fees; when the headline is unavailable the caption names the hourly row it is measured at); not the equity peak. $0 means at-or-above the prior peak. The time below peak is the same span as the ongoing Drawdown Periods row. Computed on the same totalPnl series as Max Drawdown so the two cards always agree about which P&L stream is being measured.">
                     <div class="metric-label">Current Drawdown</div>
-                    <div class="metric-value mono" id="currentDrawdown">-</div>
-                    <div class="metric-change mono" id="currentDrawdownDetail">-</div>
+                    <div class="metric-value mono" id="currentDrawdown">—</div>
+                    <div class="metric-change mono" id="currentDrawdownDetail">—</div>
                 </div>
             </div>
 
@@ -207,7 +207,7 @@
                 <span class="osb-rule osb-rule--right"></span>
             </div>
 
-            <!-- IV. Strategy Edge — phase diagram: win-rate × profit-factor.
+            <!-- I. Strategy Edge — phase diagram: win-rate × profit-factor.
                  SVG plot anchors a 4-quadrant verdict map. Quadrant zones,
                  iso-R:R curves, axis ticks, and the user marker are all
                  painted by renderStrategyEdge() inside processData() on every
@@ -215,7 +215,7 @@
                  plot — no recompute risk. -->
             <section class="strategy-edge" aria-label="Strategy edge phase diagram">
                 <header class="se-head">
-                    <span class="se-eyebrow">IV.</span>
+                    <span class="se-eyebrow">I.</span>
                     <h3 class="se-title">The Phase Diagram</h3>
                     <span class="se-deck">Win rate × profit factor — your strategy's location in the edge plane.</span>
                 </header>
@@ -246,7 +246,7 @@
                             </div>
                         </dl>
                         <div class="se-benchmark">
-                            <span class="se-benchmark-eyebrow">Industry benchmarks</span>
+                            <span class="se-benchmark-eyebrow">Common rules of thumb</span>
                             <ul>
                                 <li><span class="se-bench-tick">PF 1.5–2.0</span><span>Solid edge</span></li>
                                 <li><span class="se-bench-tick se-bench-tick--gold">PF ≥ 2.0</span><span>Robust edge</span></li>
@@ -260,7 +260,7 @@
             <section class="broadsheet" aria-label="Activity, statistics and time analysis">
                 <article class="broadsheet-col">
                     <header class="broadsheet-head">
-                        <span class="broadsheet-eyebrow">I.</span>
+                        <span class="broadsheet-eyebrow">II.</span>
                         <h3 class="broadsheet-title">Trading Activity by Market</h3>
                     </header>
                     <div class="canvas-wrap" style="position: relative; height: 17.5rem;">
@@ -270,20 +270,20 @@
                 </article>
                 <article class="broadsheet-col">
                     <header class="broadsheet-head">
-                        <span class="broadsheet-eyebrow">II.</span>
+                        <span class="broadsheet-eyebrow">III.</span>
                         <h3 class="broadsheet-title">Trading Statistics</h3>
                     </header>
                     <table class="broadsheet-table">
-                        <tr><td title="Average $ profit on winning closed trades: fill-attributed profit (net of fees, excluding funding) summed over winners ÷ winning trade count.">Average Win</td><td class="mono profit" id="avgWin">-</td></tr>
-                        <tr><td title="Average $ loss on losing closed trades: fill-attributed profit (net of fees, excluding funding) summed over losers ÷ losing trade count. Rendered as a negative dollar figure.">Average Loss</td><td class="mono loss" id="avgLoss">-</td></tr>
-                        <tr><td title="Payoff Ratio = avg win ÷ avg loss. Above 1 means winners are larger than losers. Pair with Win Rate: at this payoff you need WR ≥ 1 ÷ (1 + payoff) to break even.">Payoff Ratio</td><td class="mono" id="riskReward">-</td></tr>
-                        <tr><td title="Trade Expectancy = average $ fill-attributed profit (net of fees, excluding funding) per decisive (non-scratch) closed trade. Above 0 = the system has positive edge; below 0 = each trade on average loses money.">Trade Expectancy</td><td class="mono" id="expectancy">-</td></tr>
-                        <tr><td id="recoveryFactorLabel" title="Recovery Factor = lifetime profit now (the live point of the totalPnl curve: the Total Profit headline) ÷ max drawdown; N/A while the max drawdown rounds to $0. Above 5 = strong recovery; above 1 = made back the worst DD; below 1 = haven't recovered the worst DD; ≤ 0 = lifetime loss. Numerator and denominator come from the SAME P&L series.">Recovery Factor</td><td class="mono" id="recoveryFactor">-</td></tr>
+                        <tr><td title="Average $ profit on winning closed trades: fill-attributed profit (net of fees, excluding funding) summed over winners ÷ winning trade count.">Average Win</td><td class="mono profit" id="avgWin">—</td></tr>
+                        <tr><td title="Average $ loss on losing closed trades: fill-attributed profit (net of fees, excluding funding) summed over losers ÷ losing trade count. Rendered as a negative dollar figure.">Average Loss</td><td class="mono loss" id="avgLoss">—</td></tr>
+                        <tr><td title="Payoff Ratio = avg win ÷ avg loss. Above 1 means winners are larger than losers. Pair with Win Rate: at this payoff you need WR ≥ 1 ÷ (1 + payoff) to break even.">Payoff Ratio</td><td class="mono" id="riskReward">—</td></tr>
+                        <tr><td title="Trade Expectancy = average $ fill-attributed profit (net of fees, excluding funding) per decisive (non-scratch) closed trade. Above 0 = the system has positive edge; below 0 = each trade on average loses money.">Trade Expectancy</td><td class="mono" id="expectancy">—</td></tr>
+                        <tr><td id="recoveryFactorLabel" title="Recovery Factor = lifetime profit now (the live point of the totalPnl curve: the Total Profit headline) ÷ max drawdown; N/A while the max drawdown rounds to $0. Above 5 = strong recovery; above 1 = made back the worst DD; below 1 = haven't recovered the worst DD; ≤ 0 = lifetime loss. Numerator and denominator come from the SAME P&L series.">Recovery Factor</td><td class="mono" id="recoveryFactor">—</td></tr>
                     </table>
                 </article>
                 <article class="broadsheet-col">
                     <header class="broadsheet-head">
-                        <span class="broadsheet-eyebrow">III.</span>
+                        <span class="broadsheet-eyebrow">IV.</span>
                         <h3 class="broadsheet-title">Time Analysis</h3>
                     </header>
                     <table class="broadsheet-table">
@@ -302,32 +302,32 @@
             <div class="metrics-grid">
                 <div class="metric-card" title="Calmar Ratio = annualized return ÷ max drawdown. The annualized return is the CAGR of the compounded time-weighted returns over the calendar time from the first to the last /historical-pnl row (hours without capital count as time); the drawdown is that compounded curve's worst, in % (named in the caption), not the Max Drawdown card's dollars. Per-trade fallback: the CAGR over the calendar time from the first open to the last close. — once the compounded wealth reaches zero. Penalizes systems that earned through deep drawdowns. Above 1 = annualized return exceeds the worst DD; above 3 = strong reward-per-pain ratio.">
                     <div class="metric-label">Calmar Ratio</div>
-                    <div class="metric-value mono" id="calmarRatio">-</div>
+                    <div class="metric-value mono" id="calmarRatio">—</div>
                     <div class="metric-change mono" id="calmarDetail">CAGR ÷ max DD of the compounded returns</div>
                 </div>
-                <div class="metric-card" title="Kelly Criterion = WR − (1 − WR) ÷ payoff. Optimal fraction of capital to risk per trade for max long-term growth. Negative = edge too thin to bet positively (don't size up). Most practitioners use fractional Kelly (½K or ¼K) to cut drawdown variance.">
+                <div class="metric-card" title="Kelly Criterion = WR − (1 − WR) ÷ payoff. The theoretical fraction of capital that maximizes long-term growth if the past win rate and payoff held exactly; a descriptive statistic of the record, not a sizing recommendation. Negative = the record shows no positive edge. Practitioners who use it often take a fraction (½K or ¼K) to cut drawdown variance.">
                     <div class="metric-label">Kelly Criterion</div>
-                    <div class="metric-value mono" id="kellyCriterion">-</div>
-                    <div class="metric-change mono" id="kellyCriterionDetail">Optimal size</div>
+                    <div class="metric-value mono" id="kellyCriterion">—</div>
+                    <div class="metric-change mono" id="kellyCriterionDetail">Kelly fraction (theoretical)</div>
                 </div>
                 <div class="metric-card" title="Longest unbroken winning streak in chronological closed-trade order. Detail shows the cumulative $ earned across that streak (the largest one when several are equally long). Scratches (zero profit) are skipped: they neither extend nor break a streak.">
                     <div class="metric-label">Max Consec. Wins</div>
-                    <div class="metric-value mono" id="maxConsecWins">-</div>
+                    <div class="metric-value mono" id="maxConsecWins">—</div>
                     <div class="metric-change mono" id="maxConsecWinsDetail"></div>
                 </div>
                 <div class="metric-card" title="Longest unbroken losing streak in chronological closed-trade order. Detail shows the cumulative $ lost across that streak (the largest loss when several are equally long). Scratches (zero profit) are skipped: they neither extend nor break a streak.">
                     <div class="metric-label">Max Consec. Losses</div>
-                    <div class="metric-value mono" id="maxConsecLosses">-</div>
+                    <div class="metric-value mono" id="maxConsecLosses">—</div>
                     <div class="metric-change mono" id="maxConsecLossesDetail"></div>
                 </div>
                 <div class="metric-card" title="Payoff Ratio = avg winning trade ÷ avg losing trade. > 1 means winners are larger than losers; below 1, losers dominate. Same number as the Overview headline.">
                     <div class="metric-label">Payoff Ratio</div>
-                    <div class="metric-value mono" id="avgRRR">-</div>
+                    <div class="metric-value mono" id="avgRRR">—</div>
                     <div class="metric-change mono" id="avgRRRDetail">vs 2 : 1 target</div>
                 </div>
                 <div class="metric-card" title="Win Rate over the most recent N closed decisive trades vs all-time, where N is at most half the decisive trades, so the recent window is never the whole history. Detects regime shifts in your edge before the all-time average catches up. Detail shows the sample size of the recent window.">
                     <div class="metric-label">Win Rate Trend</div>
-                    <div class="metric-value mono" id="winRateTrend">-</div>
+                    <div class="metric-value mono" id="winRateTrend">—</div>
                     <div class="metric-change mono" id="winRateTrendDetail">Last N trades</div>
                 </div>
             </div>
@@ -455,13 +455,13 @@
             <div class="metrics-grid">
                 <div class="metric-card" title="Count of currently OPEN positions across all markets. dYdX is cross-margin so every open position contributes to total leverage and shared liquidation risk — one bad position can trigger liquidation that closes others. Detail: open notional, Σ |size| × oracle price (the Risk tab's leverage definition).">
                     <div class="metric-label">Active Positions</div>
-                    <div class="metric-value mono" id="positionsActiveCount">-</div>
-                    <div class="metric-change mono" id="positionsActiveNotional">-</div>
+                    <div class="metric-value mono" id="positionsActiveCount">—</div>
+                    <div class="metric-change mono" id="positionsActiveNotional">—</div>
                 </div>
                 <div class="metric-card" title="Share of fills executed as taker (crossing the spread). Taker fills pay higher fees; maker fills earn the lower maker rate or rebates.">
                     <div class="metric-label">Taker Share</div>
-                    <div class="metric-value mono" id="positionsTakerShare">-</div>
-                    <div class="metric-change mono" id="positionsTakerShareDetail">-</div>
+                    <div class="metric-value mono" id="positionsTakerShare">—</div>
+                    <div class="metric-change mono" id="positionsTakerShareDetail">—</div>
                 </div>
             </div>
 
@@ -518,7 +518,7 @@
                             <th>FREQUENCY</th>
                             <th title="Win rate over decisive closed trades. Green above the set's breakeven win rate (where its expectancy turns positive), red below, both rates compared as displayed; when the two display alike, the colour of EXPECTANCY as displayed (uncoloured at $0); uncoloured without both a win and a loss.">SUCCESS RATE</th>
                             <th title="Expectancy: average fill-attributed profit per decisive trade, net of fees, excluding funding. Scratches and open positions are left out.">EXPECTANCY</th>
-                            <th id="patternVerdictLabel">RECOMMENDATION</th>
+                            <th id="patternVerdictLabel">READING</th>
                         </tr>
                     </thead>
                     <tbody id="patternsBody"></tbody>
@@ -566,18 +566,18 @@
             <div class="metrics-grid">
                 <div class="metric-card" title="Total funding payments RECEIVED over the selected window. dYdX funding is paid by the side that's leaning into the imbalance: positive funding pays shorts (longs heavy), negative funding pays longs (shorts heavy).">
                     <div class="metric-label">Funding Captured</div>
-                    <div class="metric-value mono" id="fundingCaptured">-</div>
+                    <div class="metric-value mono" id="fundingCaptured">—</div>
                     <div class="metric-change mono" id="fundingCapturedWindow">Last 30 days</div>
                 </div>
                 <div class="metric-card" title="Total funding payments PAID over the selected window. The cost-side of the funding stream — what you paid to hold positions through funding events. Held against you when you were on the heavy side of the order book.">
                     <div class="metric-label">Funding Paid</div>
-                    <div class="metric-value mono" id="fundingPaid">-</div>
+                    <div class="metric-value mono" id="fundingPaid">—</div>
                     <div class="metric-change mono" id="fundingPaidWindow">Last 30 days</div>
                 </div>
                 <div class="metric-card" title="Funding Captured − Funding Paid over the selected window. Above 0 = funding contributed to profit (you were on the receiving side on net); below 0 = funding was a net cost.">
                     <div class="metric-label">Net Funding</div>
-                    <div class="metric-value mono" id="fundingNet">-</div>
-                    <div class="metric-change mono" id="fundingNetPct">-</div>
+                    <div class="metric-value mono" id="fundingNet">—</div>
+                    <div class="metric-change mono" id="fundingNetPct">—</div>
                 </div>
             </div>
 
@@ -617,7 +617,7 @@
                             <th>RECEIVED</th>
                             <th>PAID</th>
                             <th>NET</th>
-                            <th>STATUS</th>
+                            <th title="PROFIT when the window's net funding was received, LOSS when it was paid, EVEN when it nets to $0.00">STATUS</th>
                         </tr>
                     </thead>
                     <tbody id="fundingAnalysisBody"></tbody>
@@ -630,7 +630,7 @@
         <div class="tab-content" id="tax">
             <div class="table-container">
                 <div class="table-header" style="flex-wrap:wrap; gap:16px; align-items:center;">
-                    <div class="table-title">Capital Gains Report</div>
+                    <div class="table-title">Portugal Capital Gains Report</div>
                     <label class="mono" style="font-size:12px;">
                         Year
                         <select id="taxYear" class="mono" style="margin-left:6px;"></select>
@@ -640,6 +640,7 @@
                     <button id="taxDownloadJson" class="address-btn" type="button">Download JSON</button>
                 </div>
                 <div style="padding: 0.875rem 1.5rem 1.125rem;">
+                    <p id="taxScopeNote" style="font-size:12px; color:var(--ink-2); margin:0 0 10px;">Portugal only (Categoria G, CIRS). An informational record of this address's realized P&amp;L, fees and funding by event date, not tax advice: confirm the classification and your own position with an accountant.</p>
                     <div id="taxStatus" class="mono" role="status" aria-live="polite" aria-atomic="true" style="font-size:11px; color:var(--ink-3); margin:0 0 12px;">Load an address to populate.</div>
                     <div id="taxWarningStrip" class="mono" role="status" aria-live="polite" aria-atomic="true" style="display:none; font-size:11px; padding:8px 12px; border-left:3px solid var(--warning); background:var(--paper-3); margin:0;"></div>
                 </div>
@@ -723,6 +724,10 @@
                     <dd><strong>dydx.review</strong> — independent trading performance analytics for dYdX v4 traders.</dd>
                     <dt>Method</dt>
                     <dd>Strictly read-only. The site never holds private keys, never custodies funds, never signs transactions, and never routes orders.</dd>
+                    <dt>Operator</dt>
+                    <dd>Operated by al-Kindi LDA (Portugal).</dd>
+                    <dt>Privacy</dt>
+                    <dd>No analytics and no cookies. The address you load is sent to the dYdX&nbsp;v4 Indexer to fetch its data; the address and the data snapshot are kept only in this browser's storage, and the <strong>Forget</strong> button beside the address clears them. Fonts load from Google Fonts and chart libraries from jsDelivr.</dd>
                 </dl>
             </section>
             <section class="colophon-col">
@@ -738,15 +743,15 @@
                 <h3 class="colophon-title">Sources &amp; notes</h3>
                 <dl>
                     <dt>Data</dt>
-                    <dd>All figures derived from the public dYdX&nbsp;v4 Indexer at <a href="https://indexer.dydx.trade/v4" target="_blank" rel="noopener noreferrer external">indexer.dydx.trade/v4</a>.</dd>
+                    <dd>All figures derived from the public dYdX&nbsp;v4 Indexer (indexer.dydx.trade; <a href="https://docs.dydx.xyz/indexer-client/http" target="_blank" rel="noopener noreferrer external">indexer API documentation</a>). EUR conversions use the ECB reference rates, via Frankfurter.</dd>
                     <dt>Disclaimer</dt>
-                    <dd>This site does <em>not</em> provide investment, financial, legal, or trading advice.</dd>
+                    <dd>This site does <em>not</em> provide investment, financial, legal, tax, or trading advice. The Tax tab is an informational record for Portugal only.</dd>
                     <dt>Source code</dt>
                     <dd><a href="https://github.com/alkindilabs/dydx-trading-dashboard" target="_blank" rel="noopener noreferrer external">github.com/alkindilabs/dydx-trading-dashboard</a></dd>
                 </dl>
             </section>
             <p class="colophon-imprint">
-                <strong>dydx.review</strong><span class="vol">·&nbsp;2026&nbsp;·</span>Independent trading performance analytics for dYdX&nbsp;v4. Not <span style="text-decoration:line-through;text-decoration-color:var(--rule-strong);color:var(--ink-4)">dydx.trade</span>.
+                <strong>dydx.review</strong><span class="vol">·&nbsp;2026&nbsp;·</span>Independent trading performance analytics for dYdX&nbsp;v4. Not affiliated with dydx.trade.
             </p>
         </footer>
     </div>
@@ -1180,7 +1185,7 @@
         } = window.Format;
 
         // The Kelly caption for a fraction that displays below zero.
-        const KELLY_NEGATIVE_EDGE_CAPTION = 'Negative edge: optimal size 0';
+        const KELLY_NEGATIVE_EDGE_CAPTION = 'Negative edge: Kelly fraction 0';
 
         const { updateElement, updateMetric } = window.AppDom;
 
@@ -2142,7 +2147,7 @@ Sample: ${rets.length} returns over ${fmtFixed(adq.years * MONTHS_PER_YEAR, SAMP
                 const k = pWin - (1 - pWin) / cls.payoff;
                 updateElement('kellyCriterion', isFinite(k) ? formatPercent(k * PERCENT) : 'N/A');
                 // A fraction that displays below zero is no size: the
-                // growth-optimal bet on a negative edge is none.
+                // theoretical Kelly fraction on a negative edge is 0.
                 if (detail && isFinite(k) && asDisplayed(k * PERCENT, PERCENT_DECIMALS) < 0) {
                     detail.textContent = KELLY_NEGATIVE_EDGE_CAPTION;
                 }

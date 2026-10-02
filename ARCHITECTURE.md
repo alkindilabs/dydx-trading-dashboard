@@ -1,6 +1,6 @@
 # Architecture
 
-The architectural decisions currently in effect for the dYdX trading dashboard, by subsystem. What each metric means and how it is computed is defined in `CLAUDE.md`.
+The architectural decisions currently in effect for dydx.review (Trading Performance Review), by subsystem. What each metric means and how it is computed is defined in `CLAUDE.md`.
 
 ## System shape
 
