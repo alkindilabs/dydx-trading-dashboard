@@ -174,9 +174,7 @@
             color: var(--ink);
             font-variation-settings: 'opsz' 96, 'SOFT' 60;
             text-rendering: geometricPrecision;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
+            text-wrap: balance;
             padding-bottom: 0.08em;
         }
 

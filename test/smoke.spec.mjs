@@ -61,14 +61,26 @@ test.describe('dashboard smoke', () => {
   test('the heading names each tab by the label its tab shows', async ({ page }) => {
     await page.goto('/');
     const breadcrumb = page.locator('#breadcrumb');
-    await expect(breadcrumb).toHaveText('Trade Review');
+    await expect(breadcrumb).toHaveText('Trading Performance Review');
     for (const tab of await page.locator('.nav-tab').all()) {
       const label = (await tab.textContent()).trim();
       await tab.click();
       const expected = (await tab.getAttribute('data-tab')) === 'overview'
-        ? 'Trade Review'
-        : `Trade Review — ${label}`;
+        ? 'Trading Performance Review'
+        : `Trading Performance Review — ${label}`;
       await expect(breadcrumb).toHaveText(expected);
+    }
+  });
+
+  test('the heading shows in full on every tab, at phone and desktop width', async ({ page }) => {
+    for (const width of [375, 1280]) {
+      await page.setViewportSize({ width, height: 800 });
+      await page.goto('/');
+      for (const tab of await page.locator('.nav-tab').all()) {
+        await tab.click();
+        const clipped = await page.locator('#breadcrumb').evaluate(e => e.scrollWidth > e.clientWidth);
+        expect(clipped, `heading clipped at ${width}px on ${await tab.getAttribute('data-tab')}`).toBe(false);
+      }
     }
   });
 
