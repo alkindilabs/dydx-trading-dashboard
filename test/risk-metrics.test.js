@@ -3189,6 +3189,51 @@ test('livePnlPoint is null without a headline or without rows', () => {
     assert.equal(RM.livePnlPoint([], 40, later), null);
 });
 
+// ---------------------------------------------------------------------------
+// profitReconciliation: the fills-based headline against /historical-pnl.
+// A headline that disagrees is no headline and no live point.
+// ---------------------------------------------------------------------------
+
+test('profitReconciliation reads a headline far from /historical-pnl as a disagreement, with the gap in its reason', () => {
+    // A subaccount with no fills (headline $0.00) whose /historical-pnl
+    // ends at +$8,075,294.54 on the equity it still holds.
+    const rows = [pnlRow(0, 8075000, 1515000), pnlRow(1, 8075294.54, 1515959.24)];
+    const check = RM.profitReconciliation(rows, '1515959.24', 0);
+    assert.equal(check.reason,
+        'Fills disagree with /historical-pnl by -$8,075,295: fills may be incomplete, '
+        + 'or /historical-pnl may count flows that are not trades');
+    assert.ok(close(check.gap, -8075294.54));
+});
+
+test('profitReconciliation tolerates 1% of the reference, floored at $1', () => {
+    const rows = [pnlRow(0, 0), pnlRow(1, 1000, 2000)];
+    assert.equal(RM.profitReconciliation(rows, '2000', 1010).reason, '');
+    assert.notEqual(RM.profitReconciliation(rows, '2000', 1010.02).reason, '');
+    const small = [pnlRow(0, 0), pnlRow(1, 20, 1020)];
+    assert.equal(RM.profitReconciliation(small, '1020', 21).reason, '');
+    assert.notEqual(RM.profitReconciliation(small, '1020', 21.02).reason, '');
+});
+
+test('profitReconciliation agrees with a headline between the last row and the equity-adjusted value', () => {
+    // Profit +1000 at the last row; since then a $10,000 deposit and a
+    // +$300 price move lift equity by 10,300. The equity-adjusted value
+    // (+11,300) assumes no transfer, so it alone would read the deposit as
+    // a disagreement; the headline (+1300) lies between it and the row.
+    const rows = [pnlRow(0, 0, 1000), pnlRow(1, 1000, 2000)];
+    assert.equal(RM.profitReconciliation(rows, '12300', 1300).reason, '');
+    // A −$300 move beside the deposit: the headline (+700) is $300 below
+    // the row, more than 1% of the references.
+    assert.notEqual(RM.profitReconciliation(rows, '11700', 700).reason, '');
+});
+
+test('profitReconciliation is null when it cannot be checked', () => {
+    const rows = [pnlRow(0, 0), pnlRow(1, 1000, 2000)];
+    assert.equal(RM.profitReconciliation(rows, '2000', null), null);
+    assert.equal(RM.profitReconciliation(rows, undefined, 1000), null);
+    assert.equal(RM.profitReconciliation([], '2000', 1000), null);
+    assert.equal(RM.profitReconciliation([...rows, { ...pnlRow(2, 5), totalPnl: '' }], '2000', 0), null);
+});
+
 test('a clock at or behind the last row dates the live point just after it, so the headline is never dropped', () => {
     // Rows at 00:00 (+500) and 01:00 (−200); the headline reads −900 and
     // the client clock is 30 s behind the indexer's 01:00 row.

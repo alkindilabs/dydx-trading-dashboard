@@ -68,14 +68,15 @@ test.describe('Cumulative Profit chart', () => {
   });
 
   test('each candle hands the plugin its colour by its open and close as displayed', async ({ page }) => {
-    // Day 1 rises 0 → 1000, day 2 falls 900 → 500, day 3 moves 500 →
-    // 500.4, which both read $500; the clock puts the live point alone on
-    // day 4, a candle whose open is its close.
+    // Day 1 rises 4496.6 → 5496.6, day 2 falls 5396.6 → 4996.6, day 3
+    // moves 4996.6 → 4997, which both read $4,997; the clock puts the live
+    // point (the fixture's +$4,997 headline, which the last row agrees
+    // with) alone on day 4, a candle whose open is its close.
     await page.clock.setFixedTime(new Date('2025-01-04T12:00:00.000Z'));
     await page.route(INDEXER_URL, serveAccount(withRows([
-      histRow('2025-01-01T00:00:00.000Z', 0), histRow('2025-01-01T12:00:00.000Z', 1000),
-      histRow('2025-01-02T00:00:00.000Z', 900), histRow('2025-01-02T12:00:00.000Z', 500),
-      histRow('2025-01-03T00:00:00.000Z', 500), histRow('2025-01-03T12:00:00.000Z', 500.4),
+      histRow('2025-01-01T00:00:00.000Z', 4496.6), histRow('2025-01-01T12:00:00.000Z', 5496.6),
+      histRow('2025-01-02T00:00:00.000Z', 5396.6), histRow('2025-01-02T12:00:00.000Z', 4996.6),
+      histRow('2025-01-03T00:00:00.000Z', 4996.6), histRow('2025-01-03T12:00:00.000Z', 4997),
     ])));
     await loadAccount(page);
     await expect.poll(() => candleCount(page)).toBe(4);
