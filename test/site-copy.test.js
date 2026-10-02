@@ -50,5 +50,15 @@ test('the disclaimer rules out tax advice, and the Tax tab says it covers Portug
 });
 
 test('no metric shows a hyphen as its placeholder before data loads', () => {
-  assert.deepEqual(html.match(/<(div|td|dd)[^>]*>-<\/\1>/g), null);
+  assert.deepEqual(html.match(/<([a-z][a-z0-9]*)\b[^>]*>-<\/\1>/g), null);
+});
+
+test('the privacy note says the address travels in the page URL, reaching the host and browser history, which Forget does not clear', () => {
+  const privacy = html.match(/<dt>Privacy<\/dt>\s*<dd>([\s\S]*?)<\/dd>/);
+  assert.ok(privacy, 'the colophon has a Privacy note');
+  const note = privacy[1];
+  assert.match(note, /page URL/);
+  assert.match(note, /Cloudflare/);
+  assert.match(note, /browser history/);
+  assert.match(note, /not (your )?(browser )?history/);
 });
