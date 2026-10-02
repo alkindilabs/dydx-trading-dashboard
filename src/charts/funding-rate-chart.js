@@ -7,10 +7,13 @@
 //   ticker        — market symbol (display only; data is pre-filtered)
 //   fundingRows   — [{ rate, price, effectiveAt }, ...]  raw from indexer
 //   candleRows    — [{ startedAt, close }, ...]          raw from indexer
-//   cutoffMs      — epoch ms; rows older than this are dropped
+//   cutoffMs      — epoch ms; funding rows older than this are dropped
 //
-// Depends on: Chart (CDN), window.Format (formatPrice, fmtSignedPct),
-// window.AppConstants (MS_PER_DAY, HOURS_PER_YEAR, PERCENT).
+// Depends on: Chart (CDN), window.Format (formatPrice, fmtSignedPct,
+// formatHourlyRate, HOURLY_RATE_ZERO_LABEL, fundingAprPercent, APR_DECIMALS),
+// window.AppConstants (MS_PER_HOUR, MS_PER_DAY, DAYS_PER_WEEK, PERCENT),
+// window.RiskMetrics (decimalNumberOf: a rate or close that is not wholly
+// numeric draws nothing).
 
 (function () {
   'use strict';
@@ -30,7 +33,6 @@
   const TICK_MUTED  = 'rgba(176,161,135,0.85)';
 
   const RATE_DETAIL_DECIMALS = 4;
-  const RATE_ZERO_LABEL = '0%';
   // Strips float noise from a tick step (0.00019999… → 0.0002) before
   // its magnitude picks the label precision.
   const STEP_SIGNIFICANT_DIGITS = 6;
@@ -38,6 +40,12 @@
   const LEGEND_ITEM = '.funding-chart__legend-item';
   const WEEK_AXIS_MIN_DAYS = 60;
   const DAY_AXIS_MIN_DAYS = 10;
+  // The x axis reads UTC, the clock funding settles on: ticks fall on UTC
+  // hours, UTC midnights or UTC Mondays (ISO weeks), counted from these
+  // origins; 5 Jan 1970 is the first Monday after the epoch.
+  const UTC_TICK_ORIGIN_MS = { hour: 0, day: 0, week: Date.UTC(1970, 0, 5) };
+  const UTC_DATE = { month: 'short', day: 'numeric', timeZone: 'UTC' };
+  const UTC_TIME = { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: 'UTC' };
 
   function toEpoch(iso) {
     if (!iso) return null;
@@ -50,25 +58,33 @@
     for (const r of rows || []) {
       const t = toEpoch(r.effectiveAt);
       if (t == null || t < cutoffMs) continue;
-      const rate = parseFloat(r.rate);
-      if (!isFinite(rate)) continue;
+      const rate = window.RiskMetrics.decimalNumberOf(r.rate);
+      if (rate === null) continue;
       out.push({ x: t, y: rate * window.AppConstants.PERCENT });
     }
     out.sort((a, b) => a.x - b.x);
     return out;
   }
 
-  function buildPriceLine(rows, cutoffMs) {
-    const out = [];
-    for (const r of rows || []) {
+  function hourOf(ms) {
+    return Math.floor(ms / window.AppConstants.MS_PER_HOUR);
+  }
+
+  // One price point per funding bar, at the bar's own instant: a candle's
+  // close is the price at the end of its hour, so the candle that started
+  // an hour before a settlement prices it. Sharing the bars' x values and
+  // indices keeps the index-mode tooltip pairing a rate with its price.
+  // A bar without a usable candle gets y: null; [] when no bar has one.
+  function buildPriceLine(candleRows, bars) {
+    const closeByHour = new Map();
+    for (const r of candleRows || []) {
       const t = toEpoch(r.startedAt);
-      if (t == null || t < cutoffMs) continue;
-      const close = parseFloat(r.close);
-      if (!isFinite(close)) continue;
-      out.push({ x: t, y: close });
+      const close = window.RiskMetrics.decimalNumberOf(r.close);
+      if (t == null || close === null) continue;
+      closeByHour.set(hourOf(t) + 1, close);
     }
-    out.sort((a, b) => a.x - b.x);
-    return out;
+    const line = (bars || []).map(b => ({ x: b.x, y: closeByHour.has(hourOf(b.x)) ? closeByHour.get(hourOf(b.x)) : null }));
+    return line.some(p => p.y !== null) ? line : [];
   }
 
   function pickAxisUnit(spanMs) {
@@ -77,6 +93,28 @@
     if (days > WEEK_AXIS_MIN_DAYS) return 'week';
     if (days > DAY_AXIS_MIN_DAYS) return 'day';
     return 'hour';
+  }
+
+  function axisUnitMs(unit) {
+    const { MS_PER_HOUR, MS_PER_DAY, DAYS_PER_WEEK } = window.AppConstants;
+    return { hour: MS_PER_HOUR, day: MS_PER_DAY, week: DAYS_PER_WEEK * MS_PER_DAY }[unit];
+  }
+
+  // Every UTC `unit` boundary from minMs to maxMs; Chart.js's autoSkip
+  // thins them to fit.
+  function utcTickValues(minMs, maxMs, unit) {
+    const step = axisUnitMs(unit);
+    const origin = UTC_TICK_ORIGIN_MS[unit];
+    const values = [];
+    for (let t = origin + Math.ceil((minMs - origin) / step) * step; t <= maxMs; t += step) values.push(t);
+    return values;
+  }
+
+  // 'Sep 23, 17:00' on an hourly axis, 'Sep 23' on a daily or weekly one.
+  function utcTickLabel(ms, unit) {
+    const d = new Date(ms);
+    const date = d.toLocaleDateString('en-US', UTC_DATE);
+    return unit === 'hour' ? `${date}, ${d.toLocaleTimeString('en-GB', UTC_TIME)}` : date;
   }
 
   // Enough decimals that adjacent ticks, one `step` apart, never print alike.
@@ -88,8 +126,8 @@
   }
 
   function rateTickLabel(value, ticks) {
-    const fixed = value.toFixed(rateTickDecimals(ticks));
-    return Number(fixed) === 0 ? RATE_ZERO_LABEL : `${fixed}%`;
+    const fixed = window.Format.fmtFixed(value, rateTickDecimals(ticks));
+    return Number(fixed) === 0 ? window.Format.HOURLY_RATE_ZERO_LABEL : `${fixed}%`;
   }
 
   function showPriceLegend(visible) {
@@ -109,15 +147,14 @@
     const cutoff = (typeof cutoffMs === 'number' && cutoffMs > 0) ? cutoffMs : 0;
 
     const bars = buildFundingBars(fundingRows, cutoff);
-    const line = buildPriceLine(candleRows, cutoff);
+    const line = buildPriceLine(candleRows, bars);
 
     // Early exit: no funding data is the load-bearing signal. Price-only
     // would be off-topic for the panel. Returning false lets the caller
     // surface an explicit empty-state instead of leaving a blank canvas.
     if (bars.length < 2) { clear(); return false; }
 
-    const formatPrice = window.Format.formatPrice;
-    const fmtSignedPct = window.Format.fmtSignedPct;
+    const { formatPrice, fmtSignedPct, formatHourlyRate, fundingAprPercent, APR_DECIMALS } = window.Format;
     // Candles failed or held no rows in the window: an empty right axis
     // would show a bogus $0..$1 scale, so the axis and its legend go.
     const hasPriceLine = line.length > 0;
@@ -172,14 +209,9 @@
           scales: {
             x: {
               type: 'time',
-              time: {
-                unit: xAxisUnit,
-                tooltipFormat: 'yyyy-MM-dd HH:mm',
-                displayFormats: {
-                  hour: 'MMM d, HH:mm',
-                  day: 'MMM d',
-                  week: 'MMM d'
-                }
+              time: { unit: xAxisUnit },
+              afterBuildTicks: (scale) => {
+                scale.ticks = utcTickValues(scale.min, scale.max, xAxisUnit).map(value => ({ value }));
               },
               ticks: {
                 color: TICK_MUTED,
@@ -187,9 +219,16 @@
                 maxRotation: 0,
                 autoSkip: true,
                 autoSkipPadding: 16,
-                maxTicksLimit: 10
+                maxTicksLimit: 10,
+                callback: (value) => utcTickLabel(value, xAxisUnit)
               },
-              grid: { color: GRID_COLOR }
+              grid: { color: GRID_COLOR },
+              title: {
+                display: true,
+                text: 'Time (UTC)',
+                color: TICK_MUTED,
+                font: { family: "'JetBrains Mono', monospace", size: 10, weight: '400' }
+              }
             },
             yRate: {
               position: 'left',
@@ -226,6 +265,7 @@
           plugins: {
             legend: { display: false },
             tooltip: {
+              filter: (item) => item.parsed && item.parsed.y != null,
               backgroundColor: 'rgba(14,12,9,0.97)',
               titleColor: 'rgba(239,229,210,0.98)',
               bodyColor: 'rgba(239,229,210,0.92)',
@@ -245,11 +285,10 @@
                   const v = ctx.parsed && ctx.parsed.y;
                   if (v == null) return '';
                   if (ctx.dataset.yAxisID === 'yRate') {
-                    const hpy = window.AppConstants.HOURS_PER_YEAR;
-                    const annualPct = v * hpy;
+                    const annualPct = fundingAprPercent(v / window.AppConstants.PERCENT);
                     return [
-                      `Funding (1h):  ${fmtSignedPct(v, RATE_DETAIL_DECIMALS)}`,
-                      `Annualized:    ${fmtSignedPct(annualPct, 2)}`
+                      `Funding (1h):  ${formatHourlyRate(v)}`,
+                      `Annualized:    ${fmtSignedPct(annualPct, APR_DECIMALS)}`
                     ];
                   }
                   return `Price:         ${formatPrice(v)}`;

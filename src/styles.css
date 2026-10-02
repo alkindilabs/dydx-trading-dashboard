@@ -1079,6 +1079,12 @@
             border-radius: 2px;
             display: inline-block;
         }
+        .market-legend-swatch.is-open-only {
+            /* Hollow: the market holds open positions but no slice. */
+            box-sizing: border-box;
+            border: 1px solid var(--ink-3);
+            background: transparent;
+        }
         .chart-header {
             display: flex;
             align-items: end;
@@ -1269,6 +1275,20 @@
 
         /* OVERVIEW: hero equity curve */
         .chart-container--hero { margin-bottom: 2rem; }
+        .pnl-chart__empty {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0 1rem;
+            text-align: center;
+            font-family: var(--ff-mono);
+            font-size: 0.75rem;
+            letter-spacing: 0.08em;
+            color: var(--ink-3);
+        }
+        .pnl-chart__empty[hidden] { display: none; }
 
         /* OVERVIEW: editorial section break (asterism between hero + broadsheet) */
         .overview-section-break {
@@ -2056,3 +2076,10 @@
         @media (max-width: 880px) {
             .colophon { grid-template-columns: 1fr; gap: 1.75rem; }
         }
+
+        /* Tone classes over a component's own ink colour: these selectors
+           match or outrank it and come after it. */
+        .metric-value.profit, .metric-change.profit, .broadsheet-table td.profit { color: var(--gain); }
+        .metric-value.loss,   .metric-change.loss,   .broadsheet-table td.loss   { color: var(--loss); }
+        .metric-value.zero,   .metric-change.zero,   .broadsheet-table td.zero   { color: var(--ink-3); }
+        .metric-value.warning, .metric-change.warning, .broadsheet-table td.warning { color: var(--warn); }

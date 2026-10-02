@@ -169,22 +169,22 @@
                      and Sortino share the same time-weighted-return sample;
                      Max Drawdown anchors the row with the worst observed
                      equity-loss event. -->
-                <div class="metric-card" title="Sharpe Ratio = (mean return − risk-free) ÷ stddev(returns), annualized. Risk-adjusted return. Above 1 good; above 2 excellent; below 0 losing on average. Computed on time-weighted hourly returns from /historical-pnl; gated by sample-adequacy thresholds.">
+                <div class="metric-card" id="sharpeCard" title="Sharpe Ratio = arithmetic mean of the time-weighted hourly returns ÷ their standard deviation, annualized, with the risk-free rate taken as 0. Above 1 good; above 2 excellent. Below 0 means the mean hourly return is negative; above 0 does not mean the account made money: with volatile returns the compounded return (in the caption) can be a loss while the mean is positive. Computed on /historical-pnl; gated by sample-adequacy thresholds.">
                     <div class="metric-label">Sharpe Ratio</div>
                     <div class="metric-value mono" id="sharpeRatio">-</div>
                     <div class="metric-change mono" id="sharpeMeta" title="">All time ⓘ</div>
                 </div>
-                <div class="metric-card" title="Sortino Ratio = like Sharpe but penalizes only DOWNSIDE volatility (stddev of negative returns) in the denominator. Always ≥ Sharpe by definition. Above 2 = strong downside-adjusted return; below 0 = losing despite ignoring upside volatility.">
+                <div class="metric-card" id="sortinoCard" title="Sortino Ratio = mean return ÷ downside deviation, annualized, with the risk-free rate taken as 0. Like Sharpe but penalizes only DOWNSIDE volatility: the downside deviation is the root-mean-square of the returns below 0, averaged over all periods (target semi-deviation). At least Sharpe when the mean return is positive; with a negative mean either can be the lower. Above 2 = strong downside-adjusted return. Below 0 means the mean hourly return is negative; like Sharpe it uses the arithmetic mean, so read it beside the compounded return in the caption.">
                     <div class="metric-label">Sortino Ratio</div>
                     <div class="metric-value mono" id="sortinoRatio">-</div>
                     <div class="metric-change mono" id="sortinoMeta" title="">All time ⓘ</div>
                 </div>
-                <div class="metric-card" title="Worst peak-to-trough $ excursion of the cumulative totalPnl curve. Captures unrealized peaks the closed-trade ledger cannot see (e.g. a large open profit that was later given back). Pair with Current Drawdown to see now-vs-worst, and Recovery Factor for the ratio of lifetime profit to this number.">
+                <div class="metric-card" id="maxDrawdownCard" title="Worst peak-to-trough $ excursion of the cumulative totalPnl curve, measured from 0 at the account's inception and ending at the live point (the Total Profit headline now, from fills, funding and fees, so a deposit or withdrawal is never profit; without the headline the curve ends at the last hourly row). A drawdown that rounds to $0 is no drawdown. Captures unrealized peaks the closed-trade ledger cannot see (e.g. a large open profit that was later given back). Pair with Current Drawdown to see now-vs-worst, and Recovery Factor for the ratio of lifetime profit to this number.">
                     <div class="metric-label">Max Drawdown</div>
                     <div class="metric-value mono" id="maxDrawdown">-</div>
                     <div class="metric-change mono" id="maxDrawdownDetail">-</div>
                 </div>
-                <div class="metric-card" title="Current Drawdown = how far below the all-time equity peak the account sits right now. $0 means at-or-above the prior peak. Computed on the same totalPnl series as Max Drawdown so the two cards always agree about which P&L stream is being measured.">
+                <div class="metric-card" id="currentDrawdownCard" title="Current Drawdown = how far below the peak of cumulative trading P&L (totalPnl, excluding deposits and withdrawals) the account sits right now (the live point: the Total Profit headline, from fills, funding and fees; when the headline is unavailable the caption names the hourly row it is measured at); not the equity peak. $0 means at-or-above the prior peak. The time below peak is the same span as the ongoing Drawdown Periods row. Computed on the same totalPnl series as Max Drawdown so the two cards always agree about which P&L stream is being measured.">
                     <div class="metric-label">Current Drawdown</div>
                     <div class="metric-value mono" id="currentDrawdown">-</div>
                     <div class="metric-change mono" id="currentDrawdownDetail">-</div>
@@ -197,6 +197,7 @@
                     <div class="chart-title">Cumulative Profit with Drawdown Periods</div>
                 </div>
                 <canvas id="pnlCumulativeChart" class="mini-chart" style="height: 23.75rem"></canvas>
+                <div id="pnlCumulativeChartEmpty" class="pnl-chart__empty" hidden></div>
             </div>
 
             <!-- Editorial section break -->
@@ -277,7 +278,7 @@
                         <tr><td title="Average $ loss on losing closed trades: fill-attributed profit (net of fees, excluding funding) summed over losers ÷ losing trade count. Rendered as a negative dollar figure.">Average Loss</td><td class="mono loss" id="avgLoss">-</td></tr>
                         <tr><td title="Payoff Ratio = avg win ÷ avg loss. Above 1 means winners are larger than losers. Pair with Win Rate: at this payoff you need WR ≥ 1 ÷ (1 + payoff) to break even.">Payoff Ratio</td><td class="mono" id="riskReward">-</td></tr>
                         <tr><td title="Trade Expectancy = average $ fill-attributed profit (net of fees, excluding funding) per decisive (non-scratch) closed trade. Above 0 = the system has positive edge; below 0 = each trade on average loses money.">Trade Expectancy</td><td class="mono" id="expectancy">-</td></tr>
-                        <tr><td title="Recovery Factor = lifetime profit ÷ max drawdown. Above 5 = strong recovery; above 1 = made back the worst DD; below 1 = haven't recovered the worst DD; ≤ 0 = lifetime loss. Numerator and denominator come from the SAME P&L series.">Recovery Factor</td><td class="mono" id="recoveryFactor">-</td></tr>
+                        <tr><td id="recoveryFactorLabel" title="Recovery Factor = lifetime profit now (the live point of the totalPnl curve: the Total Profit headline) ÷ max drawdown; N/A while the max drawdown rounds to $0. Above 5 = strong recovery; above 1 = made back the worst DD; below 1 = haven't recovered the worst DD; ≤ 0 = lifetime loss. Numerator and denominator come from the SAME P&L series.">Recovery Factor</td><td class="mono" id="recoveryFactor">-</td></tr>
                     </table>
                 </article>
                 <article class="broadsheet-col">
@@ -288,8 +289,8 @@
                     <table class="broadsheet-table">
                         <tr><td>Avg Hold Time (Win)</td><td class="mono" id="avgHoldWin">—</td></tr>
                         <tr><td>Avg Hold Time (Loss)</td><td class="mono" id="avgHoldLoss">—</td></tr>
-                        <tr><td>Best Trading Hour</td><td class="mono" id="bestHour">—</td></tr>
-                        <tr><td>Worst Trading Hour</td><td class="mono" id="worstHour">—</td></tr>
+                        <tr><td id="bestHourLabel">Best Trading Hour</td><td class="mono" id="bestHour">—</td></tr>
+                        <tr><td id="worstHourLabel">Worst Trading Hour</td><td class="mono" id="worstHour">—</td></tr>
                         <tr><td>Most Active Day</td><td class="mono" id="mostActiveDay">—</td></tr>
                     </table>
                 </article>
@@ -299,32 +300,32 @@
         <!-- Performance Tab -->
         <div class="tab-content" id="performance">
             <div class="metrics-grid">
-                <div class="metric-card" title="Calmar Ratio = annualized return ÷ max drawdown (TWR wealth curve). Penalizes systems that earned through deep drawdowns. Above 1 = lifetime return exceeds worst DD; above 3 = strong reward-per-pain ratio.">
+                <div class="metric-card" title="Calmar Ratio = annualized return ÷ max drawdown. The annualized return is the CAGR of the compounded time-weighted returns over the calendar time from the first to the last /historical-pnl row (hours without capital count as time); the drawdown is that compounded curve's worst, in % (named in the caption), not the Max Drawdown card's dollars. Per-trade fallback: the CAGR over the calendar time from the first open to the last close. — once the compounded wealth reaches zero. Penalizes systems that earned through deep drawdowns. Above 1 = annualized return exceeds the worst DD; above 3 = strong reward-per-pain ratio.">
                     <div class="metric-label">Calmar Ratio</div>
                     <div class="metric-value mono" id="calmarRatio">-</div>
-                    <div class="metric-change mono">Annual return / Max DD</div>
+                    <div class="metric-change mono" id="calmarDetail">CAGR ÷ max DD of the compounded returns</div>
                 </div>
                 <div class="metric-card" title="Kelly Criterion = WR − (1 − WR) ÷ payoff. Optimal fraction of capital to risk per trade for max long-term growth. Negative = edge too thin to bet positively (don't size up). Most practitioners use fractional Kelly (½K or ¼K) to cut drawdown variance.">
                     <div class="metric-label">Kelly Criterion</div>
                     <div class="metric-value mono" id="kellyCriterion">-</div>
                     <div class="metric-change mono" id="kellyCriterionDetail">Optimal size</div>
                 </div>
-                <div class="metric-card" title="Longest unbroken winning streak in chronological closed-trade order. Detail shows the cumulative $ earned across the streak. Scratches (zero profit) break the streak.">
+                <div class="metric-card" title="Longest unbroken winning streak in chronological closed-trade order. Detail shows the cumulative $ earned across that streak (the largest one when several are equally long). Scratches (zero profit) are skipped: they neither extend nor break a streak.">
                     <div class="metric-label">Max Consec. Wins</div>
                     <div class="metric-value mono" id="maxConsecWins">-</div>
-                    <div class="metric-change mono profit" id="maxConsecWinsDetail"></div>
+                    <div class="metric-change mono" id="maxConsecWinsDetail"></div>
                 </div>
-                <div class="metric-card" title="Longest unbroken losing streak in chronological closed-trade order. Detail shows the cumulative $ lost across the streak. Scratches (zero profit) break the streak.">
+                <div class="metric-card" title="Longest unbroken losing streak in chronological closed-trade order. Detail shows the cumulative $ lost across that streak (the largest loss when several are equally long). Scratches (zero profit) are skipped: they neither extend nor break a streak.">
                     <div class="metric-label">Max Consec. Losses</div>
                     <div class="metric-value mono" id="maxConsecLosses">-</div>
-                    <div class="metric-change mono loss" id="maxConsecLossesDetail"></div>
+                    <div class="metric-change mono" id="maxConsecLossesDetail"></div>
                 </div>
                 <div class="metric-card" title="Payoff Ratio = avg winning trade ÷ avg losing trade. > 1 means winners are larger than losers; below 1, losers dominate. Same number as the Overview headline.">
                     <div class="metric-label">Payoff Ratio</div>
                     <div class="metric-value mono" id="avgRRR">-</div>
-                    <div class="metric-change mono" id="avgRRRDetail">vs 2:1 target</div>
+                    <div class="metric-change mono" id="avgRRRDetail">vs 2 : 1 target</div>
                 </div>
-                <div class="metric-card" title="Win Rate over the most recent N closed decisive trades vs all-time. Detects regime shifts in your edge before the all-time average catches up. Detail shows the sample size of the recent window.">
+                <div class="metric-card" title="Win Rate over the most recent N closed decisive trades vs all-time, where N is at most half the decisive trades, so the recent window is never the whole history. Detects regime shifts in your edge before the all-time average catches up. Detail shows the sample size of the recent window.">
                     <div class="metric-label">Win Rate Trend</div>
                     <div class="metric-value mono" id="winRateTrend">-</div>
                     <div class="metric-change mono" id="winRateTrendDetail">Last N trades</div>
@@ -345,15 +346,15 @@
                 <table>
                     <thead>
                         <tr>
-                            <th>MONTH</th>
-                            <th>PROFIT</th>
+                            <th title="Calendar month in UTC, like every other date on the dashboard">MONTH (UTC)</th>
+                            <th title="Change in cumulative profit (/historical-pnl totalPnl: realized + unrealized, with funding and fees) over the month, in $: from the prior month-end, or from 0 at the account's inception for its first month, to this month-end; the current month ends at the live Total Profit. Each month-end is taken at whole dollars, so the column adds up to the Total Profit headline rounded to whole dollars. — when the month has no /historical-pnl rows, when the month before it has none, or when a cached snapshot starts partway through the month (hover for the reason). Only WIN RATE through PROFIT FACTOR cover the trades closed this month; MAX DD and SHARPE come from the /historical-pnl series.">PROFIT</th>
                             <th>WIN RATE</th>
                             <th>TRADES</th>
                             <th>AVG WIN</th>
                             <th>AVG LOSS</th>
                             <th>PROFIT FACTOR</th>
-                            <th title="Per-month peak-to-trough on cumulative totalPnl, in $">MAX DD ($)</th>
-                            <th title="Annualized from this month's hourly returns; wide CI on short windows">SHARPE</th>
+                            <th title="Per-month peak-to-trough on cumulative totalPnl, in $, from the prior month-end (the base PROFIT is measured from) through the month: the deepest drop as displayed, its peak less its trough each at whole dollars; $0 when the month never drew down. — when the month has no /historical-pnl rows, one row and no prior month-end, or a cached snapshot starts partway through it (hover for the reason).">MAX DD ($)</th>
+                            <th title="Annualized from the account's hourly returns that end in this month (the hour from the prior month-end included, as in PROFIT, and in the account's first month the period from 0 at inception; a return spanning a month without rows counts in no month), on the account-wide dust floor; wide CI on short windows. The arithmetic mean of the returns ÷ their standard deviation, with the risk-free rate taken as 0: above 0 does not mean the month made money, since the returns can compound to a loss while their mean is positive (hover a value for the month's compounded return). — unless the valid returns cover at least half of the month's calendar hours (hover a — for the reason).">SHARPE</th>
                         </tr>
                     </thead>
                     <tbody id="monthlyPerformanceBody"></tbody>
@@ -376,7 +377,7 @@
                             <th title="Fill-attributed profit per decisive closed trade in this market — net of fees, excludes funding (trade-quality metric).">AVG PROFIT</th>
                             <th title="Largest fill-attributed profit of a single closed trade in this market — net of fees, excludes funding. — when the market has no winning trade.">BEST</th>
                             <th title="Largest fill-attributed loss of a single closed trade in this market — net of fees, excludes funding. Rendered as a negative dollar figure; — when the market has no losing trade.">WORST</th>
-                            <th>SHARPE</th>
+                            <th title="Annualized per-trade Sharpe: each decisive trade's profit ÷ account equity at its open (the /historical-pnl row at or before the open plus the deposits on the row after it, the base the hourly returns use), scaled by √((n − 1) ÷ years from the first to the last close). The arithmetic mean of those returns ÷ their standard deviation: a trade on a smaller account weighs more, so above 0 does not mean the market made money (hover a value for its compounded return). — with the reason on hover with too few decisive trades, closes spanning under a month, or an open without funded equity.">SHARPE</th>
                         </tr>
                     </thead>
                     <tbody id="assetPerformanceBody"></tbody>
@@ -387,17 +388,17 @@
         <!-- Risk Analysis Tab -->
         <div class="tab-content" id="risk">
             <div class="metrics-grid">
-                <div class="metric-card" title="VaR(95%) = the $ loss you would exceed in only 5% of periods, expressed at current equity. Historical 5th-percentile of TWR returns × equity, not parametric. Higher magnitude = fatter left tail. Same sample-adequacy gate as Sharpe.">
+                <div class="metric-card" title="VaR(95%) = the $ loss you would exceed in only 5% of sampling periods, expressed at current equity. The horizon is one /historical-pnl sampling period, named in the caption (hourly on a typical account), not a day. Historical 5th-percentile of TWR returns × equity, not parametric, over the returns spanning about one sampling period (a return over a longer gap in the rows is left out; the value's tooltip gives the cut-off); reads $0 when that percentile is a gain. Higher magnitude = fatter left tail. Same sample-adequacy gate as Sharpe, and the one-period sample must itself pass that gate's count and span rules: as many returns as it asks for, spanning at least its month of sampling periods.">
                     <div class="metric-label">Value at Risk (95%)</div>
                     <div class="metric-value mono" id="var95">—</div>
-                    <div class="metric-change mono">Per-period (5th pctile)</div>
+                    <div class="metric-change mono" id="var95Detail">Per-period (5th pctile)</div>
                 </div>
-                <div class="metric-card" title="Expected Shortfall (CVaR 95%) = average $ loss in the WORST 5% of periods. Always ≥ VaR in magnitude. Captures tail-shape information that VaR alone misses — two strategies can share VaR but have very different ES.">
+                <div class="metric-card" title="Expected Shortfall (CVaR 95%) = average $ loss in the WORST 5% of sampling periods (Acerbi-Tasche: the period on the 5% boundary counts by its fractional share), over the same one-period horizon and sample as VaR (named in the caption). Always ≥ VaR in magnitude; reads $0 when that tail averages a gain. Captures tail-shape information that VaR alone misses — two strategies can share VaR but have very different ES.">
                     <div class="metric-label">Expected Shortfall</div>
                     <div class="metric-value mono" id="expectedShortfall">—</div>
-                    <div class="metric-change mono">CVaR 95%</div>
+                    <div class="metric-change mono" id="expectedShortfallDetail">CVaR 95%</div>
                 </div>
-                <div class="metric-card" title="Total notional ÷ subaccount equity, mark-price based (matches dYdX UI). Above 5x = high; above 2x = elevated; below 2x = conservative. Cross-margin: every open position contributes to the same leverage pool.">
+                <div class="metric-card" id="leverageUtilCard" title="Total notional ÷ subaccount equity, mark-price based (matches dYdX UI). Cross-margin: every open position contributes to the same leverage pool.">
                     <div class="metric-label">Leverage Utilization</div>
                     <div class="metric-value mono" id="leverageUtil">—</div>
                     <div class="metric-change mono" id="leverageUtilDetail">Notional ÷ equity</div>
@@ -428,17 +429,18 @@
                 </table>
             </div>
 
-            <div class="table-container">
+            <div class="table-container" style="max-height: 32.5rem; overflow-y: auto;">
                 <div class="table-header">
-                    <div class="table-title">Historical Drawdown Periods</div>
+                    <div class="table-title" id="drawdownPeriodsTitle">Historical Drawdown Periods</div>
                 </div>
                 <table>
                     <thead>
                         <tr>
                             <th>PERIOD</th>
                             <th>DEPTH ($)</th>
-                            <th>DURATION</th>
-                            <th>RECOVERY</th>
+                            <th title="Time under water: from the peak until the curve regains it, or until now while the drawdown is ongoing (the Current Drawdown card's days).">DURATION</th>
+                            <th title="From the peak to the trough, then the trough's date (UTC).">TO TROUGH</th>
+                            <th title="From the trough until the curve regains the peak, or comes within a gap that displays as $0 (as Current Drawdown reads at peak); — while ongoing.">RECOVERY</th>
                             <th>PEAK CUM. PROFIT</th>
                             <th>TROUGH CUM. PROFIT</th>
                         </tr>
@@ -459,7 +461,7 @@
                 <div class="metric-card" title="Share of fills executed as taker (crossing the spread). Taker fills pay higher fees; maker fills earn the lower maker rate or rebates.">
                     <div class="metric-label">Taker Share</div>
                     <div class="metric-value mono" id="positionsTakerShare">-</div>
-                    <div class="metric-change mono">Taker fills ÷ all fills, by count</div>
+                    <div class="metric-change mono" id="positionsTakerShareDetail">-</div>
                 </div>
             </div>
 
@@ -514,9 +516,9 @@
                         <tr>
                             <th>PATTERN</th>
                             <th>FREQUENCY</th>
-                            <th>SUCCESS RATE</th>
-                            <th>AVG PROFIT</th>
-                            <th>RECOMMENDATION</th>
+                            <th title="Win rate over decisive closed trades. Green above the set's breakeven win rate (where its expectancy turns positive), red below, both rates compared as displayed; when the two display alike, the colour of EXPECTANCY as displayed (uncoloured at $0); uncoloured without both a win and a loss.">SUCCESS RATE</th>
+                            <th title="Expectancy: average fill-attributed profit per decisive trade, net of fees, excluding funding. Scratches and open positions are left out.">EXPECTANCY</th>
+                            <th id="patternVerdictLabel">RECOMMENDATION</th>
                         </tr>
                     </thead>
                     <tbody id="patternsBody"></tbody>
@@ -525,7 +527,7 @@
 
             <div class="table-container">
                 <div class="table-header">
-                    <div class="table-title">Trading Activity by Hour/Day</div>
+                    <div class="table-title">Position entries by hour and weekday (UTC)</div>
                     <div class="mono" style="font-size: 0.625rem; color: var(--ink-3); letter-spacing: 0.22em; text-transform: uppercase;">Intensity Map</div>
                 </div>
                 <div class="heatmap" id="activityHeatmap"></div>
@@ -548,7 +550,7 @@
                     <div>
                         <div class="funding-hero__rule"></div>
                         <div class="funding-hero__apr" id="fundingApr">—</div>
-                        <div class="funding-hero__apr-suffix">APR on deployed capital</div>
+                        <div class="funding-hero__apr-suffix" title="Funding yield on the notional held: net funding in the window ÷ Σ position notional (|size| × oracle price) over its hourly settlements, simple-annualized. Measured on position notional, not on account equity.">APR on position notional</div>
                         <div class="funding-hero__caption" id="fundingCaption">—</div>
                     </div>
                     <dl class="funding-hero__breakdown">
@@ -556,7 +558,7 @@
                         <div><dt>Avg notional</dt><dd id="fundingAvgNotional">—</dd></div>
                         <div><dt>Hours deployed</dt><dd id="fundingHoursDeployed">—</dd></div>
                         <div><dt>Implied hourly</dt><dd id="fundingHourlyRate">—</dd></div>
-                        <div><dt>Capital turns</dt><dd id="fundingCapitalTurns">—</dd></div>
+                        <div title="Share of the window with a position open: hourly funding settlements with any position held, including those that moved no funding, ÷ window hours."><dt>Time in market</dt><dd id="fundingTimeInMarket">—</dd></div>
                     </dl>
                 </div>
             </section>
@@ -564,12 +566,12 @@
             <div class="metrics-grid">
                 <div class="metric-card" title="Total funding payments RECEIVED over the selected window. dYdX funding is paid by the side that's leaning into the imbalance: positive funding pays shorts (longs heavy), negative funding pays longs (shorts heavy).">
                     <div class="metric-label">Funding Captured</div>
-                    <div class="metric-value mono profit" id="fundingCaptured">-</div>
+                    <div class="metric-value mono" id="fundingCaptured">-</div>
                     <div class="metric-change mono" id="fundingCapturedWindow">Last 30 days</div>
                 </div>
                 <div class="metric-card" title="Total funding payments PAID over the selected window. The cost-side of the funding stream — what you paid to hold positions through funding events. Held against you when you were on the heavy side of the order book.">
                     <div class="metric-label">Funding Paid</div>
-                    <div class="metric-value mono loss" id="fundingPaid">-</div>
+                    <div class="metric-value mono" id="fundingPaid">-</div>
                     <div class="metric-change mono" id="fundingPaidWindow">Last 30 days</div>
                 </div>
                 <div class="metric-card" title="Funding Captured − Funding Paid over the selected window. Above 0 = funding contributed to profit (you were on the receiving side on net); below 0 = funding was a net cost.">
@@ -610,8 +612,8 @@
                     <thead>
                         <tr>
                             <th>ASSET</th>
-                            <th title="Current funding rate, simple-annualized from the hourly rate (rate × hours in a year).">CURRENT (APR)</th>
-                            <th title="Predicted next-hour funding rate, simple-annualized (rate × hours in a year).">PREDICTED (APR)</th>
+                            <th title="Last settled hourly funding rate (the market's newest /historicalFunding settlement), simple-annualized (rate × hours in a year).">CURRENT (APR)</th>
+                            <th title="The indexer's running estimate of the next hourly settlement (nextFundingRate), simple-annualized (rate × hours in a year).">PREDICTED (APR)</th>
                             <th>RECEIVED</th>
                             <th>PAID</th>
                             <th>NET</th>
@@ -633,15 +635,7 @@
                         Year
                         <select id="taxYear" class="mono" style="margin-left:6px;"></select>
                     </label>
-                    <label class="mono" style="font-size:12px;">
-                        <input type="radio" name="taxClass" value="E" checked>
-                        Categoria E (derivativos)
-                    </label>
-                    <label class="mono" style="font-size:12px;">
-                        <input type="radio" name="taxClass" value="G">
-                        Categoria G (cripto-ativos)
-                    </label>
-                    <button id="taxRefreshFx" class="address-btn" type="button" title="Clear the entire fxRates:v1:USD-EUR localStorage cache (all years) and re-fetch rates for the selected year. Use when ECB data may have changed.">Clear FX cache</button>
+                    <button id="taxRefreshFx" class="address-btn" type="button" title="Clear the entire fxRates:v2:EUR-USD localStorage cache (all years) and re-fetch rates for the selected year. Use when ECB data may have changed.">Clear FX cache</button>
                     <button id="taxDownloadCsv" class="address-btn" type="button">Download CSV</button>
                     <button id="taxDownloadJson" class="address-btn" type="button">Download JSON</button>
                 </div>
@@ -660,20 +654,20 @@
                 <div class="metric-card">
                     <div class="metric-label">Net P&amp;L (EUR)</div>
                     <div class="metric-value mono" id="taxNetEur">—</div>
-                    <div class="metric-change mono" id="taxNetEurDetail">ECB daily rate</div>
+                    <div class="metric-change mono" id="taxNetEurDetail">—</div>
                 </div>
                 <div class="metric-card">
-                    <div class="metric-label">Gross gains</div>
+                    <div class="metric-label" title="USD: sum of NET USD (realized − fees + funding) over the rows whose NET USD is positive. EUR line: sum of NET EUR over the rows whose NET EUR is positive; each event converts at its own date's quote, so a row can be a USD gain and an EUR loss.">Gross gains · net incl. funding</div>
                     <div class="metric-value mono" id="taxGrossGainsUsd">—</div>
                     <div class="metric-change mono" id="taxGrossGainsEur">—</div>
                 </div>
                 <div class="metric-card">
-                    <div class="metric-label">Gross losses</div>
+                    <div class="metric-label" title="USD: sum of NET USD (realized − fees + funding) over the rows whose NET USD is negative. EUR line: sum of NET EUR over the rows whose NET EUR is negative; each event converts at its own date's quote, so a row can be a USD gain and an EUR loss.">Gross losses · net incl. funding</div>
                     <div class="metric-value mono" id="taxGrossLossesUsd">—</div>
                     <div class="metric-change mono" id="taxGrossLossesEur">—</div>
                 </div>
                 <div class="metric-card">
-                    <div class="metric-label">Fees</div>
+                    <div class="metric-label" title="Fees paid in the year: a positive amount is paid (a cost); a negative one is a net maker rebate (income)">Fees paid</div>
                     <div class="metric-value mono" id="taxFeesUsd">—</div>
                     <div class="metric-change mono" id="taxFeesEur">—</div>
                 </div>
@@ -683,37 +677,36 @@
                     <div class="metric-change mono" id="taxFundingEur">—</div>
                 </div>
                 <div class="metric-card">
-                    <div class="metric-label">Trades</div>
+                    <div class="metric-label" title="Rows: positions with a fill or funding payment in the year, open ones included. W / L / S by the sign of each row's NET USD for the year (realized − fees + funding). The dashboard's win rate classifies whole trades by profit excluding funding, so the two can differ.">Positions</div>
                     <div class="metric-value mono" id="taxTradeCount">—</div>
                     <div class="metric-change mono" id="taxTradeBreakdown">—</div>
                 </div>
                 <div class="metric-card">
-                    <div class="metric-label" id="taxClassificationLabel">Categoria E (derivativos)</div>
-                    <div class="metric-value mono" id="taxFlatRate">28%</div>
-                    <div class="metric-change mono">Flat rate (PT)</div>
+                    <div class="metric-label" id="taxClassificationLabel">—</div>
+                    <div class="metric-value mono" id="taxFlatRate">—</div>
+                    <div class="metric-change mono" id="taxClassificationNote">—</div>
                 </div>
             </div>
 
             <div class="table-container">
                 <div class="table-header">
-                    <div class="table-title">Closed Positions</div>
-                    <div class="mono" style="font-size:11px; color:var(--ink-3); text-align:right; max-width: 28rem;">One row per CLOSED position whose <em>closedAt</em> falls in the selected UTC year. Sorted newest → oldest.</div>
+                    <div class="table-title">Positions</div>
+                    <div class="mono" style="font-size:11px; color:var(--ink-3); text-align:right; max-width: 28rem;">One row per position, open or closed, with a fill or funding payment in the selected UTC year; each row holds only that year's realized P&amp;L, fees and funding, by the date each happened. Open positions first, then closed ones newest → oldest.</div>
                 </div>
                 <table>
                     <thead>
                         <tr>
-                            <th>CLOSED (UTC)</th>
+                            <th title="The position's close date ('open' while it is still open): the whole position's, across every year, so a position closed in a later year shows that year's date">CLOSED (UTC)</th>
                             <th>MARKET</th>
                             <th>SIDE</th>
-                            <th title="Peak position size during the trade, from the fill history">SIZE (PEAK)</th>
-                            <th>ENTRY</th>
-                            <th>EXIT</th>
+                            <th title="Peak position size during the trade, from the fill history: the whole position's, across every year, not only the selected year's">SIZE (PEAK)</th>
+                            <th title="Size-weighted price of the position's opening fills: the whole position's, across every year, not only the selected year's">ENTRY</th>
+                            <th title="Size-weighted price of the position's closing fills: the whole position's, across every year, so it can include a later year's sales">EXIT</th>
                             <th>REALIZED USD</th>
                             <th>FUNDING USD</th>
-                            <th>FEES USD</th>
+                            <th title="Fees paid: a positive amount is paid (a cost); a negative one is a maker rebate (income)">FEES PAID USD</th>
                             <th>NET USD</th>
-                            <th>NET EUR</th>
-                            <th id="taxHoldingHeader" style="display:none;">HOLDING (d)</th>
+                            <th title="Each fill's realized P&amp;L and fee, and each funding payment, ÷ the ECB EUR/USD reference quote (USD per EUR) of its own UTC date; weekends and holidays take the preceding business day's">NET EUR</th>
                         </tr>
                     </thead>
                     <tbody id="taxRowsBody"></tbody>
@@ -779,14 +772,20 @@
     <script>
         // Live masthead date in UTC — analytics throughout the dashboard
         // bucket by UTC, so the masthead must follow the same calendar.
-        (function setMastheadDate(){
+        // Repainted every minute so an open tab rolls over at UTC midnight,
+        // whether or not an address is loaded.
+        (function keepMastheadDate(){
             const el = document.getElementById('mastheadDate');
             if (!el) return;
-            const d = new Date();
-            const y = d.getUTCFullYear();
-            const mo = String(d.getUTCMonth()+1).padStart(2,'0');
-            const da = String(d.getUTCDate()).padStart(2,'0');
-            el.textContent = `${y}.${mo}.${da} UTC`;
+            const paint = () => {
+                const d = new Date();
+                const y = d.getUTCFullYear();
+                const mo = String(d.getUTCMonth()+1).padStart(2,'0');
+                const da = String(d.getUTCDate()).padStart(2,'0');
+                el.textContent = `${y}.${mo}.${da} UTC`;
+            };
+            paint();
+            setInterval(paint, window.AppConstants.MS_PER_MIN);
         })();
 
         // Tab Navigation with persisted active tab
@@ -808,8 +807,8 @@
                     window.AppPanels.tax.refresh();
                 }
                 if (tabId === 'market' && window.AppPanels && window.AppPanels.market
-                    && typeof window.AppPanels.market.ensureChartLoaded === 'function') {
-                    window.AppPanels.market.ensureChartLoaded();
+                    && typeof window.AppPanels.market.ensureLiveDataLoaded === 'function') {
+                    window.AppPanels.market.ensureLiveDataLoaded();
                 }
             }
         }
@@ -867,7 +866,7 @@
                 const lines = ['Showing a cached snapshot that did not fit in browser storage.'];
                 if (ev.dropped.length) lines.push(`Dropped: ${ev.dropped.join(', ')}.`);
                 if (ev.trimmed.length) {
-                    const keptRows = window.PortfolioCache.HISTORICAL_PNL_TRIM.toLocaleString('en-US');
+                    const keptRows = window.Format.groupDecimalText(window.PortfolioCache.HISTORICAL_PNL_TRIM);
                     lines.push(`Trimmed to the last ${keptRows} rows: ${ev.trimmed.join(', ')}.`);
                 }
                 lines.push('Clears when fresh data arrives.');
@@ -1028,11 +1027,9 @@
         // ago" caption under the masthead and the isStale() check that the
         // auto-refresh interval queries.
         const DataFreshness = (() => {
-            const { MS_PER_SEC, MS_PER_MIN, MINUTES_PER_HOUR, HOURS_PER_DAY } = window.AppConstants;
+            const { MS_PER_SEC, MS_PER_MIN } = window.AppConstants;
             const REFRESH_INTERVAL_MS = 10 * MS_PER_MIN;
             const TICK_INTERVAL_MS = 30 * MS_PER_SEC;
-            const JUST_NOW_MAX_MS = 45 * MS_PER_SEC;
-            const ONE_MIN_MAX_MS = 90 * MS_PER_SEC;
             const el = document.getElementById('dataAge');
             let lastFetchAt = 0;
             let tickTimer = null;
@@ -1040,21 +1037,11 @@
                 el.title = `Data refreshes automatically every ${REFRESH_INTERVAL_MS / MS_PER_MIN} minutes while the tab is visible.`;
             }
 
-            function formatAge(ms) {
-                if (ms < JUST_NOW_MAX_MS) return 'Updated just now';
-                if (ms < ONE_MIN_MAX_MS) return 'Updated 1m ago';
-                const mins = Math.round(ms / MS_PER_MIN);
-                if (mins < MINUTES_PER_HOUR) return `Updated ${mins}m ago`;
-                const hrs = Math.round(mins / MINUTES_PER_HOUR);
-                if (hrs < HOURS_PER_DAY) return `Updated ${hrs}h ago`;
-                const days = Math.round(hrs / HOURS_PER_DAY);
-                return `Updated ${days}d ago`;
-            }
             function paint() {
                 if (!el || !lastFetchAt) return;
                 const age = Date.now() - lastFetchAt;
                 const stale = age > REFRESH_INTERVAL_MS;
-                el.textContent = formatAge(age) + (stale ? ' · stale' : '');
+                el.textContent = window.Format.formatDataAge(age) + (stale ? ' · stale' : '');
                 el.classList.toggle('stale', stale);
             }
             function mark(timestamp) {
@@ -1182,19 +1169,26 @@
         } = window.DydxApi;
         const {
             ADDRESS_RE,
-            MS_PER_SEC, MS_PER_DAY, MONTHS_PER_YEAR,
+            MS_PER_SEC, MONTHS_PER_YEAR,
             PERCENT, POS_PAGE_LIMIT,
             CLIPBOARD_FLASH_MS
         } = window.AppConstants;
 
         const {
-            formatCurrency, formatPercent, fmtRatio, signClass, breakevenVerdict
+            formatCurrency, formatCents, CENTS, formatPercent, fmtRatio, fmtPayoff, signClass, breakevenVerdict,
+            fmtFixed, displaysAsLoss, drawdownAsDisplayed, asDisplayed, PERCENT_DECIMALS
         } = window.Format;
+
+        // The Kelly caption for a fraction that displays below zero.
+        const KELLY_NEGATIVE_EDGE_CAPTION = 'Negative edge: optimal size 0';
 
         const { updateElement, updateMetric } = window.AppDom;
 
         let currentAddress = null;
         let allData = {};
+        // When allData was fetched (renderFromAllData's snapshotAt), for a
+        // re-render outside processData (the funding window pills).
+        let allDataSnapshotAt = null;
 
         // Chart.js editorial-dark defaults
         if (window.Chart) {
@@ -1250,24 +1244,18 @@
             // (overwrites with fresh data). silent=true suppresses the
             // user-facing error banner for the cache path so a poisonous
             // cached snapshot never blocks a successful refresh that
-            // follows it.
+            // follows it. snapshotAt is when allData was fetched (the
+            // cache's fetchedAt, or now for a fresh fetch): the time the
+            // subaccount equity was read, which dates the live point.
             function renderFromAllData(opts) {
                 const silent = !!(opts && opts.silent);
+                allDataSnapshotAt = opts && opts.snapshotAt;
                 try {
-                    processData();
+                    processData(allDataSnapshotAt);
                 } catch (e) {
                     console.error('Render error:', e);
                     if (!silent) showLoadError(`Render error: ${e && e.message || e}`);
                     return false;
-                }
-                if (allData.historicalPnl) {
-                    try {
-                        window.AppCharts.pnl.render(
-                            (allData.historicalPnl && allData.historicalPnl.historicalPnl) || []
-                        );
-                    } catch (e) {
-                        console.error('Cumulative-PnL chart render error:', e);
-                    }
                 }
                 return true;
             }
@@ -1283,7 +1271,7 @@
                 const cachedMeta = window.PortfolioCache.readMeta(address);
                 if (cachedMeta && cachedMeta.data) {
                     allData = cachedMeta.data;
-                    if (renderFromAllData({ silent: true })) {
+                    if (renderFromAllData({ silent: true, snapshotAt: cachedMeta.fetchedAt })) {
                         hadCache = true;
                         FetchProgress.setCachedEviction(window.PortfolioCache.evictionOf(allData));
                         if (cachedMeta.fetchedAt) DataFreshness.mark(cachedMeta.fetchedAt);
@@ -1367,7 +1355,7 @@
 
             allData = fresh;
             FetchProgress.setCachedEviction(null);
-            if (!renderFromAllData()) {
+            if (!renderFromAllData({ snapshotAt: Date.now() })) {
                 FetchProgress.end('offline');
                 return;
             }
@@ -1448,12 +1436,23 @@
             };
         }
 
+        const NOT_IN_CACHED_SNAPSHOT = 'not in cached snapshot';
+
         // '' when allData[key] loaded, else why it is missing: a failed
         // endpoint, or a field the cache evicted from the painted snapshot.
         function missingDataReason(data, key, label) {
             const eviction = window.PortfolioCache ? window.PortfolioCache.evictionOf(data) : null;
-            if (eviction && eviction.dropped.includes(key)) return `${label} not in cached snapshot`;
+            if (eviction && eviction.dropped.includes(key)) return `${label} ${NOT_IN_CACHED_SNAPSHOT}`;
             return data[key] == null ? `${label} failed to load` : '';
+        }
+
+        // '' when the /historical-pnl rows reach inception, else why not:
+        // the cache trimmed the painted snapshot to its newest rows, the
+        // first of them at `firstRowAt`. RiskMetrics' historyCut.
+        function historyCutReason(data, firstRowAt) {
+            const eviction = window.PortfolioCache ? window.PortfolioCache.evictionOf(data) : null;
+            if (!eviction || !eviction.trimmed.includes('historicalPnl')) return '';
+            return `Historical profit before ${window.Format.fmtDateTimeUTC(firstRowAt)} UTC ${NOT_IN_CACHED_SNAPSHOT}`;
         }
 
         // Why each position / fill input is missing ('' when loaded).
@@ -1483,7 +1482,7 @@
         function unpricedReason(data, markets) {
             if (markets.length === 0) return '';
             return missingDataReason(data, 'markets', 'Markets')
-                || `No oracle price for ${markets.join(', ')}`;
+                || `${window.RiskMetrics.NO_ORACLE_PRICE} for ${markets.join(', ')}`;
         }
 
         // Each ledger component's gap ('' when computable). TRADING needs
@@ -1491,24 +1490,44 @@
         // `unpricedMarkets` (open lots without an oracle price) and of
         // `fillGapsByMarket` (market → why its fills are short: an
         // incomplete OPEN position or phantom lots). FUNDING needs the OPEN
-        // rows (openPositionsGap) and the CLOSED list; FEES needs fills.
-        // `marketProfit(market)` is the gap for one market's profit, which
-        // a gap in another market's trading total does not touch.
-        function profitLedgerGaps(data, { fills, closed }, openPositionsGap, unpricedMarkets, fillGapsByMarket) {
+        // rows (openPositionsGap), the CLOSED list and every position's
+        // netFunding (RiskMetrics.netFundingGap); FEES needs fills and a
+        // fee on every fill (RiskMetrics.feeGap over `fillsArr`).
+        // `marketFunding(market)` / `marketFees(market)` /
+        // `marketProfit(market)` are the gaps for one market's funding /
+        // fees / profit, which a gap in another market's trading, funding
+        // or fees does not touch.
+        function profitLedgerGaps(data, { fills, closed }, openPositionsGap, unpricedMarkets, fillGapsByMarket, positions, fillsArr) {
             const tradingReasons = [unpricedReason(data, unpricedMarkets), ...new Set(fillGapsByMarket.values())];
             const unpricedIn = market => (unpricedMarkets.includes(market) ? unpricedReason(data, [market]) : '');
-            const funding = openPositionsGap || closed;
+            const fundingInputs = openPositionsGap || closed;
+            const inMarket = market => record => (record.market || 'Unknown') === market;
+            const marketFunding = market => fundingInputs
+                || window.RiskMetrics.netFundingGap(positions.filter(inMarket(market)));
+            const marketFees = market => fills || window.RiskMetrics.feeGap(fillsArr.filter(Boolean).filter(inMarket(market)));
             return {
                 trading: fills || tradingReasons.filter(Boolean).join('; '),
-                funding,
-                fees: fills,
-                marketProfit: market => fills || fillGapsByMarket.get(market) || unpricedIn(market) || funding
+                funding: fundingInputs || window.RiskMetrics.netFundingGap(positions),
+                fees: fills || window.RiskMetrics.feeGap(fillsArr),
+                marketFunding,
+                marketFees,
+                marketProfit: market => fills || fillGapsByMarket.get(market) || unpricedIn(market) || marketFunding(market)
+                    || marketFees(market)
             };
         }
 
-        function processData() {
+        // Why the account's closed trades are not all listed ('' when they
+        // are): the attribution found fills holding a closed round trip that
+        // no listed position owns, in these markets.
+        function unlistedTradeReason(markets) {
+            return markets.length === 0 ? ''
+                : `${window.RiskMetrics.INCOMPLETE_CAUSE.UNLISTED_TRADE} in ${markets.join(', ')}`;
+        }
+
+        // snapshotAtMs: when allData was fetched (renderFromAllData).
+        function processData(snapshotAtMs) {
             const subaccount = extractSubaccount(allData.subaccount);
-            const fillsArr = (allData.fills && (allData.fills.fills || allData.fills.data || allData.fills)) || [];
+            const fillsArr = extractFills(allData.fills);
 
             // Every position is a shallow copy carrying its fill attribution
             // (profit, peakSize, entryVwap, exitVwap, complete, flip flags).
@@ -1536,12 +1555,24 @@
             // Which OPEN rows are current is unknown without the OPEN list,
             // or without the fills that resolve an OPEN/CLOSED collision.
             const openPositionsGap = inputs.open || (merged.hasCollision ? inputs.fills : '');
-            // Any OPEN position whose fill attribution is incomplete means
-            // its market's fills are short, so that market's FIFO totals
-            // are off. The first such position names the market's reason.
+            // Why open notional (RiskMetrics.positionNotional, oracle only)
+            // is unknown ('' when every OPEN market has an oracle price):
+            // the Active Positions and Leverage cards read '—' with it.
+            const openNotionalGap = unpricedReason(allData, [...new Set(allPositions
+                .filter(p => p.status === 'OPEN' && window.RiskMetrics.positionOraclePrice(p, marketsMap) === null)
+                .map(p => p.market || 'Unknown'))]);
+            // A position whose fill attribution is incomplete has short
+            // fills, unless only a fee is unknown: a fill without a fee
+            // leaves the FIFO totals and the hours held right, and FEES and
+            // the market's profit read its gap instead (profitLedgerGaps).
+            const fillsShort = p => !window.RiskMetrics.hasCompleteAttribution(p)
+                && p.incompleteCause !== window.RiskMetrics.INCOMPLETE_CAUSE.UNKNOWN_FEE;
+            // Any OPEN position with short fills means its market's FIFO
+            // totals are off. The first such position names the market's
+            // reason.
             const fillGapsByMarket = new Map();
             allPositions
-                .filter(p => p.status === 'OPEN' && !window.RiskMetrics.hasCompleteAttribution(p))
+                .filter(p => p.status === 'OPEN' && fillsShort(p))
                 .forEach(p => {
                     const market = p.market || 'Unknown';
                     if (!fillGapsByMarket.has(market)) fillGapsByMarket.set(market, incompleteOpenPositionReason(p));
@@ -1558,12 +1589,52 @@
                     .forEach(m => fillGapsByMarket.set(m, OPEN_SIZE_MISMATCH_REASON));
             }
             const ledgerGaps = profitLedgerGaps(
-                allData, inputs, openPositionsGap, unrealizedFifo.unpricedMarkets, fillGapsByMarket);
+                allData, inputs, openPositionsGap, unrealizedFifo.unpricedMarkets, fillGapsByMarket, allPositions, fillsArr);
             const profitGap = ledgerGaps.trading || ledgerGaps.funding || ledgerGaps.fees;
             // Without the CLOSED list the classifier's inputs are unknown,
             // which must read '—' with the reason, never as "no trades".
             // The Tax tab needs fills and both lists to tie fills to rows.
             const closedGap = inputs.closed;
+            // The closed trades are unknown too when the fills hold a closed
+            // trade no listed position owns: every closed-trade view (the
+            // classifier and its cards, the hold-time histogram and the
+            // Behavior tab's hold-time pattern counts, the entry heatmap and
+            // Most Active Day, the Positions board) reads '—' with the reason.
+            const unlistedTradeGap = unlistedTradeReason(attribution.unlistedTradeMarkets);
+            const closedTradesGap = closedGap || unlistedTradeGap;
+            // Each market whose fills are short, for the Market tab's
+            // funding hero (derived, like allData.positions): an OPEN
+            // position with short fills or phantom lots (fillGapsByMarket),
+            // else the first CLOSED position with short fills, its cause,
+            // else a closed trade no listed position owns. The hero also
+            // gets the window of every position with short fills
+            // (allData.incompleteWindows), so a market
+            // whose fills show no hour held in its window still counts as
+            // covered. The Total Profit gate (profitLedgerGaps) keeps to the
+            // OPEN positions and phantom lots.
+            const incompleteClosed = new Map();
+            allPositions
+                .filter(p => p.status === 'CLOSED' && fillsShort(p))
+                .forEach(p => {
+                    const market = p.market || 'Unknown';
+                    if (!incompleteClosed.has(market)) incompleteClosed.set(market, `${p.incompleteCause} in ${market}`);
+                });
+            allData.fillGapsByMarket = new Map([
+                ...attribution.unlistedTradeMarkets.map(m => [m, unlistedTradeReason([m])]),
+                ...incompleteClosed,
+                ...fillGapsByMarket]);
+            allData.incompleteWindows = allPositions
+                .filter(fillsShort)
+                .map(p => ({
+                    market: p.market || 'Unknown',
+                    fromMs: window.RiskMetrics.timestampMs(p.createdAt),
+                    toMs: p.status === 'CLOSED' ? window.RiskMetrics.timestampMs(p.closedAt) : null
+                }));
+            // Every entry, OPEN included, is known only when both lists are
+            // and every position has a valid createdAt
+            // (RiskMetrics.entryTimeGap): the entry heatmap, Most Active Day
+            // and the Post-Loss Double Down count read '—' with the reason.
+            const entriesGap = closedTradesGap || openPositionsGap || window.RiskMetrics.entryTimeGap(allPositions);
             const taxGap = inputs.fills || inputs.closed || inputs.open;
 
             // Single source of truth for trade classification, drawdown, and
@@ -1579,52 +1650,86 @@
             // The classifier buckets by the same fill-attributed profit and
             // returns null ratios while any closed position is incomplete
             // or the CLOSED list itself failed to load.
-            const cls = window.RiskMetrics.classifyClosed(allPositions, closedGap);
+            const cls = window.RiskMetrics.classifyClosed(allPositions, closedTradesGap);
             const feesByMarket = window.RiskMetrics.marketFees(fillsArr);
             const realizedFifo = window.RiskMetrics.computeRealizedFromFills(fillsArr);
-            const marketAgg = window.RiskMetrics.marketPnL(
-                allPositions, feesByMarket, realizedFifo.byMarket, unrealizedFifo.byMarket);
+            // At cents: every market's components rounded first, the
+            // ledger and headline summed from them, so the asset table's
+            // rows add up to the ledger exactly as displayed.
+            const ledger = window.RiskMetrics.profitLedger(window.RiskMetrics.marketPnL(
+                allPositions, feesByMarket, realizedFifo.byMarket, unrealizedFifo.byMarket));
+            const marketAgg = ledger.byMarket;
             const histArr = (allData.historicalPnl && allData.historicalPnl.historicalPnl) || [];
+            const historicalPnlGap = missingDataReason(allData, 'historicalPnl', 'Historical profit');
+            // Rows that loaded but hold one whose time or amount does not
+            // parse: every view built on them is unknown.
+            const historicalPnlRowGap = window.RiskMetrics.historicalPnlRowGap(histArr);
+            // Why the totalPnl series is unknown ('' when its rows are
+            // known): the endpoint's missing-input reason, no rows at all,
+            // or a row without a valid time or amount.
+            const historicalPnlSeriesGap = historicalPnlGap
+                || (histArr.length ? historicalPnlRowGap : 'No /historical-pnl rows');
+            // The rows in time order of their parsed createdAt ([] while a
+            // row is invalid, historicalPnlRowGap), never by its text: a
+            // timestamp's offset can put a later text before an earlier time.
+            const histChronological = window.RiskMetrics.chronologicalHistoricalPnl(histArr);
+            const firstHistAt = histChronological.length ? histChronological[0].createdAt : null;
+            // A snapshot whose rows do not reach inception: no drawdown
+            // view, no month it cuts and no inception value on the chart.
+            const historyCut = historyCutReason(allData, firstHistAt);
             // Drawdown source: historical-pnl totalPnl is the canonical
             // realized+unrealized cumulative trading P&L per timestamp. It
             // captures unrealized peaks the closed-trade ledger cannot see
             // (e.g. a large open profit that was later given back). Falls
-            // back to the trade-system ledger when historical-pnl gives no
-            // positive drawdown (missing, empty or monotonic series).
-            const histDD = window.RiskMetrics.histPnlDrawdown(histArr);
-            const tsd = histDD.dollarDrawdown > 0
-                ? histDD
-                : window.RiskMetrics.tradeSystemDrawdown(allPositions);
-            const drawdownSource = histDD.dollarDrawdown > 0 ? 'hist' : 'trade';
+            // back to the trade-system ledger only when historical-pnl is
+            // missing or empty (RiskMetrics.drawdownSource): a series that
+            // never draws down reads $0, not the ledger's drawdown.
+            const drawdownSource = window.RiskMetrics.drawdownSource(histArr);
+            // The totalPnl series ends at the live point (the Total Profit
+            // headline, dated snapshotAtMs) whenever the headline is
+            // available, so Max / Current Drawdown, Recovery Factor,
+            // Drawdown Periods, the current month's PROFIT and MAX DD and
+            // the chart's last candle all read the account's profit now,
+            // not the last hourly row; a transfer since that row is never
+            // read as profit.
+            const livePnl = window.RiskMetrics.livePnlPoint(
+                histArr, profitGap ? null : ledger.total, snapshotAtMs);
+            // The closed-trade fallback series: closes in one millisecond
+            // in the fills' chain order, ending now (snapshotAtMs), so its
+            // time below peak runs to now as the live point's does.
+            const tradeSeriesOpts = { fills: fillsArr, nowMs: snapshotAtMs };
+            const tsd = drawdownSource === 'hist'
+                ? window.RiskMetrics.histPnlDrawdown(histArr, livePnl)
+                : window.RiskMetrics.tradeSystemDrawdown(allPositions, tradeSeriesOpts);
 
-            // Current (active) drawdown — same source-selection logic as the
-            // worst-DD pair so the two cards never report against different
-            // P&L streams. histPnlCurrentDrawdown returns hasData=false on an
-            // empty series; the trade-system fallback fires whenever the hist
-            // path is the one being skipped for Max DD.
-            const histCDD = window.RiskMetrics.histPnlCurrentDrawdown(histArr);
+            // Current (active) drawdown — same source as the worst-DD pair
+            // so the two cards never report against different P&L streams.
             const cdd = drawdownSource === 'hist'
-                ? histCDD
-                : window.RiskMetrics.tradeSystemCurrentDrawdown(allPositions);
+                ? window.RiskMetrics.histPnlCurrentDrawdown(histArr, livePnl)
+                : window.RiskMetrics.tradeSystemCurrentDrawdown(allPositions, tradeSeriesOpts);
             // The classifier's ratios are null either because its inputs
             // are incomplete (render '—' with cls.incompleteReason) or
             // because the denominator is empty (render 'N/A'). The
-            // trade-system drawdown series is all-or-nothing the same way.
+            // trade-system drawdown series is all-or-nothing the same way,
+            // and also while a CLOSED position has no valid close time
+            // (RiskMetrics.closeTimeGap); the totalPnl series cannot be
+            // measured from rows that do not reach inception (historyCut),
+            // nor from rows holding one without a valid time or amount
+            // (historicalPnlRowGap). Every drawdown view then reads '—'
+            // with the reason.
             const classifierGap = cls.incompleteReason !== '';
-            const drawdownGap = drawdownSource === 'trade' && classifierGap
-                ? cls.incompleteReason
-                : '';
+            const drawdownGap = drawdownSource === 'trade'
+                ? cls.incompleteReason || window.RiskMetrics.closeTimeGap(allPositions)
+                : historicalPnlRowGap || historyCut;
 
             // Market-wide FIFO over every fill, not the classifier's
             // cls.totalProfit: that is net of fees and covers only CLOSED
             // positions, while TRADING is gross and includes the realized
             // part of OPEN positions.
-            const totalUnrealizedPnL = unrealizedFifo.total;
-            const totalRealizedPnL = realizedFifo.total;
-            const totalNetFunding = window.RiskMetrics.netFundingTotal(allPositions);
-            const totalFees = window.RiskMetrics.feesTotal(fillsArr);
-            const totalTradingPnL = totalUnrealizedPnL + totalRealizedPnL;
-            const totalPnL = totalTradingPnL + totalNetFunding - totalFees;
+            const totalTradingPnL = ledger.trading;
+            const totalNetFunding = ledger.funding;
+            const totalFees = ledger.fees;
+            const totalPnL = ledger.total;
 
             // Reconciliation guard. Two independent paths must arrive at the
             // same lifetime profit:
@@ -1720,12 +1825,12 @@
                     totalPnLGap: ledgerGaps.marketProfit(m)
                 };
             });
-            window.AppCharts.market.render(marketDistribution);
+            window.AppCharts.market.render(marketDistribution, closedTradesGap);
 
             if (profitGap) {
                 updateMetric('totalPnL', '—');
             } else {
-                updateMetric('totalPnL', formatCurrency(totalPnL), signClass(totalPnL));
+                updateMetric('totalPnL', formatCents(totalPnL), signClass(totalPnL, CENTS));
             }
             window.AppPanels.overview.renderTotalProfitBreakdown(
                 ledgerGaps.trading ? null : totalTradingPnL,
@@ -1755,12 +1860,12 @@
                 }
             } else if (cls.profitFactor !== null) {
                 const profitFactor = cls.profitFactor;
-                document.getElementById('profitFactor').textContent = profitFactor.toFixed(2);
+                document.getElementById('profitFactor').textContent = fmtRatio(profitFactor);
                 document.getElementById('profitFactorDetail').textContent =
-                    `${formatCurrency(cls.grossWin)} / ${formatCurrency(cls.grossLoss)}`;
+                    `${formatCurrency(cls.grossWin)} / ${formatCurrency(-cls.grossLoss)}`;
                 const pfl = document.getElementById('profitFactorLabel');
                 if (pfl) {
-                    pfl.title = `Gross profit / gross loss\nGross profit: ${formatCurrency(cls.grossWin)}\nGross loss: ${formatCurrency(cls.grossLoss)}`;
+                    pfl.title = `Gross profit / gross loss\nGross profit: ${formatCurrency(cls.grossWin)}\nGross loss: ${formatCurrency(-cls.grossLoss)}`;
                 }
             } else {
                 document.getElementById('profitFactor').textContent = 'N/A';
@@ -1779,70 +1884,31 @@
             window.AppPanels.overview.renderStrategyEdge(cls.winRate, cls.profitFactor, cls.payoff, cls.incompleteReason);
 
             // Pagination now walks /historical-pnl to inception (no page
-            // cap; see fetchAllPaginated). Surface the earliest observed
-            // date alongside the headline drawdown so the peak/trough
-            // window is unambiguous even when the account has a short
-            // history.
-            const firstHistAt = histArr.length
-                ? histArr.slice().sort((a,b) => (a.createdAt||'').localeCompare(b.createdAt||''))[0]?.createdAt
-                : null;
-            const firstHistMs = firstHistAt ? new Date(firstHistAt).getTime() : NaN;
-            const sinceCaption = isFinite(firstHistMs)
-                ? ` (since ${firstHistAt.slice(0,10)})`
-                : '';
+            // cap; see fetchAllPaginated). The Max Drawdown caption surfaces
+            // the earliest observed date as its own phrase, so the
+            // observation window is unambiguous and never reads as the
+            // trough's date.
+            const seriesStart = firstHistAt ? new Date(window.RiskMetrics.timestampMs(firstHistAt)).toISOString() : null;
 
-            // Headline Max Drawdown: peak-to-trough of cumulative trading
-            // P&L (totalPnl from historical-pnl). Same series drives the
-            // Drawdown Periods table and chart so they cannot disagree.
-            if (tsd.dollarDrawdown > 0) {
-                updateElement('maxDrawdown', formatCurrency(-tsd.dollarDrawdown));
-                const peakDate = tsd.peakAt ? tsd.peakAt.slice(0, 10) : null;
-                const detail = drawdownSource === 'hist'
-                    ? `Peak ${formatCurrency(tsd.peakValue)} (${peakDate}) → trough ${formatCurrency(tsd.troughValue)}${sinceCaption}`
-                    : `Trade-system peak-to-trough · n=${tsd.n} closed`;
-                updateElement('maxDrawdownDetail', detail);
-            } else {
-                updateElement('maxDrawdown', '—');
-                updateElement('maxDrawdownDetail', drawdownGap
-                    || (cls.closedCount > 0 ? 'No drawdown recorded' : 'No closed trades'));
-            }
+            // Max Drawdown (peak-to-trough) and Current Drawdown
+            // (peak-vs-now) on the series drawdownSource picked, the one the
+            // Drawdown Periods table and the chart read.
+            window.AppPanels.overview.renderDrawdownCards(tsd, cdd, {
+                source: drawdownSource,
+                hasLive: Boolean(livePnl),
+                gap: drawdownGap,
+                closedCount: cls.closedCount,
+                seriesStart
+            });
 
-            // Current Drawdown card. Same series as Max Drawdown above, but
-            // measures peak-vs-NOW instead of peak-vs-worst-historical-trough.
-            // Three states:
-            //   - cdd.hasData=false → no series yet → "—"
-            //   - dollarDrawdown=0  → currently at-or-above prior peak (green)
-            //   - dollarDrawdown>0  → in active drawdown, depth + days below
-            const cddEl = document.getElementById('currentDrawdown');
-            if (!cdd.hasData) {
-                updateElement('currentDrawdown', '—');
-                updateElement('currentDrawdownDetail', drawdownGap
-                    || (cls.closedCount > 0 ? 'No equity series available' : 'No closed trades'));
-                if (cddEl) cddEl.className = 'metric-value mono';
-            } else if (cdd.dollarDrawdown <= 0) {
-                updateElement('currentDrawdown', formatCurrency(0));
-                const peakDate = cdd.peakAt ? cdd.peakAt.slice(0, 10) : null;
-                updateElement('currentDrawdownDetail', peakDate
-                    ? `At peak (${peakDate})`
-                    : 'At peak');
-                if (cddEl) cddEl.className = 'metric-value mono profit';
-            } else {
-                updateElement('currentDrawdown', formatCurrency(-cdd.dollarDrawdown));
-                const peakDate = cdd.peakAt ? cdd.peakAt.slice(0, 10) : null;
-                const daysBelow = cdd.peakAt && cdd.currentAt
-                    ? Math.max(0, Math.round(
-                        (new Date(cdd.currentAt) - new Date(cdd.peakAt)) / MS_PER_DAY))
-                    : null;
-                const pctText = cdd.pctOfPeakProfit > 0
-                    ? ` · ${cdd.pctOfPeakProfit.toFixed(1)}% of peak`
-                    : '';
-                const daysText = daysBelow !== null
-                    ? `${daysBelow}d below peak`
-                    : 'below peak';
-                updateElement('currentDrawdownDetail', peakDate
-                    ? `${daysText} (since ${peakDate})${pctText}`
-                    : `${daysText}${pctText}`);
-                if (cddEl) cddEl.className = 'metric-value mono loss';
+            // Cumulative profit chart on the same anchored series, so its
+            // last candle closes at the live point. Rendered on every load,
+            // so a load whose rows are unknown clears the earlier candles
+            // and shows why.
+            try {
+                window.AppCharts.pnl.render(histArr, livePnl, historyCut, historicalPnlSeriesGap);
+            } catch (e) {
+                console.error('Cumulative-PnL chart render error:', e);
             }
 
             // All-time risk ratios + Calmar + VaR/CVaR + monthly tables.
@@ -1850,51 +1916,65 @@
             (function renderRiskRatios() {
                 const HOURLY_MIN_PPY = 8000;
                 const DAILY_MIN_PPY = 300;
+                // The Sharpe / Sortino tooltip: periods per year
+                // (Format.PERIODS_PER_YEAR_DECIMALS) and coverage whole,
+                // the sample's span in months at one decimal.
+                const SAMPLE_MONTHS_DECIMALS = 1;
+                const COVERAGE_DECIMALS = 0;
                 const setRatioNA = (note = 'Insufficient data') => {
                     updateElement('sharpeRatio', '—');
                     updateElement('sortinoRatio', '—');
-                    updateElement('calmarRatio', '—');
+                    window.AppPanels.performance.renderRatioCardTitles('hist');
+                    window.AppPanels.performance.renderCalmar(null, '', note);
                     const sharpeMeta = document.getElementById('sharpeMeta');
                     const sortinoMeta = document.getElementById('sortinoMeta');
                     if (sharpeMeta) { sharpeMeta.textContent = note + ' ⓘ'; sharpeMeta.title = note; }
                     if (sortinoMeta) { sortinoMeta.textContent = note + ' ⓘ'; sortinoMeta.title = note; }
                 };
-                const setVarNA = (note = 'Insufficient data') => {
-                    updateMetric('var95', '—');
-                    updateMetric('expectedShortfall', '—');
-                    const v = document.getElementById('var95');
-                    if (v) v.title = note;
-                    const e = document.getElementById('expectedShortfall');
-                    if (e) e.title = note;
-                };
+                const setVarNA = (note) => window.AppPanels.risk.renderVarUnavailable(note);
 
                 // Drawdown Periods table renders for both paths; without
                 // this call the table would stay empty when historical-pnl
                 // is unavailable but the trade-system fallback could still
                 // produce events.
-                window.AppPanels.risk.renderDrawdownPeriods(allPositions, histArr);
+                window.AppPanels.risk.renderDrawdownPeriods(allPositions, histArr, livePnl, drawdownGap, tradeSeriesOpts);
 
-                const tableGaps = { ...ledgerGaps, openPositions: openPositionsGap, closed: closedGap, classifier: cls.incompleteReason };
+                const tableGaps = {
+                    ...ledgerGaps, openPositions: openPositionsGap, closed: closedGap, classifier: cls.incompleteReason,
+                    historicalPnl: historicalPnlGap || historicalPnlRowGap, historyCut
+                };
                 if (!histArr.length) {
-                    setRatioNA('Failed to load historical profit');
-                    setVarNA('Failed to load historical profit');
-                    window.AppPanels.performance.renderTables(allPositions, [], marketAgg, tableGaps);
+                    const noRowsReason = historicalPnlSeriesGap;
+                    setRatioNA(noRowsReason);
+                    setVarNA(noRowsReason);
+                    window.AppPanels.performance.renderTables(allPositions, [], marketAgg, tableGaps, livePnl, fillsArr);
+                    return;
+                }
+                // Rows the cache cut do not reach inception: the all-time
+                // ratios cannot be measured from the rows kept, and their
+                // per-trade fallback has no equity at the earlier opens.
+                // Rows holding one without a valid time or amount have no
+                // returns and no equity at open to measure them on.
+                const historyGap = historicalPnlRowGap || historyCut;
+                if (historyGap) {
+                    setRatioNA(historyGap);
+                    setVarNA(historyGap);
+                    window.AppPanels.performance.renderTables(allPositions, histArr, marketAgg, tableGaps, livePnl, fillsArr);
                     return;
                 }
 
-                const rets = window.RiskMetrics.computeTimeWeightedReturnsFromHist(histArr);
-                const series = histArr.slice().sort((a,b) => (a.createdAt||'').localeCompare(b.createdAt||''));
-                const timestamps = series.map(p => p.createdAt).filter(Boolean);
+                const returnPoints = window.RiskMetrics.timeWeightedReturnPoints(histArr, historyCut);
+                const rets = returnPoints.map(p => p.r);
+                const timestamps = histChronological.map(p => p.createdAt);
 
                 const adq = window.RiskMetrics.assessAdequacy(rets, timestamps, histArr.length);
-                const equityNow = subaccount ? parseFloat(subaccount.equity || 0) : 0;
 
                 if (!adq.adequate) {
                     // Per-trade fallback: independent statistic from the
                     // fill-attributed profit of closed trades. Honest when the
                     // time-series sample is unusable but the trade log is rich
                     // enough to summarize.
-                    const tm = window.AppPanels.performance.computeTradeBasedMetrics(cls);
+                    const tm = window.AppPanels.performance.computeTradeBasedMetrics(cls, histArr, fillsArr);
                     if (tm.ok) {
                         window.AppPanels.performance.renderTradeBasedRatios(tm, adq.reason);
                     } else {
@@ -1903,45 +1983,53 @@
                     // VaR/CVaR share the time-series adequacy gate: a 4-day
                     // post-redeposit window is not a basis for portfolio VaR.
                     setVarNA(adq.reason);
-                    window.AppPanels.performance.renderTables(allPositions, histArr, marketAgg, tableGaps);
+                    window.AppPanels.performance.renderTables(allPositions, histArr, marketAgg, tableGaps, livePnl, fillsArr);
                     return;
                 }
 
-                const ann = window.RiskMetrics.computeAnnualizedFromReturns(rets, timestamps, { mar: 0 });
+                // Each return weighs as the sampling intervals it spans, so
+                // one over a multi-hour gap in the rows is not read as a
+                // one-hour outcome.
+                const ann = window.RiskMetrics.computeAnnualizedFromReturns(rets, timestamps,
+                    { mar: 0, intervalsMs: returnPoints.map(p => p.intervalMs) });
                 updateElement('sharpeRatio', fmtRatio(ann.sharpeAnnualized));
                 updateElement('sortinoRatio', fmtRatio(ann.sortinoAnnualized));
+                window.AppPanels.performance.renderRatioCardTitles('hist');
+
+                // Calmar shares the Sharpe series: the CAGR of the
+                // compounded returns over the calendar span of the rows
+                // (hours without capital count as time) ÷ that curve's
+                // worst valid drawdown. The compounded return also captions
+                // Sharpe and Sortino, whose arithmetic mean can be positive
+                // while the compounded return is a loss; it reads — once
+                // the compounded wealth reached zero.
+                const compounding = window.RiskMetrics.compoundReturns(
+                    rets, window.RiskMetrics.historicalPnlYears(histArr));
+                window.AppPanels.performance.renderCalmar(compounding, 'compounded TWR');
+                const compoundedText = window.AppPanels.performance.compoundedReturnText(compounding.compounded);
 
                 const perText = adq.ppy > HOURLY_MIN_PPY ? 'hourly' : adq.ppy > DAILY_MIN_PPY ? 'daily' : 'periodic';
-                const sharpeMeta = document.getElementById('sharpeMeta');
-                const sortinoMeta = document.getElementById('sortinoMeta');
-                const metaText = `Time-weighted · ${perText} · n=${rets.length} ⓘ`;
-                const tipBase = `Sampling: ${perText} (PPY ≈ ${adq.ppy.toFixed(0)})
+                const metaText = `Time-weighted · ${perText} · n=${rets.length} · compounded ${compoundedText} ⓘ`;
+                const tipBase = `Sampling: ${perText} (PPY ≈ ${fmtFixed(adq.ppy, window.Format.PERIODS_PER_YEAR_DECIMALS)})
 MAR: 0
-Returns: time-weighted (pnlΔ / equity_{t-1}); deposits/withdrawals excluded.
+Returns: time-weighted, pnlΔ ÷ (equity_{t-1} + the period's deposits), the first from 0 at inception to the first row; deposits and withdrawals are not returns. Periods on a near-empty account are dropped and count against coverage.
+Arithmetic mean per sampling period, a return over a gap in the rows weighted by the periods it spans; compounded over the sample the return is ${compoundedText}.
 Annualized assuming IID returns — ignores autocorrelation.
-Sample: ${rets.length} returns over ${(adq.years*MONTHS_PER_YEAR).toFixed(1)} months (${(adq.coverage*PERCENT).toFixed(0)}% coverage).`;
-                if (sharpeMeta) { sharpeMeta.textContent = metaText; sharpeMeta.title = tipBase + '\nDenominator: standard deviation (σ)'; }
-                if (sortinoMeta) { sortinoMeta.textContent = metaText; sortinoMeta.title = tipBase + '\nDenominator: downside deviation (target semi-deviation over all periods)'; }
+Sample: ${rets.length} returns over ${fmtFixed(adq.years * MONTHS_PER_YEAR, SAMPLE_MONTHS_DECIMALS)} months (${fmtFixed(adq.coverage * PERCENT, COVERAGE_DECIMALS)}% coverage).`;
+                // Returns that pass the gate but are all alike have no
+                // deviation to divide by: '—' with that reason.
+                window.AppPanels.performance.renderRatioMeta(
+                    { sharpe: ann.sharpeAnnualized, sortino: ann.sortinoAnnualized }, metaText, tipBase, {
+                        sharpe: 'standard deviation (σ)',
+                        sortino: 'downside deviation (target semi-deviation over all periods)'
+                    });
 
-                // Calmar shares the Sharpe series. CAGR of compounded TWR
-                // wealth ÷ that curve's worst valid drawdown.
-                let wealth = 1;
-                const compoundedWealth = [wealth];
-                for (let i = 0; i < rets.length; i++) {
-                    wealth *= (1 + rets[i]);
-                    compoundedWealth.push(wealth);
-                }
-                const compoundFactor = compoundedWealth[compoundedWealth.length - 1];
-                const wealthDD = window.RiskMetrics.validDrawdownFromEquity(compoundedWealth);
-                if (wealthDD && compoundFactor > 0 && adq.years > 0) {
-                    const cagr = Math.pow(compoundFactor, 1 / adq.years) - 1;
-                    updateElement('calmarRatio', fmtRatio(cagr / (wealthDD.pct / PERCENT)));
-                } else {
-                    updateElement('calmarRatio', '—');
-                }
-
-                window.AppPanels.risk.renderFromHistorical(rets, equityNow);
-                window.AppPanels.performance.renderTables(allPositions, histArr, marketAgg, tableGaps);
+                // VaR / ES on the returns over about one sampling interval:
+                // a return over a multi-hour gap in the rows is not a
+                // one-interval outcome.
+                window.AppPanels.risk.renderFromHistorical(
+                    window.RiskMetrics.varSampleReturns(histArr), subaccount, { label: perText, ppy: adq.ppy });
+                window.AppPanels.performance.renderTables(allPositions, histArr, marketAgg, tableGaps, livePnl, fillsArr);
             })();
 
             // Trading Statistics — losses always render as negative dollars so the
@@ -1960,7 +2048,7 @@ Sample: ${rets.length} returns over ${(adq.years*MONTHS_PER_YEAR).toFixed(1)} mo
             setStatCell('avgWin', cls.avgWin);
             setStatCell('avgLoss', cls.avgLoss === null ? null : -cls.avgLoss);
             const payoff = cls.payoff;
-            const rrText = payoff !== null ? `${payoff.toFixed(2)} : 1` : '—';
+            const rrText = payoff !== null ? fmtPayoff(payoff) : unavailable;
             updateElement('riskReward', rrText);
             // Headline-grid version of the same number (the phase diagram's
             // implied payoff reads cls.payoff too); surfacing it as a
@@ -1968,15 +2056,12 @@ Sample: ${rets.length} returns over ${(adq.years*MONTHS_PER_YEAR).toFixed(1)} mo
             // metric row.
             updateElement('riskRewardHero', rrText);
             const heroDetail = document.getElementById('riskRewardHeroDetail');
-            // The markup's caption, captured before any render overwrites it.
-            if (heroDetail && heroDetail.dataset.defaultText === undefined) {
-                heroDetail.dataset.defaultText = heroDetail.textContent;
-            }
             if (heroDetail && classifierGap) {
                 heroDetail.textContent = cls.incompleteReason;
                 heroDetail.className = 'metric-change mono';
             } else if (heroDetail && payoff === null) {
-                heroDetail.textContent = heroDetail.dataset.defaultText;
+                // An empty bucket: say which one, beside the 'N/A'.
+                heroDetail.textContent = window.RiskMetrics.payoffEmptyBucketReason(cls);
                 heroDetail.className = 'metric-change mono';
             } else if (heroDetail) {
                 // Below the breakeven win rate, expectancy is negative at the
@@ -1985,7 +2070,7 @@ Sample: ${rets.length} returns over ${(adq.years*MONTHS_PER_YEAR).toFixed(1)} mo
                 // self-contained verdict.
                 const winLossPart = `${formatCurrency(cls.avgWin)} / ${formatCurrency(-cls.avgLoss)}`;
                 if (cls.winRate !== null) {
-                    const verdict = breakevenVerdict(cls.winRate, cls.breakevenWinRate);
+                    const verdict = breakevenVerdict(cls.winRate, cls.breakevenWinRate, cls.expectancy);
                     heroDetail.textContent = `${winLossPart} · ${verdict.text}`;
                     heroDetail.className = `metric-change mono ${verdict.toneClass}`;
                 } else {
@@ -1997,26 +2082,44 @@ Sample: ${rets.length} returns over ${(adq.years*MONTHS_PER_YEAR).toFixed(1)} mo
             // numerator and denominator from the same classified set.
             setStatCell('expectancy', cls.expectancy);
             // Recovery Factor: latest value of the series the headline
-            // drawdown was measured on, ÷ that drawdown, so numerator and
-            // denominator share one P&L series (cdd is on the same source):
-            //   hist  path → latest totalPnl ÷ histPnlDrawdown
+            // drawdown was measured on, ÷ that drawdown as the Max
+            // Drawdown card shows it (Format.drawdownAsDisplayed), so
+            // numerator and denominator share one P&L series (cdd is on
+            // the same source):
+            //   hist  path → the series' last point (the live point when
+            //               the headline is available, else the latest
+            //               totalPnl row) ÷ histPnlDrawdown
             //   trade path → cumulative profit ÷ tradeSystemDrawdown
+            // A drawdown that displays as $0 is none (Format.displaysAsLoss).
+            const shownMaxDrawdown = drawdownAsDisplayed(tsd.peakValue, tsd.troughValue);
             updateElement('recoveryFactor',
                 drawdownGap ? '—'
-                    : tsd.dollarDrawdown > 0 ? fmtRatio(cdd.currentValue / tsd.dollarDrawdown)
+                    : displaysAsLoss(shownMaxDrawdown)
+                        ? fmtRatio(cdd.currentValue / shownMaxDrawdown)
                     : 'N/A');
 
             window.AppPanels.positions.render(allPositions, fillsArr, {
                 marketsMap,
-                openPositionsGap
+                openPositionsGap,
+                openNotionalGap,
+                closedGap,
+                unlistedTradeGap,
+                fillsGap: inputs.fills
             });
-            window.AppPanels.tax.render(allPositions, fillsArr, currentAddress, taxGap);
-            window.AppPanels.performance.renderMetrics(allPositions, cls);
-            window.AppPanels.behavior.renderTimeAnalysis(allPositions, cls);
-            window.AppPanels.behavior.renderActivityHeatmap(allPositions, closedGap);
-            window.AppPanels.risk.renderLiquidationTable(allPositions, marketsMap, subaccount, openPositionsGap);
-            window.AppPanels.risk.renderLeverageUtilization(allPositions, subaccount, marketsMap, openPositionsGap);
-            window.AppPanels.behavior.renderDetectedPatterns(allPositions, cls);
+            const funding = fundingPaymentsInput(allData);
+            window.AppPanels.tax.render(allPositions, fillsArr, currentAddress, {
+                dataGap: taxGap,
+                fundingPayments: funding.payments,
+                fundingGap: funding.gap,
+                snapshotAtMs
+            });
+            window.AppPanels.performance.renderMetrics(allPositions, cls, closedTradesGap, fillsArr);
+            window.AppPanels.behavior.renderTimeAnalysis(allPositions, cls, entriesGap);
+            window.AppPanels.behavior.renderActivityHeatmap(allPositions, entriesGap);
+            window.AppPanels.risk.renderLiquidationTable(allPositions, marketsMap, subaccount, openPositionsGap,
+                missingDataReason(allData, 'markets', 'Markets'));
+            window.AppPanels.risk.renderLeverageUtilization(allPositions, subaccount, marketsMap, openPositionsGap, openNotionalGap);
+            window.AppPanels.behavior.renderDetectedPatterns(allPositions, cls, closedTradesGap, entriesGap, fillsArr);
 
             // Kelly criterion from the classifier's win rate (decisive
             // trades only, scratches excluded) and payoff. Renders N/A
@@ -2037,15 +2140,49 @@ Sample: ${rets.length} returns over ${(adq.years*MONTHS_PER_YEAR).toFixed(1)} mo
                 }
                 const pWin = cls.winRate / PERCENT;
                 const k = pWin - (1 - pWin) / cls.payoff;
-                updateElement('kellyCriterion', isFinite(k) ? (k * PERCENT).toFixed(1) + '%' : 'N/A');
+                updateElement('kellyCriterion', isFinite(k) ? formatPercent(k * PERCENT) : 'N/A');
+                // A fraction that displays below zero is no size: the
+                // growth-optimal bet on a negative edge is none.
+                if (detail && isFinite(k) && asDisplayed(k * PERCENT, PERCENT_DECIMALS) < 0) {
+                    detail.textContent = KELLY_NEGATIVE_EDGE_CAPTION;
+                }
             })();
 
             // Funding views (Market Structure tab): hero APR + 3 KPI cards + per-asset table
             // share a single window selector. Hero divides by time-weighted notional (the
             // honest denominator for an hourly-settled funding flow); the KPI cards stay
             // $-only because a flow-vs-equity ratio is meaningless across changing equity.
-            const payments = (allData.fundingPayments && (allData.fundingPayments.fundingPayments || [])) || [];
-            window.AppPanels.market.render(payments, marketsMap);
+            renderMarketTab(allData, snapshotAtMs);
+        }
+
+        // The rows of a /fills response ([] when it did not load).
+        function extractFills(response) {
+            return (response && (response.fills || response.data || response)) || [];
+        }
+
+        // The /fundingPayments rows, or null when they did not load, with
+        // the missing-input reason ('' when loaded). The Market and Tax tabs
+        // both read it, so they agree on when funding is unknown.
+        function fundingPaymentsInput(data) {
+            const gap = missingDataReason(data, 'fundingPayments', 'Funding payments');
+            return { payments: gap ? null : (data.fundingPayments.fundingPayments || []), gap };
+        }
+
+        // The Market tab from the loaded data: funding payments are null
+        // when they did not load, and each input's missing-input reason
+        // goes with them so the panel renders '—' with it, never $0.
+        // snapshotAtMs (when data was fetched) ends every funding window.
+        function renderMarketTab(data, snapshotAtMs) {
+            const funding = fundingPaymentsInput(data);
+            const gaps = {
+                payments: funding.gap,
+                markets: missingDataReason(data, 'markets', 'Markets'),
+                fills: inputGaps(data).fills,
+                fillsByMarket: data.fillGapsByMarket || new Map(),
+                incompleteWindows: data.incompleteWindows || []
+            };
+            window.AppPanels.market.render(funding.payments, extractMarketsMap(data.markets), gaps,
+                extractFills(data.fills), snapshotAtMs);
         }
         // Reentrance guard + auto-refresh orchestrator. loadDashboard runs
         // on page load AND on every REFRESH_POLL_MS tick (or visibility
@@ -2058,15 +2195,15 @@ Sample: ${rets.length} returns over ${(adq.years*MONTHS_PER_YEAR).toFixed(1)} mo
             isFetching = true;
             DataFreshness.setRefreshing(true);
             try {
-                // Drop the funding-chart's in-memory cache BEFORE the
-                // refetch so that, if the Market tab is currently
-                // active, loadDashboard's market.render path naturally
-                // re-triggers a fresh chart fetch via ensureChartLoaded
-                // (instead of rendering from the cached snapshot,
-                // which we'd then invalidate underneath ourselves).
+                // Drop the Market tab's in-memory caches (funding chart,
+                // last settled rates) BEFORE the refetch so that, if the
+                // Market tab is currently active, loadDashboard's
+                // market.render path naturally re-triggers fresh fetches
+                // (instead of rendering from the cached data, which
+                // we'd then invalidate underneath ourselves).
                 if (window.AppPanels && window.AppPanels.market
-                    && typeof window.AppPanels.market.invalidateChartCache === 'function') {
-                    window.AppPanels.market.invalidateChartCache();
+                    && typeof window.AppPanels.market.invalidateLiveCache === 'function') {
+                    window.AppPanels.market.invalidateLiveCache();
                 }
                 await loadDashboard(opts);
             } finally {
@@ -2093,11 +2230,7 @@ Sample: ${rets.length} returns over ${(adq.years*MONTHS_PER_YEAR).toFixed(1)} mo
                 activateTab('overview');
             }
             window.AppPanels.market.initToggle(() => {
-                if (allData) {
-                    const payments = (allData.fundingPayments && (allData.fundingPayments.fundingPayments || [])) || [];
-                    const marketsMap = extractMarketsMap(allData.markets);
-                    window.AppPanels.market.render(payments, marketsMap);
-                }
+                if (allData) renderMarketTab(allData, allDataSnapshotAt);
             });
             await refreshDashboard();
             // Begin the freshness watchdog only after the first load resolves
