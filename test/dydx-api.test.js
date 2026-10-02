@@ -133,6 +133,36 @@ test('fetchHistoricalFunding resolves when its maxRows cap stops a walk that sti
     );
 });
 
+test('fetchHistoricalFunding walks back maxRows settlements although each page after the first repeats its cursor row', async () => {
+    // The indexer's effectiveBeforeOrAt cursor is inclusive: every page
+    // after the first opens with the row the previous one ended on, so it
+    // adds one row fewer than the limit. Past about 100 pages a walk sized
+    // as maxRows ÷ limit falls short of maxRows.
+    const SETTLEMENTS = 20000;
+    const MAX_ROWS = 10200;
+    const settlementAt = (i) => ({
+        ticker: 'ETH-USD',
+        rate: '0.00001',
+        price: '2000',
+        effectiveAt: new Date(INCEPTION_MS - i * MS_PER_HOUR).toISOString(),
+        effectiveAtHeight: String(SETTLEMENTS - i)
+    });
+    const page = (url) => {
+        const cursor = new URL(url).searchParams.get('effectiveBeforeOrAt');
+        const first = cursor === null ? 0 : (INCEPTION_MS - Date.parse(cursor)) / MS_PER_HOUR;
+        const count = Math.min(HISTORICAL_FUNDING_PAGE_LIMIT, SETTLEMENTS - first);
+        return { historicalFunding: Array.from({ length: count }, (_, k) => settlementAt(first + k)) };
+    };
+    await withFetch(
+        (url) => jsonResponse(page(url)),
+        async () => {
+            const { historicalFunding } = await Api.fetchHistoricalFunding('ETH-USD', { maxRows: MAX_ROWS });
+            assert.ok(historicalFunding.length >= MAX_ROWS,
+                `the walk returned ${historicalFunding.length} of the ${MAX_ROWS} settlements asked for`);
+        }
+    );
+});
+
 test('fetchCandles rejects when a page after the first fails on every retry', async () => {
     const newestPage = {
         candles: Array.from({ length: CANDLES_PAGE_LIMIT }, (_, i) => ({
