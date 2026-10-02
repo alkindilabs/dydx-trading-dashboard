@@ -1870,12 +1870,6 @@
             text-transform: uppercase;
             color: var(--ink-3);
         }
-        .kicker-mono .kicker-strike {
-            color: var(--ink-4);
-            text-decoration: line-through;
-            text-decoration-color: var(--rule-strong);
-            text-decoration-thickness: 1px;
-        }
         .kicker-mono .gold { color: var(--gold); }
         .kicker-italic {
             font-family: var(--ff-display);
