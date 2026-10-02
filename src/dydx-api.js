@@ -252,10 +252,15 @@
   async function fetchHistoricalFunding(ticker, opts) {
     const o = opts || {};
     const limit = window.AppConstants.HISTORICAL_FUNDING_PAGE_LIMIT;
-    // Bound page count via maxRows ÷ pageLimit so we walk only as far
-    // back as the chart needs. +1 lets the last page include a row at
-    // the exact boundary without truncation.
-    const maxPages = o.maxRows ? Math.ceil(o.maxRows / limit) + 1 : null;
+    // Bound the page count so we walk only as far back as maxRows
+    // settlements. The effectiveBeforeOrAt cursor is inclusive, so every
+    // page after the first repeats the row the previous one ended on and
+    // adds limit − 1 new rows: 1 + pages × (limit − 1) ≥ maxRows. +1 lets
+    // the last page include a row at the exact boundary without
+    // truncation. A walk can still end short of the hour its caller
+    // needs (more than one settlement in an hour, no older rows), so the
+    // Market panel checks how far back it reached.
+    const maxPages = o.maxRows ? Math.ceil((o.maxRows - 1) / (limit - 1)) + 1 : null;
     const encoded = encodeURIComponent(ticker);
     const all = await fetchAllPaginated({
       urlBase: `${DYDX_API}/historicalFunding/${encoded}?`,

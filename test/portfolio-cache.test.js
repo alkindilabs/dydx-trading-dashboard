@@ -129,23 +129,29 @@ test('evictOnce step 1 drops fundingPayments', () => {
     assert.equal(out.data.other, 2);
 });
 
-test('evictOnce step 2 trims historicalPnl with nested {historicalPnl: [...]} wrapper', () => {
-    const arr = Array.from({ length: 6000 }, (_, i) => ({ totalPnl: String(i) }));
-    const packed = { v: 1, address: 'a', fetchedAt: 0, data: { historicalPnl: { historicalPnl: arr } } };
+// /historical-pnl rows as fetched: cursor pages, newest first, hourly.
+const FETCHED_ROWS = 6000;
+const NEWEST_ROW_MS = Date.parse('2025-09-07T23:00:00.000Z');
+const fetchedHistoricalPnl = () => Array.from({ length: FETCHED_ROWS }, (_, i) => ({
+    createdAt: new Date(NEWEST_ROW_MS - i * 3600000).toISOString(),
+    totalPnl: String(FETCHED_ROWS - i)
+}));
+// The createdAt of the newest HISTORICAL_PNL_TRIM rows, newest first.
+const newestKept = () => fetchedHistoricalPnl().slice(0, Cache.HISTORICAL_PNL_TRIM).map(r => r.createdAt);
+
+test('evictOnce step 2 keeps the newest historicalPnl rows, in their fetched order, with nested {historicalPnl: [...]} wrapper', () => {
+    const packed = { v: 1, address: 'a', fetchedAt: 0, data: { historicalPnl: { historicalPnl: fetchedHistoricalPnl() } } };
     const out = Internal.evictOnce(packed, 2);
     assert.ok(out);
-    assert.equal(out.data.historicalPnl.historicalPnl.length, Cache.HISTORICAL_PNL_TRIM);
-    // Last row preserved (we keep the most recent rows for the chart).
-    assert.equal(out.data.historicalPnl.historicalPnl[Cache.HISTORICAL_PNL_TRIM - 1].totalPnl, '5999');
+    assert.deepEqual(out.data.historicalPnl.historicalPnl.map(r => r.createdAt), newestKept());
 });
 
-test('evictOnce step 2 trims historicalPnl with plain array shape', () => {
-    const arr = Array.from({ length: 6000 }, (_, i) => i);
-    const packed = { v: 1, address: 'a', fetchedAt: 0, data: { historicalPnl: arr } };
+test('evictOnce step 2 keeps the newest historicalPnl rows by createdAt with plain array shape, whatever the order', () => {
+    const shuffled = fetchedHistoricalPnl().reverse();
+    const packed = { v: 1, address: 'a', fetchedAt: 0, data: { historicalPnl: shuffled } };
     const out = Internal.evictOnce(packed, 2);
     assert.ok(out);
-    assert.equal(out.data.historicalPnl.length, Cache.HISTORICAL_PNL_TRIM);
-    assert.equal(out.data.historicalPnl[Cache.HISTORICAL_PNL_TRIM - 1], 5999);
+    assert.deepEqual(out.data.historicalPnl.map(r => r.createdAt), newestKept().reverse());
 });
 
 test('evictOnce step 2 is a no-op when historicalPnl already <= trim limit', () => {
@@ -327,10 +333,14 @@ test('evictionOf separates dropped fields from the trimmed historicalPnl', () =>
     const TRIM = Cache.HISTORICAL_PNL_TRIM;
     const OVERFLOW_ROWS = 100;
     const bulky = (n) => Array.from({ length: n }, () => 'x'.repeat(200));
-    // The rows trimmed away are the bulky ones, so only dropping fills and
-    // fundingPayments AND trimming historicalPnl brings the slot under quota.
-    const historicalPnl = { historicalPnl: bulky(OVERFLOW_ROWS).concat(Array(TRIM).fill(0)) };
-    const trimmedSize = JSON.stringify({ historicalPnl: Array(TRIM).fill(0) }).length;
+    // As fetched, newest first. The rows trimmed away are the oldest,
+    // bulky ones, so only dropping fills and fundingPayments AND trimming
+    // historicalPnl brings the slot under quota.
+    const hourAt = (i) => new Date(Date.UTC(2025, 0, 1) + i * 3600000).toISOString();
+    const newest = Array.from({ length: TRIM }, (_, i) => ({ createdAt: hourAt(OVERFLOW_ROWS + TRIM - 1 - i) }));
+    const oldest = bulky(OVERFLOW_ROWS).map((pad, i) => ({ createdAt: hourAt(OVERFLOW_ROWS - 1 - i), pad }));
+    const historicalPnl = { historicalPnl: newest.concat(oldest) };
+    const trimmedSize = JSON.stringify({ historicalPnl: newest }).length;
     globalThis.localStorage = makeLocalStorage(trimmedSize * 2 + 2000);
     Cache.write('dydx1abc', {
         fills: bulky(OVERFLOW_ROWS),
@@ -342,7 +352,7 @@ test('evictionOf separates dropped fields from the trimmed historicalPnl', () =>
 
     const got = Cache.read('dydx1abc');
     assert.ok(got, 'expected a stored snapshot after eviction');
-    assert.equal(got.historicalPnl.historicalPnl.length, TRIM);
+    assert.deepEqual(got.historicalPnl.historicalPnl, newest);
     assert.deepEqual(Cache.evictionOf(got), {
         dropped: ['fills', 'fundingPayments'],
         trimmed: ['historicalPnl']

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { ADDRESS, INDEXER_URL, serveFixture } from './indexer-fixture.mjs';
+import { ADDRESS, AppConstants, INDEXER_URL, fixture, serveFixture } from './indexer-fixture.mjs';
 
 test.describe('dashboard smoke', () => {
   test.beforeEach(async ({ page }) => {
@@ -12,8 +12,8 @@ test.describe('dashboard smoke', () => {
     await page.route(/api\.frankfurter\.dev\/v1\//, async (route) => {
       const url = route.request().url();
       const body = url.includes('..')
-        ? { rates: { '2024-03-16': { EUR: 0.92 } } }
-        : { rates: { EUR: 0.92 }, date: '2024-03-16' };
+        ? { base: 'EUR', rates: { '2024-03-16': { USD: 1.0876 } } }
+        : { base: 'EUR', rates: { USD: 1.0876 }, date: '2024-03-16' };
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -92,5 +92,62 @@ test.describe('dashboard smoke', () => {
       .toBeGreaterThan(0);
 
     expect(errors, errors.join('\n')).toHaveLength(0);
+  });
+
+  test('the Tax CSV opens with a UTF-8 BOM and its header, and its file name carries the year and category', async ({ page }) => {
+    await page.goto(`/?address=${ADDRESS}`);
+    await page.waitForLoadState('networkidle');
+    await page.locator('.nav-tab[data-tab="tax"]').click();
+    await expect(page.locator('#taxStatus')).not.toContainText('Fetching ECB rates', { timeout: 10000 });
+    const year = await page.locator('#taxYear').inputValue();
+
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      page.locator('#taxDownloadCsv').click(),
+    ]);
+    expect(download.suggestedFilename()).toMatch(new RegExp(`^dydx-tax-.+-${year}-catG\\.csv$`));
+    const chunks = [];
+    for await (const chunk of await download.createReadStream()) chunks.push(chunk);
+    const bytes = Buffer.concat(chunks);
+    const UTF8_BOM_BYTES = [0xef, 0xbb, 0xbf];
+    expect([...bytes.subarray(0, UTF8_BOM_BYTES.length)]).toEqual(UTF8_BOM_BYTES);
+    expect(bytes.subarray(UTF8_BOM_BYTES.length).toString('utf8')).toMatch(/^status,closed_at_utc,/);
+  });
+
+  test('the Tax JSON from a cached snapshot is dated by the snapshot, not by the clock', async ({ page }) => {
+    // The clock reads three hours after the snapshot was fetched, and the
+    // indexer never answers, so the page shows the cached snapshot.
+    const SNAPSHOT_AGE_HOURS = 3;
+    const nowMs = Date.parse('2026-03-02T12:00:00.000Z');
+    const snapshotMs = nowMs - SNAPSHOT_AGE_HOURS * AppConstants.MS_PER_HOUR;
+    await page.clock.setFixedTime(new Date(nowMs));
+    await page.route(INDEXER_URL, () => new Promise(() => {}));
+    await page.goto('/');
+    await page.evaluate(({ address, fixture, snapshotMs }) => {
+      const data = {
+        subaccount: fixture.subaccount,
+        addressSubaccounts: fixture.addressSubaccounts,
+        openPositions: fixture.openPositions,
+        markets: fixture.markets,
+        closedPositions: fixture.closedPositions,
+        fills: fixture.fills,
+        fundingPayments: fixture.fundingPayments,
+        historicalPnl: fixture.historicalPnl,
+      };
+      const packed = { v: window.PortfolioCache.SCHEMA_VERSION, address, fetchedAt: snapshotMs, data };
+      localStorage.setItem(window.PortfolioCache.KEY, LZString.compressToUTF16(JSON.stringify(packed)));
+    }, { address: ADDRESS, fixture, snapshotMs });
+    await page.goto(`/?address=${ADDRESS}`);
+    await page.locator('.nav-tab[data-tab="tax"]').click();
+    await expect(page.locator('#taxStatus')).not.toContainText('Fetching ECB rates', { timeout: 10000 });
+
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      page.locator('#taxDownloadJson').click(),
+    ]);
+    const chunks = [];
+    for await (const chunk of await download.createReadStream()) chunks.push(chunk);
+    const { meta } = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    expect(meta.asOf).toBe(new Date(snapshotMs).toISOString());
   });
 });

@@ -57,14 +57,26 @@
   // the float noise that summing fill sizes leaves (0.30000000000000004).
   const SIZE_SIGNIFICANT_DIGITS = 12;
 
+  // A double holds about 17 significant digits, and the arithmetic that
+  // made a value leaves binary noise in the last of them (1.005 is stored
+  // as 1.00499999999999989…, 3/2000 × 100 as 0.1499…). At this many
+  // significant digits the noise is gone and the decimal remains: the
+  // display core's rounding (Format) and RiskMetrics' test of returns
+  // that are all alike read values at it.
+  const NOISE_FREE_SIGNIFICANT_DIGITS = 15;
+
+  // Dollar amounts the profit ledger shows and sums: whole cents.
+  const CENT_DIGITS = 2;
+  const CENTS_PER_DOLLAR = Math.pow(10, CENT_DIGITS);
+
   const TUNABLES = Object.freeze({
     TOP_MARKETS: 5,
     RECENT_DECISIVE_CAP: 50,
     RECENT_POSITIONS_CAP: 50,
-    HOUR_MIN_SAMPLE: 3,
+    HOUR_MIN_SAMPLE: 5,
     DOUBLE_DOWN_GAP_HOURS: 1,
     DOUBLE_DOWN_SIZE_MULT: 1.2,
-    TREND_HOLD_HOURS: 4,
+    LONG_HOLD_HOURS: 4,
     FLIP_HOLD_HOURS: 0.25,
     ASSET_SHARPE_MIN_N: 5,
     PATTERN_MIN_N: 10,
@@ -81,7 +93,8 @@
     HOURS_PER_YEAR,
     PERCENT,
     CLIPBOARD_FLASH_MS,
-    SIZE_SIGNIFICANT_DIGITS,
+    SIZE_SIGNIFICANT_DIGITS, NOISE_FREE_SIGNIFICANT_DIGITS,
+    CENT_DIGITS, CENTS_PER_DOLLAR,
     TUNABLES
   };
 })();

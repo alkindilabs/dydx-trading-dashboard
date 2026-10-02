@@ -13,8 +13,8 @@
 // localStorage. The browser path also calls those helpers internally.
 //
 // Eviction on QuotaExceededError follows EVICTION_ORDER (largest
-// payloads first); the historicalPnl step trims to the last
-// HISTORICAL_PNL_TRIM rows instead of dropping the field.
+// payloads first); the historicalPnl step trims to the newest
+// HISTORICAL_PNL_TRIM rows by createdAt instead of dropping the field.
 ;(function () {
     'use strict';
 
@@ -44,6 +44,17 @@
         return parsed;
     }
 
+    // The newest HISTORICAL_PNL_TRIM rows by createdAt, in the order `rows`
+    // holds them. /historical-pnl arrives newest-first from cursor pages,
+    // so the trim never depends on the array's order.
+    function newestHistoricalPnl(rows) {
+        const newestFirst = rows.slice().sort((a, b) => (
+            String((b && b.createdAt) || '').localeCompare(String((a && a.createdAt) || ''))
+        ));
+        const kept = new Set(newestFirst.slice(0, HISTORICAL_PNL_TRIM));
+        return rows.filter(r => kept.has(r));
+    }
+
     // Apply one eviction step. Returns a new packed object with the step
     // applied, or null if the step is a no-op for this payload (caller
     // should advance to the next step).
@@ -57,7 +68,7 @@
             const arr = (cur && Array.isArray(cur.historicalPnl)) ? cur.historicalPnl
                       : (Array.isArray(cur) ? cur : null);
             if (!arr || arr.length <= HISTORICAL_PNL_TRIM) return null;
-            const trimmed = arr.slice(-HISTORICAL_PNL_TRIM);
+            const trimmed = newestHistoricalPnl(arr);
             const nextHistorical = (cur && Array.isArray(cur.historicalPnl))
                 ? Object.assign({}, cur, { historicalPnl: trimmed })
                 : trimmed;
@@ -188,7 +199,7 @@
 
     // Reads the _cacheMeta marker write() stamps on an evicted snapshot.
     // Returns null for a complete snapshot, otherwise which fields were
-    // dropped outright and which were trimmed to their last
+    // dropped outright and which were trimmed to their newest
     // HISTORICAL_PNL_TRIM rows.
     function evictionOf(data) {
         const meta = data && data._cacheMeta;
