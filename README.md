@@ -26,7 +26,7 @@ Nothing on the site or in this repository is investment, financial, legal, tradi
 
 ## How it works
 
-dydx.review is a static page with no backend. The visitor's browser reads the account's history directly from the public dYdX v4 indexer (`https://indexer.dydx.trade/v4`) and computes every figure locally; the Tax tab additionally fetches ECB EUR/USD reference rates from the Frankfurter API (`https://api.frankfurter.dev`). Charting libraries load from jsDelivr, pinned by version and Subresource Integrity hash. The page runs no analytics or tracking scripts. The last loaded address, a snapshot of its data and fetched FX rates are kept in the browser's `localStorage`, and the Forget button clears the address and its snapshot. The files are served by Cloudflare as static assets.
+dydx.review is a static page with no backend. The visitor's browser reads the account's history directly from the public dYdX v4 indexer (`https://indexer.dydx.trade/v4`) and computes every figure locally; the Tax tab additionally fetches ECB EUR/USD reference rates from the Frankfurter API (`https://api.frankfurter.dev`). Third-party scripts (Chart.js with its date adapter and financial-chart plugin, and lz-string, which compresses the cached snapshot) load from jsDelivr, pinned by version and Subresource Integrity hash, and the fonts load from Google Fonts (`fonts.googleapis.com` and `fonts.gstatic.com`). The page runs no analytics or tracking scripts. The last loaded address, a snapshot of its data and fetched FX rates are kept in the browser's `localStorage`, and the Forget button clears the address and its snapshot. The files are served by Cloudflare as static assets.
 
 ## Running locally
 
